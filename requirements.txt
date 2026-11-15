@@ -1,0 +1,6 @@
+discord.py==2.7.1
+SQLAlchemy==2.0.50
+aiosqlite==0.22.1
+alembic==1.18.4
+python-dotenv==1.2.1
+tzdata==2025.3
