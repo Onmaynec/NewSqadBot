@@ -1,6 +1,7 @@
 """События ядра: durable outbox + квитанции доставок каждому обработчику."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -23,6 +24,7 @@ class EventBus:
     def __init__(self, database: Database):
         self.database = database
         self.handlers: dict[str, dict[str, EventHandler]] = defaultdict(dict)
+        self._task: asyncio.Task[None] | None = None
 
     def subscribe(self, kind: str, name: str, handler: EventHandler) -> None:
         if name in self.handlers[kind]:
@@ -77,3 +79,26 @@ class EventBus:
                 async with self.database.session() as session:
                     await session.execute(delete(OutboxEvent).where(OutboxEvent.id == event_id))
         return count
+
+    async def _loop(self) -> None:
+        while True:
+            try:
+                await self.dispatch_pending()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Ошибка доставки внутренних событий")
+            await asyncio.sleep(10)
+
+    def start(self) -> None:
+        if self._task is None:
+            self._task = asyncio.create_task(self._loop(), name="newsqad-events")
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None

@@ -29,6 +29,8 @@ CHANNEL_SLOTS = (
     ("membership_audit_channel_id", "Журнал заявок"),
     ("audit_channel_id", "Основной журнал событий"),
     ("welcome_channel_id", "Приветственный канал"),
+    ("farewell_channel_id", "Канал прощаний"),
+    ("rules_channel_id", "Канал правил"),
 )
 
 
@@ -81,6 +83,14 @@ class HomeView(PrivateSettingsView):
             view=SlotMenuView(self.client, self.owner_id, "channel"),
         )
 
+    @discord.ui.button(label="Приветствия", emoji="👋", style=discord.ButtonStyle.secondary, row=2)
+    async def welcome(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_welcome_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Роли участников", emoji="🎮", style=discord.ButtonStyle.secondary, row=2)
+    async def role_panels(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_role_panels(interaction, self.client, self.owner_id)
+
 
 class BackView(PrivateSettingsView):
     @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary)
@@ -95,8 +105,10 @@ def home_embed() -> discord.Embed:
         "**Состояние** — подключение и база данных.\n"
         "**Модули** — фактическая готовность функций.\n"
         "**Роли** — назначение служебных ролей.\n"
-        "**Каналы** — настройка рабочих каналов.\n\n"
-        "Параметры функциональных модулей появятся по мере их реализации.",
+        "**Каналы** — настройка рабочих каналов.\n"
+        "**Приветствия** — включение сообщений и ЛС.\n"
+        "**Роли участников** — панели, автороли и награды.\n\n"
+        "Другие разделы будут добавляться по мере реализации.",
     )
 
 
@@ -179,6 +191,63 @@ class ValuePickerView(PrivateSettingsView):
             embed=embed_card(f"NewSquad · {title}", "Выберите назначение настройки."),
             view=SlotMenuView(self.client, self.owner_id, slot_type),
         )
+
+
+async def show_welcome_settings(interaction: discord.Interaction, client: "NewSqadBot", owner_id: int) -> None:
+    flags = (
+        ("welcome_enabled", "Приветствие после одобрения"),
+        ("welcome_farewell_enabled", "Сообщение о выходе"),
+        ("welcome_candidate_dm", "ЛС при вступлении кандидата"),
+    )
+    lines = []
+    for key, title in flags:
+        enabled = bool(await client.database.get_setting(client.config.guild_id, key, key == "welcome_enabled"))
+        lines.append(f"**{title}:** {'включено' if enabled else 'выключено'}")
+    lines.append("\nШаблоны меняются через `/welcome template`, каналы — во вкладке **Каналы**.")
+    await interaction.response.edit_message(
+        embed=embed_card("NewSquad · Приветствия", "\n".join(lines)),
+        view=WelcomeSettingsView(client, owner_id),
+    )
+
+
+class WelcomeSettingsView(PrivateSettingsView):
+    async def _toggle(self, interaction: discord.Interaction, key: str, default: bool = False) -> None:
+        current = bool(await self.client.database.get_setting(self.client.config.guild_id, key, default))
+        await self.client.database.set_setting(self.client.config.guild_id, key, not current,
+            actor_id=interaction.user.id)
+        # One response only: show_welcome_settings edits this interaction's message.
+        await show_welcome_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Приветствие", style=discord.ButtonStyle.primary, row=0)
+    async def greeting(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, "welcome_enabled", True)
+
+    @discord.ui.button(label="Прощание", style=discord.ButtonStyle.secondary, row=0)
+    async def farewell(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, "welcome_farewell_enabled")
+
+    @discord.ui.button(label="ЛС кандидатам", style=discord.ButtonStyle.secondary, row=0)
+    async def candidate_dm(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, "welcome_candidate_dm")
+
+    @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
+    async def home(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=home_embed(), view=HomeView(self.client, self.owner_id))
+
+
+async def show_role_panels(interaction: discord.Interaction, client: "NewSqadBot", owner_id: int) -> None:
+    from sqlalchemy import select
+    from app.models import RolePanel
+    async with client.database.sessions() as session:
+        panels = (await session.scalars(select(RolePanel).where(
+            RolePanel.guild_id == client.config.guild_id,
+            RolePanel.enabled.is_(True)).order_by(RolePanel.id.desc()).limit(10))).all()
+    lines = [f"**#{p.id}** · {discord.utils.escape_mentions(p.title)} — {'опубликована' if p.message_id else 'черновик'}" for p in panels]
+    content = "\n".join(lines) or "Панелей пока нет."
+    content += "\n\nСоздать панель: `/roles panel create`. Добавить роль: `/roles panel add`. Опубликовать: `/roles panel publish`."
+    content += "\nАвтовыдача: `/roles autorole add`. Временные роли: `/roles temporary`."
+    await interaction.response.edit_message(embed=embed_card("NewSquad · Роли участников", content),
+        view=BackView(client, owner_id))
 
 
 class CoreCommands(commands.Cog):

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 GUILD_ID = 1439347293076586638
 FEMALE_ROLE_ID = 1453273881359024231
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +33,7 @@ class Config:
         default_db = f"sqlite+aiosqlite:///{data_dir / 'newsqad.db'}"
         database_url = os.getenv("DATABASE_URL", default_db)
         if not database_url.startswith("sqlite+aiosqlite:///"):
-            raise ValueError("В v0.1.0 поддерживается только SQLite с aiosqlite.")
+            raise ValueError("В v0.3.0 поддерживается только SQLite с aiosqlite.")
         timezone = os.getenv("TIMEZONE", "Europe/Tallinn")
         try:
             ZoneInfo(timezone)

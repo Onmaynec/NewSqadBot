@@ -5,3 +5,6 @@ from app.models.moderation import ModerationAction, ModerationCase
 
 __all__ = ("Base", "AuditEntry", "EventReceipt", "GuildSetting", "OutboxEvent", "ScheduledJob",
            "Application", "ApplicationEvent", "ModerationCase", "ModerationAction")
+
+from app.models.roles import RolePanel, RolePanelOption, TemporaryRole, WelcomeDelivery, LevelRoleReward
+__all__ += ("RolePanel", "RolePanelOption", "TemporaryRole", "WelcomeDelivery", "LevelRoleReward")

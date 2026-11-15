@@ -46,6 +46,7 @@ class NewSqadBot(commands.Bot):
         synced = await self.tree.sync(guild=guild)
         logger.info("Синхронизировано серверных команд: %s", len(synced))
         self.scheduler.start()
+        self.events.start()
         self._heartbeat = asyncio.create_task(self._health_loop(), name="newsqad-health")
 
     async def _health_loop(self) -> None:
@@ -104,6 +105,8 @@ class NewSqadBot(commands.Bot):
             self._heartbeat = None
         if self.scheduler is not None:
             await self.scheduler.stop()
+        if self.events is not None:
+            await self.events.stop()
         if self.database is not None:
             await self.database.close()
         self._write_health(False)

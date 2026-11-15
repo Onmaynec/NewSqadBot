@@ -320,6 +320,10 @@ class Membership(commands.Cog):
                     await store.step(self.bot.database, app_id, "dm_status", "done")
                 except discord.HTTPException:
                     await store.step(self.bot.database, app_id, "dm_status", "failed")
+            # Durable event: handlers of Welcome and Roles can recover after a restart.
+            await self.bot.events.publish("membership.approved", {
+                "guild_id": app.guild_id, "user_id": app.user_id, "application_id": app_id,
+            }, event_id=f"membership-approved-{app_id}")
             await log_event(self.bot, channel_setting="membership_audit_channel_id",
                 title=f"Заявка #{app_id:04d} одобрена", details=f"Кандидат: {app.user_id}\nМодератор: {app.reviewer_id}\n{warning}",
                 actor_id=app.reviewer_id or 0, action="membership.approved", target_id=app.user_id)
