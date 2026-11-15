@@ -9,7 +9,10 @@ import pytest
 from app.config import FEMALE_ROLE_ID, GUILD_ID
 from app.core.database import migrate
 from app.services.role_rules import (
-    forbidden_role_ids, is_approved, role_safe_for_self_assign, validate_panel,
+    forbidden_role_ids,
+    is_approved,
+    role_safe_for_self_assign,
+    validate_panel,
 )
 
 
@@ -112,7 +115,7 @@ def test_roles_migration_and_unique_constraints(tmp_path):
 
 def test_welcome_render_and_ui_imports():
     pytest.importorskip("discord")
-    from app.modules.welcome import validate_template, render_template
+    from app.modules.welcome import render_template, validate_template
     assert validate_template("Привет, {user}! {server} · {member_count}")
     with pytest.raises(ValueError):
         validate_template("{nickname}")

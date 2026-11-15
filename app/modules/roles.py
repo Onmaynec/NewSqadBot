@@ -16,7 +16,10 @@ from app.core.permissions import can_manage_settings
 from app.models import LevelRoleReward, RolePanel, RolePanelOption, TemporaryRole
 from app.services.audit import log_event
 from app.services.role_rules import (
-    forbidden_role_ids, is_approved, role_safe_for_self_assign, validate_panel,
+    forbidden_role_ids,
+    is_approved,
+    role_safe_for_self_assign,
+    validate_panel,
 )
 
 log = logging.getLogger(__name__)

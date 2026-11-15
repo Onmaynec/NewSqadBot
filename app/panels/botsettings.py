@@ -6,10 +6,12 @@ from typing import TYPE_CHECKING
 import discord
 from discord import app_commands
 from discord.ext import commands
+from sqlalchemy import select
 
 from app.config import VERSION
 from app.core.catalog import MODULES
 from app.core.permissions import can_manage_settings
+from app.models import RolePanel
 
 if TYPE_CHECKING:
     from app.bot import NewSqadBot
@@ -236,8 +238,6 @@ class WelcomeSettingsView(PrivateSettingsView):
 
 
 async def show_role_panels(interaction: discord.Interaction, client: "NewSqadBot", owner_id: int) -> None:
-    from sqlalchemy import select
-    from app.models import RolePanel
     async with client.database.sessions() as session:
         panels = (await session.scalars(select(RolePanel).where(
             RolePanel.guild_id == client.config.guild_id,
