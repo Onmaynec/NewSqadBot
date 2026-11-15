@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
+from app.config import FEMALE_ROLE_ID, GUILD_ID, VERSION
 from app.core.database import migrate
 from app.core.durations import nickname, parse_duration
-from app.config import GUILD_ID, FEMALE_ROLE_ID, VERSION
 
 
 def test_duration_examples_and_rejections():

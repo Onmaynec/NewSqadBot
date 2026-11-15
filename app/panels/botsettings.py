@@ -1,6 +1,8 @@
 """Настоящая интерактивная /botsettings с записью ролей и каналов в БД."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -8,6 +10,9 @@ from discord.ext import commands
 from app.config import VERSION
 from app.core.catalog import MODULES
 from app.core.permissions import can_manage_settings
+
+if TYPE_CHECKING:
+    from app.bot import NewSqadBot
 
 ROLE_SLOTS = (
     ("member_role_id", "Роль участника"),

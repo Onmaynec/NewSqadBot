@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.config import Config, GUILD_ID
+from app.config import GUILD_ID, Config
 from app.core.catalog import MODULES, implemented
 from app.core.guild_guard import is_allowed_guild, is_allowed_interaction
 from app.core.permissions import can_manage_settings

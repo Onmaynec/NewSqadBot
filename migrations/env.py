@@ -1,6 +1,7 @@
 """Обычные SQLite-миграции запускаются до async приложения."""
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+
 from app.models import Base
 
 config = context.config

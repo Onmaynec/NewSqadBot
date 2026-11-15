@@ -10,7 +10,7 @@ from pathlib import Path
 import discord
 from discord.ext import commands
 
-from app.config import Config, VERSION
+from app.config import VERSION, Config
 from app.core.database import Database, migrate
 from app.core.errors import GuildCommandTree
 from app.core.event_bus import EventBus
