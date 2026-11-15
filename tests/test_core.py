@@ -33,10 +33,10 @@ def test_owner_and_admin_permissions():
     assert not can_manage_settings(interaction(10, True, 123), frozenset({10}))
 
 
-def test_only_sixteen_future_modules():
+def test_catalog_and_implemented_modules():
     assert len(MODULES) == 16
     assert len({m.key for m in MODULES}) == 16
-    assert all(not implemented(m.key) for m in MODULES)
+    assert {m.key for m in MODULES if implemented(m.key)} == {"membership", "moderation", "audit_logs"}
     assert "custom" not in {m.key for m in MODULES}
 
 

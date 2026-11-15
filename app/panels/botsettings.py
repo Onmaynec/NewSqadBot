@@ -65,7 +65,7 @@ class HomeView(PrivateSettingsView):
     @discord.ui.button(label="Роли", emoji="🎭", style=discord.ButtonStyle.primary, row=1)
     async def roles(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.edit_message(
-            embed=embed_card("NewSquad · Роли", "Выберите назначение роли, затем саму Discord-роль.\nРоль участника пока не выдаётся автоматически: Membership появится в v0.2.0."),
+            embed=embed_card("NewSquad · Роли", "Выберите назначение роли, затем саму Discord-роль.\nВыберите роли, используемые действующей системой Membership."),
             view=SlotMenuView(self.client, self.owner_id, "role"),
         )
 
