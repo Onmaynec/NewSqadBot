@@ -16,6 +16,7 @@ from app.core.durations import parse_duration
 from app.core.permissions import can_manage_settings
 from app.models import ModerationAction, ModerationCase
 from app.services.audit import log_event
+from app.ui.theme import BRAND_GREEN, LoggedView
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,11 @@ class Moderation(commands.Cog):
 
     async def notify(self, user: discord.abc.User, message: str, case_id: int) -> None:
         try:
-            await user.send(message, allowed_mentions=discord.AllowedMentions.none())
+            await user.send(embed=discord.Embed(
+                title="NewSquad  /  Решение модерации",
+                description=discord.utils.escape_mentions(message[:3500]),
+                color=BRAND_GREEN).set_footer(text=f"NewSquad • Дело #{case_id:05d}"),
+                allowed_mentions=discord.AllowedMentions.none())
             await self.update_case(case_id, dm_status="done")
         except discord.HTTPException:
             await self.update_case(case_id, dm_status="failed")
@@ -437,7 +442,7 @@ class Moderation(commands.Cog):
         await interaction.followup.send(result, ephemeral=True)
 
 
-class ConfirmClear(discord.ui.View):
+class ConfirmClear(LoggedView):
     def __init__(self, cog: Moderation, moderator_id: int, user: discord.User,
                  channel: discord.TextChannel, count: int, cutoff: dt.datetime | None, reason: str):
         super().__init__(timeout=90)

@@ -37,15 +37,22 @@ class AuditLogs(commands.Cog):
                             details=f"ID: {after.id}; добавлены: {sorted(added)}; сняты: {sorted(removed)}",
                             action="member.roles", target_id=after.id)
 
+    async def _private_ticket_channel(self, channel: discord.abc.GuildChannel) -> bool:
+        """Не логируем открытие и удаление приватных тикет-каналов."""
+        if not isinstance(channel, discord.TextChannel) or not channel.name.startswith("ticket-"):
+            return False
+        parent_id = await self.bot.database.get_setting(channel.guild.id, "ticket_category_channel_id")
+        return parent_id is not None and channel.category_id == parent_id
+
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel) -> None:
-        if self.allowed(channel.guild.id):
+        if self.allowed(channel.guild.id) and not await self._private_ticket_channel(channel):
             await log_event(self.bot, channel_setting="audit_channel_id", title="Создан канал",
                             details=f"Канал: {channel.id}", action="channel.create", target_id=channel.id)
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel) -> None:
-        if self.allowed(channel.guild.id):
+        if self.allowed(channel.guild.id) and not await self._private_ticket_channel(channel):
             await log_event(self.bot, channel_setting="audit_channel_id", title="Удалён канал",
                             details=f"Канал: {channel.id}", action="channel.delete", target_id=channel.id)
 

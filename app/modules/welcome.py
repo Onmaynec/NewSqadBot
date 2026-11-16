@@ -15,6 +15,7 @@ from app.core.permissions import can_manage_settings
 from app.models import WelcomeDelivery
 from app.services.audit import log_event
 from app.services.role_rules import is_approved
+from app.ui.theme import BRAND_GREEN
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +47,8 @@ def render_template(template: str, *, member: discord.Member) -> str:
 
 
 def welcome_embed(text: str, *, member: discord.Member | None = None, title: str) -> discord.Embed:
-    embed = discord.Embed(title=title, description=text, color=discord.Color.from_rgb(38, 50, 73))
+    embed = discord.Embed(title=f"NewSquad  /  {title}", description=text, color=BRAND_GREEN)
+    embed.set_footer(text="NewSquad • Рады видеть тебя среди своих")
     if member is not None:
         embed.set_thumbnail(url=member.display_avatar.url)
     return embed

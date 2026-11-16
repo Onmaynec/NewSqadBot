@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import time
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
@@ -28,8 +28,27 @@ def safe_text(value: str, maximum: int) -> str:
 
 
 def event(session, ticket_id: int, actor: int, action: str, **details) -> None:
-    session.add(TicketEvent(ticket_id=ticket_id, actor_id=actor, action=action,
-        details_json=json.dumps(details, ensure_ascii=False), created_at=int(time.time())))
+    """В новой политике приватности события тикетов не сохраняются."""
+    return None
+
+
+async def erase_ticket(db, guild_id: int, ticket_id: int, *, closing_only: bool = True) -> bool:
+    """Без транскриптов, журналов и записи обращения после закрытия.
+
+    Канал Discord удаляет вызывающий код ДО удаления записи в БД.
+    Все связанные строки удаляются в одной транзакции без AuditEntry.
+    """
+    async with db.session() as session:
+        condition = (Ticket.id == ticket_id, Ticket.guild_id == guild_id)
+        if closing_only:
+            condition += (Ticket.status == "closing",)
+        row = await session.scalar(select(Ticket.id).where(*condition))
+        if row is None:
+            return False
+        await session.execute(delete(TicketEvent).where(TicketEvent.ticket_id == ticket_id))
+        await session.execute(delete(TicketParticipant).where(TicketParticipant.ticket_id == ticket_id))
+        await session.execute(delete(Ticket).where(*condition))
+        return True
 
 
 async def seed_categories(db, guild_id: int) -> None:

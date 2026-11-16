@@ -9,7 +9,7 @@ from app.services.tickets import safe_text
 
 
 def test_ticket_version_and_validation():
-    assert VERSION == "0.4.3"
+    assert VERSION == "0.5.0"
     assert safe_text(" Вопрос ", 100) == "Вопрос"
     with pytest.raises(ValueError):
         safe_text(" ", 100)
@@ -84,6 +84,6 @@ async def test_ticket_service_lifecycle(tmp_path):
         await service.mark_deleted(db, GUILD_ID, ticket.id, 25)
         assert (await service.get(db, GUILD_ID, ticket.id)).channel_deleted
         assert not await service.reopen(db, GUILD_ID, ticket.id, 25)
-        assert len(await service.history(db, ticket.id)) >= 7
+        assert len(await service.history(db, ticket.id)) == 0  # Журналирование тикетов отключено
     finally:
         await db.close()

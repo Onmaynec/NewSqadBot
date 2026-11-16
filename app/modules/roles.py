@@ -21,6 +21,7 @@ from app.services.role_rules import (
     role_safe_for_self_assign,
     validate_panel,
 )
+from app.ui.theme import BRAND_GREEN, LoggedView
 
 log = logging.getLogger(__name__)
 PROTECTED_SLOTS = (
@@ -30,8 +31,8 @@ PROTECTED_SLOTS = (
 
 
 def panel_embed(panel: RolePanel) -> discord.Embed:
-    e = discord.Embed(title=discord.utils.escape_mentions(panel.title),
-        description=discord.utils.escape_mentions(panel.description), color=discord.Color.from_rgb(38, 50, 73))
+    e = discord.Embed(title=f"NewSquad  /  {discord.utils.escape_mentions(panel.title)}",
+        description=discord.utils.escape_mentions(panel.description), color=BRAND_GREEN)
     e.set_footer(text="NewSquad · Выбранные роли можно изменить в этом меню")
     return e
 
@@ -60,7 +61,7 @@ class ClearRoles(discord.ui.Button):
         await self.cog.apply_selection(interaction, self.panel_id, set())
 
 
-class RolePanelView(discord.ui.View):
+class RolePanelView(LoggedView):
     def __init__(self, cog: "Roles", panel: RolePanel, options: list[RolePanelOption]):
         validate_panel(panel.mode, len(options))
         super().__init__(timeout=None)

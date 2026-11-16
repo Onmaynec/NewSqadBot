@@ -12,6 +12,7 @@ from app.config import VERSION
 from app.core.catalog import MODULES
 from app.core.permissions import can_manage_settings
 from app.models import RolePanel
+from app.ui.theme import LoggedView, card
 
 if TYPE_CHECKING:
     from app.bot import NewSqadBot
@@ -40,10 +41,10 @@ CHANNEL_SLOTS = (
 
 
 def embed_card(title: str, description: str) -> discord.Embed:
-    return discord.Embed(title=title, description=description, color=discord.Color.from_rgb(38, 50, 73))
+    return card(title, description)
 
 
-class PrivateSettingsView(discord.ui.View):
+class PrivateSettingsView(LoggedView):
     def __init__(self, client: "NewSqadBot", owner_id: int):
         super().__init__(timeout=300)
         self.client = client
@@ -74,17 +75,17 @@ class HomeView(PrivateSettingsView):
         embed.set_footer(text="Модуль становится доступен только после реализации в отдельном файле.")
         await interaction.response.edit_message(embed=embed, view=BackView(self.client, self.owner_id))
 
-    @discord.ui.button(label="Роли", emoji="🎭", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Роли", emoji="🎭", style=discord.ButtonStyle.success, row=1)
     async def roles(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.edit_message(
             embed=embed_card("NewSquad · Роли", "Выберите назначение роли, затем саму Discord-роль.\nВыберите роли, используемые действующей системой Membership."),
             view=SlotMenuView(self.client, self.owner_id, "role"),
         )
 
-    @discord.ui.button(label="Каналы", emoji="📁", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Каналы", emoji="📁", style=discord.ButtonStyle.success, row=1)
     async def channels(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.edit_message(
-            embed=embed_card("NewSquad · Каналы", "Выберите назначение канала, затем текстовый канал Discord."),
+            embed=embed_card("NewSquad · Каналы", "Выберите назначение канала или категории, затем объект Discord."),
             view=SlotMenuView(self.client, self.owner_id, "channel"),
         )
 
@@ -100,9 +101,19 @@ class HomeView(PrivateSettingsView):
     async def tickets(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_tickets_settings(interaction, self.client, self.owner_id)
 
+    @discord.ui.button(label="Все настройки", emoji="🗂️", style=discord.ButtonStyle.success, row=4)
+    async def settings_overview(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        from app.panels.settings_overview import SettingsOverviewView, overview_embed
+        await interaction.response.defer()
+        embed, pages = await overview_embed(self.client, "summary")
+        view = SettingsOverviewView(self.client, self.owner_id)
+        view.max_pages = pages
+        view._buttons()
+        await interaction.edit_original_response(embed=embed, view=view)
+
 
 class TicketSettingsView(PrivateSettingsView):
-    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.success, row=0)
     async def toggle(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         enabled = await self.client.database.get_setting(self.client.config.guild_id, "tickets_enabled", True)
         await self.client.database.set_setting(self.client.config.guild_id, "tickets_enabled", not enabled,
@@ -144,7 +155,6 @@ async def show_tickets_settings(interaction: discord.Interaction, client: "NewSq
     idle_days = await client.database.get_setting(guild_id, "tickets_inactivity_days", 0)
     room_id = await client.database.get_setting(guild_id, "ticket_category_channel_id")
     role_id = await client.database.get_setting(guild_id, "support_role_id")
-    log_id = await client.database.get_setting(guild_id, "ticket_log_channel_id")
     from app.services.tickets import categories
     items = await categories(client.database, guild_id)
     text = (f"**Приём обращений:** {'включён' if enabled else 'отключён'}\n"
@@ -152,12 +162,13 @@ async def show_tickets_settings(interaction: discord.Interaction, client: "NewSq
             f"**Автозакрытие:** {idle_days} дней (0 — выключено)\n"
             f"**Категория приватных каналов:** {f'<#{room_id}>' if room_id else 'не выбрана'}\n"
             f"**Поддержка (роль):** {role_id or 'не настроена'}\n"
-            f"**Журнал:** {log_id or 'не настроен'}\n"
+            "**После закрытия:** канал и история удаляются\n"
+            "**Журнал и экспорт тикетов:** отключены\n"
             f"**Категории:** {len(items)}\n\n"
             "Опубликовать панель: `/tickets panel`\n"
             "Выбрать категорию каналов: кнопка выше или `/tickets location`\n"
             "Категории: `/tickets category create` и `/tickets category edit`\n"
-            "Роль поддержки и журнал: главная панель → Роли / Каналы.")
+            "Роль поддержки: главная панель → Роли.")
     await interaction.response.edit_message(embed=embed_card("NewSquad · Тикеты", text),
                                             view=TicketSettingsView(client, owner_id))
 
@@ -171,15 +182,17 @@ class BackView(PrivateSettingsView):
 def home_embed() -> discord.Embed:
     return embed_card(
         "NewSquad · Настройки бота",
-        "Управление ядром NewSqadBot.\n\n"
+        "**Центр управления NewSqadBot**\n"
+        "Все настройки работают только на сервере NewSquad.\n\n"
         "**Состояние** — подключение и база данных.\n"
         "**Модули** — фактическая готовность функций.\n"
         "**Роли** — назначение служебных ролей.\n"
         "**Каналы** — настройка рабочих каналов.\n"
         "**Приветствия** — включение сообщений и ЛС.\n"
         "**Роли участников** — панели, автороли и награды.\n"
-        "**Тикеты** — приём обращений и настройки поддержки.\n\n"
-        "Другие разделы будут добавляться по мере реализации.",
+        "**Тикеты** — приватная поддержка с удалением после закрытия.\n"
+        "**Все настройки** — единый обзор ролей, каналов, категорий и параметров.\n\n"
+        "Изменение доступно в соответствующих разделах.",
     )
 
 
@@ -301,7 +314,7 @@ class WelcomeSettingsView(PrivateSettingsView):
         # One response only: show_welcome_settings edits this interaction's message.
         await show_welcome_settings(interaction, self.client, self.owner_id)
 
-    @discord.ui.button(label="Приветствие", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Приветствие", style=discord.ButtonStyle.success, row=0)
     async def greeting(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._toggle(interaction, "welcome_enabled", True)
 

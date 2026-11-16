@@ -13,6 +13,7 @@ from app.core.durations import nickname
 from app.core.permissions import can_manage_settings
 from app.services import applications as store
 from app.services.audit import log_event
+from app.ui.theme import BRAND_GREEN, LoggedModal, LoggedView
 
 log = logging.getLogger(__name__)
 
@@ -31,13 +32,14 @@ def application_embed(app) -> discord.Embed:
                   "approving": "Одобрение выполняется", "rejecting": "Отказ выполняется",
                   "approved": "Одобрена", "rejected": "Отклонена", "withdrawn": "Отозвана",
                   "action_failed": "Требуется вмешательство"}
-    e = discord.Embed(title=f"NewSquad · Заявка #{app.id:04d}", color=discord.Color.dark_blue())
+    e = discord.Embed(title=f"NewSquad  /  Заявка #{app.id:04d}", color=BRAND_GREEN)
+    e.description = "Анкета на вступление в закрытое сообщество. Решение принимает администрация."
     e.add_field(name="Кандидат", value=f"<@{app.user_id}> (`{app.user_id}`)", inline=False)
-    e.add_field(name="Discord username", value=discord.utils.escape_markdown(app.username), inline=False)
+    e.add_field(name="Discord", value=discord.utils.escape_markdown(app.username), inline=False)
     e.add_field(name="Имя", value=discord.utils.escape_markdown(app.name), inline=True)
     e.add_field(name="Пол", value="Женский" if app.gender == "female" else "Мужской", inline=True)
     e.add_field(name="Возраст", value=str(app.age), inline=True)
-    e.add_field(name="Кто пригласил", value=discord.utils.escape_mentions(app.inviter), inline=False)
+    e.add_field(name="Пригласил", value=discord.utils.escape_mentions(app.inviter), inline=False)
     e.add_field(name="Статус", value=status_map.get(app.status, app.status), inline=True)
     if app.reviewer_id:
         e.add_field(name="Рассматривает", value=f"<@{app.reviewer_id}>", inline=True)
@@ -45,11 +47,11 @@ def application_embed(app) -> discord.Embed:
         e.add_field(name="Решение", value=discord.utils.escape_mentions(app.decision_reason[:500]), inline=False)
     if app.last_error:
         e.add_field(name="Ошибка выполнения", value=app.last_error[:500], inline=False)
-    e.set_footer(text="Данные анкеты доступны только администрации · NewSqadBot")
+    e.set_footer(text="NewSquad • Только для администрации • Данные анкеты")
     return e
 
 
-class ApplicationForm(discord.ui.Modal, title="NewSquad — заявка на вступление"):
+class ApplicationForm(LoggedModal, title="NewSquad — заявка на вступление"):
     # Discord 2.6+: 4 поля на одном экране, Select внутри Label.
     name_field = discord.ui.Label(text="Как тебя зовут?", component=discord.ui.TextInput(min_length=1, max_length=24))
     gender_field = discord.ui.Label(text="Твой пол", component=discord.ui.Select(
@@ -104,12 +106,12 @@ class ApplicationForm(discord.ui.Modal, title="NewSquad — заявка на в
         await interaction.followup.send(note, ephemeral=True)
 
 
-class ApplyPanel(discord.ui.View):
+class ApplyPanel(LoggedView):
     def __init__(self, cog: "Membership"):
         super().__init__(timeout=None)
         self.cog = cog
 
-    @discord.ui.button(label="Подать заявку", style=discord.ButtonStyle.primary,
+    @discord.ui.button(label="Подать заявку", style=discord.ButtonStyle.success,
                        custom_id="newsqad:membership:apply")
     async def apply(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if interaction.guild_id != self.cog.bot.config.guild_id:
@@ -122,7 +124,7 @@ class ApplyPanel(discord.ui.View):
         await interaction.response.send_modal(ApplicationForm(self.cog))
 
 
-class RejectForm(discord.ui.Modal, title="Отклонение заявки"):
+class RejectForm(LoggedModal, title="Отклонение заявки"):
     reason = discord.ui.Label(text="Причина отказа", component=discord.ui.TextInput(
         style=discord.TextStyle.paragraph, min_length=3, max_length=400))
 
@@ -137,7 +139,7 @@ class RejectForm(discord.ui.Modal, title="Отклонение заявки"):
         await interaction.followup.send(result, ephemeral=True)
 
 
-class ReviewView(discord.ui.View):
+class ReviewView(LoggedView):
     def __init__(self, cog: "Membership", app_id: int):
         super().__init__(timeout=None)
         self.cog, self.app_id = cog, app_id
@@ -151,7 +153,7 @@ class ReviewView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="Взять в работу", style=discord.ButtonStyle.secondary, custom_id="claim", row=0)
+    @discord.ui.button(label="Взять на рассмотрение", style=discord.ButtonStyle.secondary, custom_id="claim", row=0)
     async def claim(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
         updated = await store.transition(self.cog.bot.database, self.app_id,
@@ -288,7 +290,6 @@ class Membership(commands.Cog):
             try:
                 if role not in member.roles:
                     await member.add_roles(role, reason=f"[NSB-APPLICATION-{app_id:04d}] Одобрение")
-                await store.step(self.bot.database, app_id, "role_status", "done")
                 if app.gender == "female":
                     female_id = await self.bot.database.get_setting(app.guild_id, "female_role_id", FEMALE_ROLE_ID)
                     female = guild.get_role(female_id)
@@ -299,6 +300,20 @@ class Membership(commands.Cog):
                     await store.step(self.bot.database, app_id, "female_role_status", "done")
                 else:
                     await store.step(self.bot.database, app_id, "female_role_status", "n_a")
+                # Роль кандидата выдаёт другой бот. Удаляем её только ПОСЛЕ выдачи
+                # Member (и женской роли, если требуется). При ошибке повторяем этот
+                # шаг через /membership retry, не помечая заявку как одобренную.
+                candidate_id = await self.bot.database.get_setting(app.guild_id, "candidate_role_id")
+                if candidate_id == role.id:
+                    raise RuntimeError("Роли кандидата и участника совпадают — исправьте /botsettings")
+                if candidate_id:
+                    candidate_role = guild.get_role(candidate_id)
+                    if candidate_role is None:
+                        raise RuntimeError("Настроенная роль кандидата отсутствует на сервере")
+                    if candidate_role in member.roles:
+                        await member.remove_roles(candidate_role,
+                            reason=f"[NSB-APPLICATION-{app_id:04d}] Кандидат принят")
+                await store.step(self.bot.database, app_id, "role_status", "done")
             except (discord.HTTPException, RuntimeError) as exc:
                 await store.fail(self.bot.database, app_id, app.reviewer_id or 0, f"Ошибка выдачи роли: {exc}")
                 return f"Роль не выдана полностью: {exc}. Исправьте права и используйте /membership retry."
@@ -316,7 +331,11 @@ class Membership(commands.Cog):
             app = await store.get_application(self.bot.database, app_id)
             if app.dm_status != "done":
                 try:
-                    await member.send(f"Ваша заявка #{app_id:04d} в NewSquad одобрена. Добро пожаловать!")
+                    await member.send(embed=discord.Embed(
+                        title="✅ NewSquad · Заявка одобрена",
+                        description=(f"Ваша заявка **#{app_id:04d}** принята.\n"
+                                     "Вам открыт доступ к сообществу. Добро пожаловать!"),
+                        color=BRAND_GREEN))
                     await store.step(self.bot.database, app_id, "dm_status", "done")
                 except discord.HTTPException:
                     await store.step(self.bot.database, app_id, "dm_status", "failed")
@@ -331,8 +350,12 @@ class Membership(commands.Cog):
         # REJECT: DM before kick; unavailable DMs must not block kick.
         if app.dm_status == "pending":
             try:
-                await member.send(f"Ваша заявка #{app_id:04d} в NewSquad отклонена.\nПричина: {app.decision_reason}",
-                                  allowed_mentions=discord.AllowedMentions.none())
+                await member.send(embed=discord.Embed(
+                    title="NewSquad · Решение по заявке",
+                    description=(f"Заявка **#{app_id:04d}** отклонена.\n"
+                                 f"**Причина:** {discord.utils.escape_mentions(app.decision_reason or 'Не указана')}\n\n"
+                                 "Доступ к серверу будет закрыт."),
+                    color=BRAND_GREEN), allowed_mentions=discord.AllowedMentions.none())
                 await store.step(self.bot.database, app_id, "dm_status", "done")
             except discord.HTTPException:
                 await store.step(self.bot.database, app_id, "dm_status", "failed")
@@ -361,7 +384,7 @@ class Membership(commands.Cog):
             return
         await channel.send(embed=discord.Embed(title="NewSquad · Вступление",
             description="Заполните анкету: имя, пол, возраст и кто пригласил. После рассмотрения вы получите доступ к сообществу.",
-            color=discord.Color.dark_blue()), view=ApplyPanel(self))
+            color=BRAND_GREEN), view=ApplyPanel(self))
         await interaction.response.send_message("Панель опубликована.", ephemeral=True)
 
     @membership_commands.command(name="applications", description="Список активных заявок")

@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import io
-import json
 import logging
 import time
 
@@ -14,53 +12,55 @@ from discord.ext import commands
 from app.core.permissions import can_manage_settings
 from app.models import Ticket, TicketCategory
 from app.services import tickets as store
-from app.services.audit import log_event
 from app.services.role_rules import is_approved
+from app.ui.theme import BRAND_GREEN, LoggedModal, LoggedView, card, notice
 
 log = logging.getLogger(__name__)
 
 
-async def ticket_ui_error(interaction: discord.Interaction, error: Exception, action: str) -> None:
-    log.error("Ошибка UI тикетов: %s interaction=%s user=%s", action, interaction.id, interaction.user.id,
+async def report_ticket_ui_error(interaction: discord.Interaction, error: Exception, operation: str) -> None:
+    """Логировать ошибки компонентов, не оставляя участника без ответа."""
+    log.error("Сбой интерфейса тикетов: %s; interaction=%s; user=%s",
+              operation, interaction.id, interaction.user.id,
               exc_info=(type(error), error, error.__traceback__))
     try:
+        message = "Ошибка обработки обращения. Повторите попытку или сообщите администрации."
         if interaction.response.is_done():
-            await interaction.followup.send("Ошибка обработки обращения. Попробуйте ещё раз.", ephemeral=True)
+            await interaction.followup.send(message, ephemeral=True)
         else:
-            await interaction.response.send_message("Ошибка обработки обращения. Попробуйте ещё раз.", ephemeral=True)
+            await interaction.response.send_message(message, ephemeral=True)
     except discord.HTTPException:
-        log.exception("Не удалось уведомить участника interaction=%s", interaction.id)
-
+        log.exception("Не удалось отправить сообщение об ошибке тикета interaction=%s", interaction.id)
 
 
 def ticket_embed(ticket: Ticket, category: TicketCategory | None = None) -> discord.Embed:
     labels = {"creating": "Создаётся", "open": "Открыт", "closing": "Закрывается",
               "closed": "Закрыт", "failed": "Ошибка"}
-    e = discord.Embed(title=f"NewSquad · Обращение #{ticket.id:05d}",
-        description=discord.utils.escape_mentions(ticket.description[:1500]),
-        color=discord.Color.from_rgb(38, 50, 73))
-    e.add_field(name="Тема", value=discord.utils.escape_mentions(ticket.subject), inline=False)
+    e = card(f"Обращение #{ticket.id:05d} · {labels.get(ticket.status, ticket.status)}",
+        discord.utils.escape_mentions(ticket.description[:1500]))
+    e.add_field(name="Тема обращения", value=discord.utils.escape_mentions(ticket.subject), inline=False)
     e.add_field(name="Категория", value=category.title if category else str(ticket.category_id))
     e.add_field(name="Автор", value=f"<@{ticket.user_id}>")
     e.add_field(name="Статус", value=labels.get(ticket.status, ticket.status))
     e.add_field(name="Ответственный", value=f"<@{ticket.assignee_id}>" if ticket.assignee_id else "Не назначен")
     if ticket.close_reason:
         e.add_field(name="Причина закрытия", value=discord.utils.escape_mentions(ticket.close_reason[:500]), inline=False)
-    e.set_footer(text="Переписка доступна только участникам обращения и администрации")
+    e.set_footer(text="NewSquad • Приватное обращение • При закрытии канал удаляется")
     return e
 
 
-class TicketOpenView(discord.ui.View):
+class TicketOpenView(LoggedView):
     def __init__(self, cog: "Tickets"):
         super().__init__(timeout=None)
         self.cog = cog
 
-    @discord.ui.button(label="Открыть обращение", emoji="📩", style=discord.ButtonStyle.primary,
+    @discord.ui.button(label="Открыть обращение", emoji="📩", style=discord.ButtonStyle.success,
                        custom_id="newsqad:tickets:open")
     async def open(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if interaction.guild_id != self.cog.bot.config.guild_id or not interaction.message:
             await interaction.response.send_message("Панель доступна только на NewSquad.", ephemeral=True)
             return
+        # Не задерживаем ACK из-за запросов к SQLite: Discord ждёт ответ на interaction до 3 секунд.
         await interaction.response.defer(ephemeral=True, thinking=True)
         if not await store.panel_active(self.cog.bot.database, interaction.guild_id, interaction.message.id):
             await interaction.followup.send("Эта панель обращений неактивна.", ephemeral=True)
@@ -92,11 +92,10 @@ class TicketOpenView(discord.ui.View):
             await interaction.followup.send("Тикеты доступны после принятия в NewSquad.", ephemeral=True)
             return
         await interaction.followup.send("Выберите категорию обращения:",
-                                                view=TicketCategoryView(self.cog, categories[:25]), ephemeral=True)
-
+                                        view=TicketCategoryView(self.cog, categories[:25]), ephemeral=True)
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
-        await ticket_ui_error(interaction, error, "открытие тикета")
+        await report_ticket_ui_error(interaction, error, "кнопка открытия тикета")
 
 
 class TicketCategorySelect(discord.ui.Select):
@@ -107,59 +106,83 @@ class TicketCategorySelect(discord.ui.Select):
                                           value=str(c.id)) for c in categories])
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        # Discord требует modal как первый ответ. Проверка БД выполняется позже в create().
+        # Модальное окно должно стать ПЕРВЫМ ответом interaction.
+        # Нельзя делать запросы к БД до send_modal: проверка актуальности
+        # категории и членства выполняется повторно в Tickets.create().
         category_id = int(self.values[0])
         await interaction.response.send_modal(NewTicketModal(self.cog, category_id))
 
-class TicketCategoryView(discord.ui.View):
+
+class TicketCategoryView(LoggedView):
     def __init__(self, cog: "Tickets", categories: list[TicketCategory]):
         super().__init__(timeout=180)
         self.add_item(TicketCategorySelect(cog, categories))
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
-        await ticket_ui_error(interaction, error, "выбор категории")
+        await report_ticket_ui_error(interaction, error, "выбор категории тикета")
 
 
-class NewTicketModal(discord.ui.Modal, title="NewSquad — обращение в поддержку"):
+class NewTicketModal(LoggedModal, title="NewSquad — обращение в поддержку"):
     subject = discord.ui.TextInput(label="Тема обращения", min_length=3, max_length=100)
     description = discord.ui.TextInput(label="Опишите ситуацию", style=discord.TextStyle.paragraph,
                                        min_length=3, max_length=1500)
 
     def __init__(self, cog: "Tickets", category_id: int):
+        # Явный ID даёт возможность диагностировать доставку отправленной формы.
         super().__init__(timeout=600, custom_id=f"newsqad:tickets:create:{category_id}")
         self.cog, self.category_id = cog, category_id
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        log.info("Получена форма тикета: interaction=%s user=%s category=%s",
+        log.info("Получена заявка в поддержку: interaction=%s user=%s category=%s",
                  interaction.id, interaction.user.id, self.category_id)
+        # Сначала подтверждаем форму, только потом создаём канал и пишем в БД.
+        await interaction.response.defer(ephemeral=True, thinking=True)
         try:
-            result = await self.cog.create(interaction, self.category_id, self.subject.value, self.description.value)
+            result = await self.cog.create(interaction, self.category_id,
+                                           self.subject.value, self.description.value)
         except Exception:
-            log.exception("Ошибка создания тикета: interaction=%s user=%s category=%s",
+            log.exception("Неожиданная ошибка создания тикета: interaction=%s user=%s category=%s",
                           interaction.id, interaction.user.id, self.category_id)
-            result = "Внутренняя ошибка создания обращения. Сообщите администрации."
-        await interaction.followup.send(result, ephemeral=True)
+            result = "Не удалось создать обращение из-за внутренней ошибки. Сообщите администрации."
+        try:
+            await interaction.followup.send(result, ephemeral=True)
+        except discord.HTTPException:
+            log.exception("Не удалось доставить результат создания тикета interaction=%s", interaction.id)
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
-        await ticket_ui_error(interaction, error, "отправка анкеты")
+        await report_ticket_ui_error(interaction, error, "отправка формы тикета")
 
 
-class CloseModal(discord.ui.Modal, title="Закрытие обращения"):
-    reason = discord.ui.TextInput(label="Причина закрытия", style=discord.TextStyle.paragraph,
-                                  min_length=3, max_length=500)
+class ConfirmTicketDeletion(LoggedView):
+    def __init__(self, cog: "Tickets", ticket_id: int, owner_id: int):
+        super().__init__(timeout=90)
+        self.cog, self.ticket_id, self.owner_id = cog, ticket_id, owner_id
 
-    def __init__(self, cog: "Tickets", ticket_id: int):
-        super().__init__(timeout=300)
-        self.cog, self.ticket_id = cog, ticket_id
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message(embed=notice("Это подтверждение открыто другим участником.",
+                kind="warning"), ephemeral=True)
+            return False
+        return True
 
-    async def on_submit(self, interaction: discord.Interaction) -> None:
+    @discord.ui.button(label="Удалить обращение", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def confirm(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
-        result = await self.cog.close_ticket(interaction, self.ticket_id, self.reason.value)
-        await interaction.followup.send(result, ephemeral=True)
+        result = await self.cog.close_ticket(interaction, self.ticket_id, "Закрыто")
+        try:
+            await interaction.followup.send(embed=notice(result, kind="success" if result.startswith("Обращение закрыто")
+                else "warning"), ephemeral=True)
+        except discord.HTTPException:
+            # Канал исходного взаимодействия мог быть удалён раньше отправки followup.
+            log.info("Ответ после удаления канала недоступен, ticket_id=%s interaction_id=%s",
+                     self.ticket_id, interaction.id)
+
+    @discord.ui.button(label="Отмена", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=notice("Закрытие отменено."), view=None)
 
 
-class TicketActions(discord.ui.View):
+class TicketActions(LoggedView):
     def __init__(self, cog: "Tickets", ticket_id: int):
         super().__init__(timeout=None)
         self.cog, self.ticket_id = cog, ticket_id
@@ -168,9 +191,9 @@ class TicketActions(discord.ui.View):
                 item.custom_id = f"newsqad:tickets:{item.custom_id}:{ticket_id}"
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
-        await ticket_ui_error(interaction, error, f"панель тикета #{self.ticket_id}")
+        await report_ticket_ui_error(interaction, error, f"управление тикетом #{self.ticket_id}")
 
-    @discord.ui.button(label="Взять в работу", style=discord.ButtonStyle.primary, custom_id="claim")
+    @discord.ui.button(label="Взять в работу", style=discord.ButtonStyle.success, custom_id="claim")
     async def claim(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if not await self.cog.staff(interaction):
             await interaction.response.send_message("Нет прав на обработку обращений.", ephemeral=True)
@@ -182,17 +205,18 @@ class TicketActions(discord.ui.View):
             await self.cog.audit("Тикет принят в работу", self.ticket_id, interaction.user.id)
         await interaction.followup.send("Вы назначены ответственным." if ok else "Тикет уже назначен или закрыт.", ephemeral=True)
 
-    @discord.ui.button(label="Закрыть", style=discord.ButtonStyle.danger, custom_id="close")
+    @discord.ui.button(label="Закрыть и удалить", style=discord.ButtonStyle.danger, custom_id="close")
     async def close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         ticket = await store.get(self.cog.bot.database, interaction.guild_id, self.ticket_id)
         if not ticket or (interaction.user.id != ticket.user_id and not await self.cog.staff(interaction, ticket)):
             await interaction.response.send_message("Недостаточно прав.", ephemeral=True)
             return
-        await interaction.response.send_modal(CloseModal(self.cog, self.ticket_id))
-
-    @discord.ui.button(label="История", style=discord.ButtonStyle.secondary, custom_id="history")
-    async def history(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self.cog.show_history(interaction, self.ticket_id)
+        await interaction.response.send_message(
+            embed=card("Закрыть обращение?",
+                       "Приватный канал будет **удалён безвозвратно**. "
+                       "Переписка, журнал и данные закрытого тикета не сохраняются."),
+            view=ConfirmTicketDeletion(self.cog, self.ticket_id, interaction.user.id), ephemeral=True,
+        )
 
 
 class Tickets(commands.Cog):
@@ -232,9 +256,8 @@ class Tickets(commands.Cog):
         return False
 
     async def audit(self, title: str, ticket_id: int, actor_id: int, details: str = "") -> None:
-        await log_event(self.bot, channel_setting="ticket_log_channel_id", title=title,
-            details=f"Обращение #{ticket_id}; участник: {actor_id}; {details}"[:1600],
-            actor_id=actor_id, action=f"tickets.{title.lower().replace(' ', '_')}", target_id=ticket_id)
+        """Тикеты не пишутся в AuditEntry/Discord-журналы по требованиям приватности."""
+        return None
 
     async def get_channel(self, ticket: Ticket) -> discord.TextChannel | None:
         guild = self.bot.get_guild(self.bot.config.guild_id)
@@ -339,61 +362,39 @@ class Tickets(commands.Cog):
         except discord.HTTPException:
             log.warning("Сообщение управления тикетом #%s недоступно", ticket_id)
 
-    async def close_ticket(self, interaction: discord.Interaction, ticket_id: int, reason: str) -> str:
+    async def _delete_ticket(self, ticket: Ticket) -> str:
+        """Удалить канал, затем все данные обращения; не писать в аудит.
+
+        Если канал уже исчез, удаляем остатки БД. После сбоя удаления канала
+        тикет останется в closing и восстановится при следующем запуске.
+        """
+        channel = await self.get_channel(ticket)
+        if channel is not None:
+            try:
+                await channel.delete(reason="Закрытие приватного обращения NewSquad")
+            except discord.NotFound:
+                pass
+            except discord.HTTPException:
+                log.exception("Не удалось удалить канал тикета ticket_id=%s channel_id=%s",
+                              ticket.id, ticket.channel_id)
+                return "Discord не разрешил удалить канал. Проверьте Manage Channels и повторите закрытие."
+        await store.erase_ticket(self.bot.database, ticket.guild_id, ticket.id)
+        return "Обращение закрыто. Канал удалён, переписка и история не сохранены."
+
+    async def close_ticket(self, interaction: discord.Interaction, ticket_id: int, reason: str = "") -> str:
         ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         if not ticket or interaction.guild_id != ticket.guild_id:
-            return "Обращение не найдено."
+            return "Обращение не найдено или уже закрыто."
         if interaction.user.id != ticket.user_id and not await self.staff(interaction, ticket):
             return "Недостаточно прав на закрытие."
-        if not await store.start_close(self.bot.database, ticket.guild_id, ticket_id, interaction.user.id, reason):
-            return "Обращение уже закрывается или недоступно."
-        adjusted = []
+        if not await store.start_close(self.bot.database, ticket.guild_id, ticket_id,
+                                       interaction.user.id, "Закрыто"):
+            return "Обращение уже закрывается."
         try:
-            channel = await self.get_channel(ticket)
-            if channel is None:
-                raise RuntimeError("Канал обращения не найден")
-            guild = interaction.guild
-            if guild is None:
-                raise RuntimeError("Сервер недоступен")
-            user_ids = [ticket.user_id] + await store.participants(self.bot.database, ticket.id)
-            for uid in user_ids:
-                member = guild.get_member(uid)
-                if member:
-                    previous = channel.overwrites_for(member)
-                    await channel.set_permissions(member, view_channel=True, send_messages=False,
-                                                  reason=f"[NSB-TICKET-{ticket.id}] Закрытие")
-                    adjusted.append((member, previous))
-            await store.finish_close(self.bot.database, ticket.guild_id, ticket.id)
-            await self.refresh(ticket.id)
-            await self.audit("Закрыт тикет", ticket.id, interaction.user.id, f"Причина: {reason[:200]}")
-            return "Тикет закрыт. История сохранена; канал доступен только для чтения до архивирования."
-        except (discord.HTTPException, RuntimeError) as exc:
-            if "channel" in locals() and channel is not None:
-                for member, previous in adjusted:
-                    try:
-                        await channel.set_permissions(member, overwrite=previous,
-                            reason=f"[NSB-TICKET-{ticket.id}] Восстановление после ошибки")
-                    except discord.HTTPException:
-                        log.exception("Не удалось вернуть права тикета %s для %s", ticket.id, member.id)
-            await store.undo_close(self.bot.database, ticket.guild_id, ticket.id, type(exc).__name__)
-            return "Не удалось полностью закрыть обращение. Проверьте права бота и повторите попытку."
-
-    async def show_history(self, interaction: discord.Interaction, ticket_id: int) -> None:
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
-        if not ticket or interaction.guild_id != self.bot.config.guild_id or (
-            ticket.user_id != interaction.user.id and not await self.staff(interaction, ticket)):
-            await interaction.response.send_message("Недостаточно прав на просмотр истории.", ephemeral=True)
-            return
-        events = await store.history(self.bot.database, ticket_id)
-        lines = []
-        for e in reversed(events):
-            details = json.loads(e.details_json)
-            brief = ", ".join(f"{k}: {str(v)[:70]}" for k, v in details.items())
-            lines.append(f"<t:{e.created_at}:f> · **{e.action}** · {e.actor_id} · " + discord.utils.escape_mentions(brief))
-        text = "\n".join(lines[-20:]) or "История действий пуста."
-        await interaction.response.send_message(embed=discord.Embed(title=f"История тикета #{ticket_id}",
-            description=text[:3900], color=discord.Color.dark_blue()), ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none())
+            return await self._delete_ticket(ticket)
+        except Exception:
+            log.exception("Ошибка полного удаления тикета ticket_id=%s", ticket_id)
+            return "Удаление не завершено. Бот повторит операцию при следующем запуске."
 
     async def _schedule_inactivity(self, ticket_id: int) -> None:
         days = int(await self.bot.database.get_setting(self.bot.config.guild_id, "tickets_inactivity_days", 0))
@@ -420,8 +421,9 @@ class Tickets(commands.Cog):
         if channel is None:
             raise RuntimeError(f"Канал тикета #{ticket.id} недоступен для уведомления")
         await channel.send(
-            f"<@{ticket.user_id}>, обращение будет автоматически закрыто через 24 часа без активности. "
-            "Напишите сообщение, чтобы продолжить рассмотрение.",
+            content=f"<@{ticket.user_id}>",
+            embed=notice("Обращение будет автоматически закрыто через 24 часа без активности. "
+                         "Ответьте в этом канале, если оно ещё актуально.", kind="warning"),
             allowed_mentions=discord.AllowedMentions(users=[discord.Object(id=ticket.user_id)]),
         )
         await self.bot.scheduler.schedule(job_key=f"tickets.close.{ticket.id}.{ticket.updated_at}",
@@ -439,26 +441,11 @@ class Tickets(commands.Cog):
             return
         if int(time.time()) < ticket.updated_at + days * 86400:
             return
-        if not await store.start_close(self.bot.database, ticket.guild_id, ticket.id, 0,
-                                       "Автоматическое закрытие из-за отсутствия активности"):
+        if not await store.start_close(self.bot.database, ticket.guild_id, ticket.id, 0, "Закрыто автоматически"):
             return
-        channel = await self.get_channel(ticket)
-        if channel is None:
-            await store.undo_close(self.bot.database, ticket.guild_id, ticket.id, "Канал недоступен")
-            raise RuntimeError(f"Не удалось закрыть тикет #{ticket.id}: канал недоступен")
-        try:
-            guild = channel.guild
-            for uid in [ticket.user_id] + await store.participants(self.bot.database, ticket.id):
-                member = guild.get_member(uid)
-                if member:
-                    await channel.set_permissions(member, view_channel=True, send_messages=False,
-                        reason=f"[NSB-TICKET-{ticket.id}] Неактивность")
-            await store.finish_close(self.bot.database, ticket.guild_id, ticket.id)
-            await self.refresh(ticket.id)
-        except discord.HTTPException:
-            await store.undo_close(self.bot.database, ticket.guild_id, ticket.id, "Ошибка Discord API")
-            raise
-        await self.audit("Тикет закрыт автоматически", ticket.id, 0)
+        result = await self._delete_ticket(ticket)
+        if not result.startswith("Обращение закрыто"):
+            raise RuntimeError(f"Автозакрытие ticket_id={ticket.id}: ошибка удаления канала")
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -469,21 +456,14 @@ class Tickets(commands.Cog):
         for ticket_id in await store.stale_creating(self.bot.database, self.bot.config.guild_id, int(time.time()) - 600):
             await store.fail_create(self.bot.database, self.bot.config.guild_id, ticket_id, "Создание прервано при перезапуске")
         for ticket in await store.list_tickets(self.bot.database, self.bot.config.guild_id, limit=1000):
-            if ticket.status == "closing" and ticket.channel_id:
-                channel = await self.get_channel(ticket)
-                if channel is None:
-                    log.error("Закрытие тикета #%s прервано: канал недоступен", ticket.id)
-                    continue
+            if ticket.status == "closing":
                 try:
-                    for uid in [ticket.user_id] + await store.participants(self.bot.database, ticket.id):
-                        member = channel.guild.get_member(uid)
-                        if member:
-                            await channel.set_permissions(member, view_channel=True, send_messages=False,
-                                reason=f"[NSB-TICKET-{ticket.id}] Завершение закрытия после рестарта")
-                    await store.finish_close(self.bot.database, ticket.guild_id, ticket.id)
-                    await self.refresh(ticket.id)
-                except discord.HTTPException:
-                    log.exception("Не удалось восстановить закрытие тикета #%s", ticket.id)
+                    result = await self._delete_ticket(ticket)
+                    if not result.startswith("Обращение закрыто"):
+                        log.error("Не удалось завершить удаление тикета ticket_id=%s", ticket.id)
+                except Exception:
+                    log.exception("Восстановление удаления тикета ticket_id=%s", ticket.id)
+                continue
             if ticket.status == "open" and ticket.channel_id:
                 channel = await self.get_channel(ticket)
                 if channel is None:
@@ -517,10 +497,10 @@ class Tickets(commands.Cog):
         if channel.guild.id != self.bot.config.guild_id:
             return
         ticket = await store.by_channel(self.bot.database, channel.guild.id, channel.id)
-        if ticket and ticket.status in store.ACTIVE:
-            await store.reconcile_missing_channel(self.bot.database, ticket.guild_id, ticket.id)
-        elif ticket and ticket.status == "closed":
-            await store.mark_deleted(self.bot.database, ticket.guild_id, ticket.id, 0)
+        if ticket and ticket.status == "closing":
+            return  # Удаление инициировано ботом; вызывающий код очистит БД.
+        if ticket:
+            await store.erase_ticket(self.bot.database, ticket.guild_id, ticket.id, closing_only=False)
 
     @tickets.command(name="panel", description="Опубликовать панель обращения в поддержку")
     async def panel(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
@@ -532,9 +512,10 @@ class Tickets(commands.Cog):
         if not isinstance(channel, discord.TextChannel) or channel.guild.id != self.bot.config.guild_id:
             await interaction.response.send_message("Сначала выберите текстовый канал для панели в /botsettings.", ephemeral=True)
             return
-        embed = discord.Embed(title="NewSquad · Поддержка", description=
-            "Выберите категорию обращения и заполните короткую форму. "
-            "Ваш запрос увидят только вы и сотрудники поддержки.", color=discord.Color.dark_blue())
+        embed = card("NewSquad  /  Поддержка",
+            "**Нужна помощь?** Откройте приватное обращение кнопкой ниже.\n\n"
+            "Выберите тему и кратко опишите ситуацию. Доступ получат только вы и сотрудники поддержки.\n"
+            "После закрытия канал удаляется вместе с данными обращения.")
         try:
             msg = await channel.send(embed=embed, view=TicketOpenView(self),
                                      allowed_mentions=discord.AllowedMentions.none())
@@ -551,7 +532,6 @@ class Tickets(commands.Cog):
         guild_id = self.bot.config.guild_id
         cat = await self.bot.database.get_setting(guild_id, "ticket_category_channel_id")
         role = await self.bot.database.get_setting(guild_id, "support_role_id")
-        audit = await self.bot.database.get_setting(guild_id, "ticket_log_channel_id")
         enabled = await self.bot.database.get_setting(guild_id, "tickets_enabled", True)
         max_open = await self.bot.database.get_setting(guild_id, "tickets_max_open", 3)
         inactivity_days = await self.bot.database.get_setting(guild_id, "tickets_inactivity_days", 0)
@@ -559,13 +539,14 @@ class Tickets(commands.Cog):
         description = (f"Система: **{'включена' if enabled else 'отключена'}**\n"
             f"Категория каналов: {f'<#{cat}>' if cat else 'не задана'}\n"
             f"Роль поддержки: {f'<@&{role}>' if role else 'не задана'}\n"
-            f"Журнал: {f'<#{audit}>' if audit else 'не задан'}\n"
+            "Журнал тикетов: отключён\n"
             f"Максимум открытых: **{max_open}**\n"
+            "Закрытие: **удаление канала и данных без сохранения**\n"
             f"Автозакрытие после: **{inactivity_days}** дней (0 — выключено)\n\n" +
             "\n".join(f"#{c.id} · **{c.title}** — {'активна' if c.enabled else 'отключена'}"
                 f"{' · доступна кандидатам' if c.candidate_allowed else ''}" for c in cats))
         await interaction.response.send_message(embed=discord.Embed(title="Настройки тикетов", description=description,
-            color=discord.Color.dark_blue()), ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+            color=BRAND_GREEN), ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
     @tickets.command(name="limit", description="Установить лимит открытых тикетов на человека")
     async def limit(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 10]) -> None:
@@ -637,53 +618,16 @@ class Tickets(commands.Cog):
     def _staff_member(self, member: discord.Member, ticket: Ticket) -> bool:
         return member.guild_permissions.administrator or any(r.id == ticket.staff_role_id for r in member.roles)
 
-    @tickets.command(name="close", description="Закрыть тикет с указанием причины")
-    async def close_command(self, interaction: discord.Interaction, ticket_id: int, reason: str) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        await interaction.followup.send(await self.close_ticket(interaction, ticket_id, reason), ephemeral=True)
-
-    @tickets.command(name="reopen", description="Повторно открыть архивное обращение")
-    async def reopen_command(self, interaction: discord.Interaction, ticket_id: int) -> None:
+    @tickets.command(name="close", description="Закрыть обращение и безвозвратно удалить канал")
+    async def close_command(self, interaction: discord.Interaction, ticket_id: int) -> None:
         ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
-        if not ticket or not await self.staff(interaction, ticket):
-            await interaction.response.send_message("Нет доступа.", ephemeral=True)
+        if not ticket or (ticket.user_id != interaction.user.id and not await self.staff(interaction, ticket)):
+            await interaction.response.send_message(embed=notice("Обращение недоступно.", kind="warning"),
+                                                    ephemeral=True)
             return
-        channel = await self.get_channel(ticket)
-        if channel is None or ticket.channel_deleted:
-            await interaction.response.send_message("Канал уже удалён, восстановить его нельзя.", ephemeral=True)
-            return
-        try:
-            guild = interaction.guild
-            owner = guild.get_member(ticket.user_id) if guild else None
-            if not owner:
-                await interaction.response.send_message("Автор больше не находится на сервере.", ephemeral=True)
-                return
-            membership_role = await self.bot.database.get_setting(ticket.guild_id, "member_role_id")
-            category = await store.category(self.bot.database, ticket.guild_id, ticket.category_id)
-            if not is_approved(owner, membership_role) and not (category and category.candidate_allowed):
-                await interaction.response.send_message("Автор больше не имеет допуска к этой категории.", ephemeral=True)
-                return
-            updated = await store.reopen(self.bot.database, ticket.guild_id, ticket.id, interaction.user.id)
-            if not updated:
-                await interaction.response.send_message("Тикет не закрыт.", ephemeral=True)
-                return
-            await channel.set_permissions(channel.guild.default_role, view_channel=False,
-                                          reason=f"[NSB-TICKET-{ticket.id}] Приватность")
-            try:
-                for uid in [ticket.user_id] + await store.participants(self.bot.database, ticket.id):
-                    member = guild.get_member(uid)
-                    if member:
-                        await channel.set_permissions(member, view_channel=True, send_messages=True,
-                            read_message_history=True, reason=f"[NSB-TICKET-{ticket.id}] Повторное открытие")
-            except discord.HTTPException:
-                await store.undo_reopen(self.bot.database, ticket.guild_id, ticket.id, "Нет прав на возврат доступа")
-                raise
-            await self.refresh(ticket.id)
-            await self.audit("Тикет открыт повторно", ticket.id, interaction.user.id)
-            await interaction.response.send_message(f"Обращение #{ticket.id} снова открыто.", ephemeral=True)
-        except (discord.HTTPException, ValueError) as exc:
-            log.exception("Ошибка восстановления обращения %s", ticket_id)
-            await interaction.response.send_message(f"Не удалось восстановить доступ: {type(exc).__name__}", ephemeral=True)
+        await interaction.response.send_message(
+            embed=card("Подтверждение удаления", "После закрытия канал и история тикета исчезнут безвозвратно."),
+            view=ConfirmTicketDeletion(self, ticket_id, interaction.user.id), ephemeral=True)
 
     @tickets.command(name="add", description="Добавить участника к обращению")
     async def add(self, interaction: discord.Interaction, ticket_id: int, member: discord.Member) -> None:
@@ -736,53 +680,6 @@ class Tickets(commands.Cog):
                              f"Пользователь: {member.id}; удалить: {remove}")
         await interaction.response.send_message("Доступ обновлён." if updated else "Изменений нет.", ephemeral=True)
 
-    @tickets.command(name="history", description="Посмотреть журнал действий по тикету")
-    async def history_command(self, interaction: discord.Interaction, ticket_id: int) -> None:
-        await self.show_history(interaction, ticket_id)
-
-    @tickets.command(name="transcript", description="Экспорт переписки: только для сотрудников, по настройке")
-    async def transcript(self, interaction: discord.Interaction, ticket_id: int) -> None:
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
-        if not ticket or not await self.staff(interaction, ticket):
-            await interaction.response.send_message("Нет прав для экспорта переписки.", ephemeral=True)
-            return
-        if not await self.bot.database.get_setting(self.bot.config.guild_id, "tickets_transcript_enabled", False):
-            await interaction.response.send_message("Экспорт переписки отключён администрацией.", ephemeral=True)
-            return
-        if not self.bot.intents.message_content:
-            await interaction.response.send_message(
-                "Для экспорта текста включите ENABLE_MESSAGE_CONTENT_INTENT=true и Message Content Intent в Discord Developer Portal.", ephemeral=True)
-            return
-        channel = await self.get_channel(ticket)
-        if channel is None:
-            await interaction.response.send_message("Канал не найден; экспорт недоступен.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        lines = [f"NewSquad · обращение #{ticket.id}", f"Категория: {ticket.category_id}", ""]
-        try:
-            async for message in channel.history(limit=200, oldest_first=True):
-                # Без разрешённого Message Content Intent текст может отсутствовать.
-                content = message.content.replace("\r", " ").replace("\0", "")[:1500]
-                lines.append(f"[{message.created_at.isoformat()}] {message.author.id}: {content}")
-                if sum(len(line) for line in lines) >= 160_000:
-                    lines.append("[Сокращено: достигнут лимит размера экспорта]")
-                    break
-        except discord.HTTPException:
-            await interaction.followup.send("Не удалось прочитать историю канала.", ephemeral=True)
-            return
-        payload = "\n".join(lines).encode("utf-8")
-        await interaction.followup.send("Экспорт только в личном ответе сотруднику. Не пересылайте его посторонним.",
-            file=discord.File(io.BytesIO(payload), filename=f"newsqad-ticket-{ticket_id}.txt"), ephemeral=True)
-        await self.audit("Экспорт тикета", ticket_id, interaction.user.id)
-
-    @tickets.command(name="transcript-enabled", description="Включить экспорт переписки по запросу сотрудника")
-    async def transcript_enabled(self, interaction: discord.Interaction, value: bool) -> None:
-        if not await self.require_admin(interaction):
-            return
-        await self.bot.database.set_setting(self.bot.config.guild_id, "tickets_transcript_enabled", value,
-                                             actor_id=interaction.user.id)
-        await interaction.response.send_message("Экспорт: включён." if value else "Экспорт: выключен.", ephemeral=True)
-
     @tickets.command(name="location", description="Выбрать категорию Discord для приватных каналов")
     async def location(self, interaction: discord.Interaction, category: discord.CategoryChannel) -> None:
         if not await self.require_admin(interaction):
@@ -793,24 +690,6 @@ class Tickets(commands.Cog):
         await self.bot.database.set_setting(self.bot.config.guild_id, "ticket_category_channel_id", category.id,
                                              actor_id=interaction.user.id)
         await interaction.response.send_message(f"Приватные обращения будут создаваться в **{category.name}**.", ephemeral=True)
-
-    @tickets.command(name="archive", description="Удалить канал закрытого тикета, сохранив запись")
-    async def archive(self, interaction: discord.Interaction, ticket_id: int) -> None:
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
-        if not ticket or not await self.staff(interaction, ticket) or ticket.status != "closed":
-            await interaction.response.send_message("Архивировать можно только закрытые доступные тикеты.", ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        channel = await self.get_channel(ticket)
-        if channel is not None:
-            try:
-                await channel.delete(reason=f"[NSB-TICKET-{ticket.id}] Архивирование")
-            except discord.HTTPException:
-                await interaction.followup.send("Удаление канала не удалось, запись сохранена.", ephemeral=True)
-                return
-        await store.mark_deleted(self.bot.database, ticket.guild_id, ticket.id, interaction.user.id)
-        await self.audit("Тикет архивирован", ticket.id, interaction.user.id)
-        await interaction.followup.send("Канал удалён; история действий сохранена в базе.", ephemeral=True)
 
     @categories_group.command(name="create", description="Добавить категорию обращений")
     async def category_create(self, interaction: discord.Interaction, key: str, title: str, description: str,

@@ -6,6 +6,8 @@ import logging
 import discord
 from discord import app_commands
 
+from app.ui.theme import notice
+
 log = logging.getLogger(__name__)
 
 
@@ -21,9 +23,9 @@ class GuildCommandTree(app_commands.CommandTree):
     async def _reply(interaction: discord.Interaction, message: str) -> None:
         try:
             if interaction.response.is_done():
-                await interaction.followup.send(message, ephemeral=True)
+                await interaction.followup.send(embed=notice(message, kind="error"), ephemeral=True)
             else:
-                await interaction.response.send_message(message, ephemeral=True)
+                await interaction.response.send_message(embed=notice(message, kind="error"), ephemeral=True)
         except discord.HTTPException:
             log.warning("Не удалось отправить сообщение об ошибке interaction=%s", interaction.id)
 
@@ -34,5 +36,8 @@ class GuildCommandTree(app_commands.CommandTree):
             message = "Команда вызывается слишком часто. Попробуйте позже."
         else:
             message = "Не удалось выполнить команду. Администрация может проверить журнал бота."
-            log.error("Ошибка команды interaction=%s", interaction.id, exc_info=(type(error), error, error.__traceback__))
+            command_name = interaction.command.qualified_name if interaction.command else "неизвестная команда"
+            log.error("Ошибка команды %s: guild_id=%s user_id=%s interaction_id=%s type=%s",
+                      command_name, interaction.guild_id, interaction.user.id, interaction.id,
+                      type(error).__name__, exc_info=(type(error), error, error.__traceback__))
         await self._reply(interaction, message)
