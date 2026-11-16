@@ -28,7 +28,7 @@ def url(tmp_path, name="stats.db"):
 def test_schema_and_command_contract(tmp_path):
     migrate(url(tmp_path))
     migrate(url(tmp_path))
-    assert VERSION == "1.1.0"
+    assert VERSION == "1.1.1"
     assert implemented("statistics")
     with sqlite3.connect(tmp_path / "stats.db") as db:
         assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0012_statistics"
