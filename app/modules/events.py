@@ -64,7 +64,7 @@ def giveaway_embed(giveaway) -> discord.Embed:
 
 class EventAction(discord.ui.Button):
     def __init__(self, cog: "Events", event_id: int, action: str):
-        spec = {"join": ("Участвую", discord.ButtonStyle.success),
+        spec = {"join": ("Участвую", discord.ButtonStyle.primary),
                 "leave": ("Отменить участие", discord.ButtonStyle.secondary),
                 "members": ("Участники", discord.ButtonStyle.primary)}
         label, style = spec[action]
@@ -84,7 +84,7 @@ class EventView(LoggedView):
 
 class GiveawayAction(discord.ui.Button):
     def __init__(self, cog: "Events", giveaway_id: int):
-        super().__init__(label="Участвовать", style=discord.ButtonStyle.success,
+        super().__init__(label="Участвовать", style=discord.ButtonStyle.primary,
                          custom_id=f"newsqad:giveaway:{giveaway_id}:join")
         self.cog, self.giveaway_id = cog, giveaway_id
 
