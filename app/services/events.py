@@ -18,6 +18,7 @@ from app.models import (
     Giveaway,
     GiveawayDraw,
     GiveawayEntry,
+    OutboxEvent,
 )
 from app.services import economy, progression
 
@@ -192,14 +193,25 @@ async def withdraw(db, guild_id: int, event_id: int, user_id: int,
     return promoted
 
 
-async def cancel_event(db, guild_id: int, event_id: int, *, now: int | None = None) -> bool:
+async def cancel_event(db, guild_id: int, event_id: int, *, reason: str = "Отменено администрацией",
+                       now: int | None = None) -> bool:
     now = int(time.time()) if now is None else now
+    reason = clean_text(reason, 400)
     async with db.session() as session:
         result = await session.execute(update(CommunityEvent).where(
             CommunityEvent.id == event_id, CommunityEvent.guild_id == guild_id,
             CommunityEvent.status.in_(("scheduled", "live"))
         ).values(status="cancelled", updated_at=now))
-        return result.rowcount == 1
+        if result.rowcount != 1:
+            return False
+        row = await session.get(CommunityEvent, event_id)
+        payload = json.dumps({"guild_id": guild_id, "event_id": event_id,
+            "channel_id": row.channel_id, "title": row.title, "reason": reason}, ensure_ascii=False)
+        stmt = sqlite_insert(OutboxEvent).values(
+            id=f"events-cancelled-{event_id}", kind="events.cancelled",
+            payload_json=payload, created_at=now)
+        await session.execute(stmt.on_conflict_do_nothing(index_elements=[OutboxEvent.id]))
+        return True
 
 
 async def mark_live(db, guild_id: int, event_id: int, *, now: int | None = None) -> bool:
@@ -219,7 +231,16 @@ async def mark_finished(db, guild_id: int, event_id: int, *, now: int | None = N
             CommunityEvent.id == event_id, CommunityEvent.guild_id == guild_id,
             CommunityEvent.status.in_(("scheduled", "live")), CommunityEvent.ends_at <= now
         ).values(status="finished", updated_at=now))
-        return result.rowcount == 1
+        if result.rowcount != 1:
+            return False
+        row = await session.get(CommunityEvent, event_id)
+        payload = json.dumps({"guild_id": guild_id, "event_id": event_id,
+            "channel_id": row.channel_id, "title": row.title}, ensure_ascii=False)
+        stmt = sqlite_insert(OutboxEvent).values(
+            id=f"events-finished-{event_id}", kind="events.finished",
+            payload_json=payload, created_at=now)
+        await session.execute(stmt.on_conflict_do_nothing(index_elements=[OutboxEvent.id]))
+        return True
 
 
 async def reminder_state(db, guild_id: int, event_id: int, minutes: int):
