@@ -5,7 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from app.services import economy, profiles as store, progression
+from app.services import economy, progression, profiles as store
 from app.services.role_rules import is_approved
 from app.ui.theme import card, notice
 

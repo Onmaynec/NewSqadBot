@@ -76,7 +76,7 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
             rid = settings.get(key, FEMALE_ROLE_ID if key == "female_role_id" else None)
             role = guild.get_role(rid) if guild and rid else None
             line = f"**{label}** — " + (f"{discord.utils.escape_markdown(role.name)} (`{rid}`) ✅"
-                                             if role else f"⚠️ не настроена" if not rid
+                                             if role else "⚠️ не настроена" if not rid
                                              else f"⚠️ ID `{rid}` не найден на сервере")
             lines.append(line)
         lines.append("\nРоль кандидата должна находиться **ниже** роли NewSqadBot для автоматического снятия.")
