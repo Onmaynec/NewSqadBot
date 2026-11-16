@@ -1,7 +1,6 @@
 """Транзакционная модель тикетов: не хранит токены и текст переписки."""
 from __future__ import annotations
 
-import json
 import time
 
 from sqlalchemy import delete, func, select, update
