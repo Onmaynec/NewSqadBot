@@ -4,7 +4,6 @@ Revision ID: 0009_party_finder
 Revises: 0008_voice_rooms
 """
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "0009_party_finder"
