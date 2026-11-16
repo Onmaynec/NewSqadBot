@@ -11,8 +11,13 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.models import (
-    CommunityEvent, EventReminder, EventSignup, ExperienceAward,
-    Giveaway, GiveawayDraw, GiveawayEntry,
+    CommunityEvent,
+    EventReminder,
+    EventSignup,
+    ExperienceAward,
+    Giveaway,
+    GiveawayDraw,
+    GiveawayEntry,
 )
 from app.services import economy, progression
 
