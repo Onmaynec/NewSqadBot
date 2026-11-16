@@ -9,7 +9,7 @@ from app.core.database import migrate
 
 
 def test_version_and_ticket_storage_tables(tmp_path):
-    assert VERSION == "0.13.0"
+    assert VERSION == "1.0.0"
     url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
     migrate(url)
     with sqlite3.connect(tmp_path / "test.db") as db:
@@ -64,10 +64,10 @@ async def test_closed_ticket_erases_data_without_history(tmp_path):
 def test_discord_views_and_dashboard():
     discord = pytest.importorskip("discord")
     from app.panels.settings_overview import PAGE_OPTIONS, SettingsOverviewView
-    from app.ui.theme import BRAND_GREEN, card
+    from app.ui.theme import BRAND_BLUE, card
 
-    assert BRAND_GREEN == 0x4CCE91
-    assert card("test").color == discord.Color(BRAND_GREEN)
+    assert BRAND_BLUE == 0x4A86F7
+    assert card("test").color == discord.Color(BRAND_BLUE)
     assert {"summary", "roles", "channels", "tickets", "leveling", "profiles", "modules", "all", "economy", "quests", "achievements"} <= {p[0] for p in PAGE_OPTIONS}
     class Config:
         owner_ids = frozenset()
