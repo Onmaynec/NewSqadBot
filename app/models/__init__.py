@@ -8,7 +8,13 @@ from app.models.moderation import ModerationAction, ModerationCase
 from app.models.party import PartyListing, PartyMember
 from app.models.progression import ExperienceAward, MemberProfile, MemberProgress
 from app.models.roles import LevelRoleReward, RolePanel, RolePanelOption, TemporaryRole, WelcomeDelivery
-from app.models.suggestions import Suggestion, SuggestionCreatePanel, SuggestionStatusEvent, SuggestionThrottle, SuggestionVote
+from app.models.suggestions import (
+    Suggestion,
+    SuggestionCreatePanel,
+    SuggestionStatusEvent,
+    SuggestionThrottle,
+    SuggestionVote,
+)
 from app.models.tickets import Ticket, TicketCategory, TicketEvent, TicketPanel, TicketParticipant
 from app.models.voice import VoiceRoom, VoiceRoomAccess
 
