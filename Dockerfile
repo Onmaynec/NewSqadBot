@@ -11,7 +11,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt \
-    && python -m pip check \\
+    && python -m pip check \
     && groupadd --system bot && useradd --system --gid bot --home-dir /app bot
 
 COPY app/ ./app/
