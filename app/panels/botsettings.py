@@ -309,7 +309,7 @@ async def show_role_panels(interaction: discord.Interaction, client: "NewSqadBot
 
 
 class CoreCommands(commands.Cog):
-    bot_tools = app_commands.Group(name="bot", description="Состояние и диагностика NewSqadBot")
+    diagnostics_group = app_commands.Group(name="bot", description="Состояние и диагностика NewSqadBot")
 
     def __init__(self, client: "NewSqadBot"):
         self.client = client
@@ -326,8 +326,8 @@ class CoreCommands(commands.Cog):
             return
         await interaction.response.send_message(embed=home_embed(), view=HomeView(self.client, interaction.user.id), ephemeral=True)
 
-    @bot_tools.command(name="status", description="Проверить работу ядра бота")
-    async def bot_status(self, interaction: discord.Interaction) -> None:
+    @diagnostics_group.command(name="status", description="Проверить работу ядра бота")
+    async def status_command(self, interaction: discord.Interaction) -> None:
         if not await self._authorized(interaction):
             return
         ok = await self.client.database.ping()
@@ -336,8 +336,8 @@ class CoreCommands(commands.Cog):
             ephemeral=True,
         )
 
-    @bot_tools.command(name="modules", description="Показать фактический статус модулей")
-    async def bot_modules(self, interaction: discord.Interaction) -> None:
+    @diagnostics_group.command(name="modules", description="Показать фактический статус модулей")
+    async def modules_command(self, interaction: discord.Interaction) -> None:
         if not await self._authorized(interaction):
             return
         states = {"planned": "в планах", "active": "работает", "disabled": "отключён", "error": "ошибка"}
