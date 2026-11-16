@@ -152,3 +152,92 @@ def test_party_buttons_after_restart():
     assert v.timeout is None
     assert {x.name for x in PartyFinder.party.commands} >= {
         "create", "list", "join", "leave", "close", "settings", "configure"}
+
+
+@pytest.mark.asyncio
+async def test_membership_rolls_back_partial_roles_and_retries(tmp_path):
+    discord = pytest.importorskip("discord")
+    from app.modules.membership import Membership
+
+    class Role:
+        def __init__(self, role_id, position):
+            self.id = role_id
+            self.position = position
+
+        def __le__(self, other):
+            return self.position <= other.position
+
+    primary, female, candidate = Role(1001, 10), Role(1002, 9), Role(1003, 8)
+
+    class Member:
+        id = 500
+        name = "user"
+        pending = False
+        nick = None
+        top_role = Role(5000, 3)
+
+        def __init__(self):
+            self.roles = [candidate]
+            self.fail_female = True
+            self.messages = []
+
+        async def add_roles(self, role, reason):
+            if role is female and self.fail_female:
+                raise discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "Нет прав")
+            if role not in self.roles:
+                self.roles.append(role)
+
+        async def remove_roles(self, role, reason):
+            if role in self.roles:
+                self.roles.remove(role)
+
+        async def edit(self, *, nick, reason):
+            self.nick = nick
+
+        async def send(self, **kwargs):
+            self.messages.append(kwargs)
+
+    member = Member()
+    guild = SimpleNamespace(
+        id=GUILD_ID,
+        me=SimpleNamespace(top_role=Role(9999, 100),
+                           guild_permissions=SimpleNamespace(manage_roles=True)),
+        get_role=lambda rid: {primary.id: primary, female.id: female,
+                              candidate.id: candidate}.get(rid),
+        get_member=lambda uid: member if uid == member.id else None,
+    )
+    url = f"sqlite+aiosqlite:///{tmp_path / 'rollback.db'}"
+    migrate(url)
+    db = Database(url)
+    try:
+        for key, value in (("member_role_id", primary.id), ("female_role_id", female.id),
+                           ("candidate_role_id", candidate.id)):
+            await db.set_setting(GUILD_ID, key, value, actor_id=1)
+        app = await applications.submit(db, guild_id=GUILD_ID, user_id=member.id,
+            username="user", name="Катя", gender="female", age=20, inviter="Не знаю")
+        assert await applications.transition(db, app.id, expected=("pending",), target="approving",
+            actor_id=1, reason="Принят", decision="approve")
+
+        bot = SimpleNamespace(database=db, config=SimpleNamespace(guild_id=GUILD_ID),
+                              get_guild=lambda gid: guild if gid == GUILD_ID else None)
+        cog = Membership(bot)
+        text = await cog.execute(app.id)
+        assert "Доступ не подтверждён" in text
+        assert (await applications.get_application(db, app.id)).status == "action_failed"
+        assert primary not in member.roles and female not in member.roles
+        assert candidate in member.roles
+
+        member.fail_female = False
+        text = await cog.execute(app.id)
+        assert text.startswith("Кандидат принят")
+        row = await applications.get_application(db, app.id)
+        assert row.status == "approved"
+        assert (row.role_status, row.female_role_status, row.candidate_role_status) == (
+            "done", "done", "done")
+        assert primary in member.roles and female in member.roles and candidate not in member.roles
+        assert member.nick == "user | Катя"
+        assert len(member.messages) == 1
+        with sqlite3.connect(tmp_path / "rollback.db") as sql:
+            assert sql.execute("SELECT count(*) FROM outbox_events WHERE kind='membership.approved'").fetchone()[0] == 1
+    finally:
+        await db.close()
