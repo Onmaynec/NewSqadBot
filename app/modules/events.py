@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from app.core.durations import parse_duration
 from app.core.permissions import can_manage_settings
-from app.models import MemberProgress, ModerationCase
+from app.models import MemberProgress
 from app.services import events as store
 from app.services.audit import log_event
 from app.services.membership_access import approved_member
@@ -131,15 +131,8 @@ class Events(commands.Cog):
         if (not isinstance(member, discord.Member) or member.bot
                 or member.guild.id != self.bot.config.guild_id):
             return False
-        role_id = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
-        if not await approved_member(self.bot.database, member, role_id):
-            return False
-        async with self.bot.database.sessions() as session:
-            banned = await session.scalar(select(ModerationCase.id).where(
-                ModerationCase.guild_id == member.guild.id, ModerationCase.user_id == member.id,
-                ModerationCase.kind == "ban",
-                ModerationCase.status.in_(("active", "external_active"))).limit(1))
-        return banned is None
+        candidate_id = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
+        return await approved_member(self.bot.database, member, candidate_id)
 
     async def _giveaway_eligible(self, member: discord.Member, giveaway) -> bool:
         if not await self._member(member):
