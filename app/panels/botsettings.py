@@ -37,6 +37,8 @@ CHANNEL_SLOTS = (
     ("ticket_panel_channel_id", "Канал панели тикетов"),
     ("ticket_category_channel_id", "Категория приватных тикетов"),
     ("ticket_log_channel_id", "Журнал тикетов"),
+    ("voice_lobby_channel_id", "Голосовой канал создания"),
+    ("voice_category_channel_id", "Категория голосовых комнат"),
 )
 
 
@@ -101,6 +103,10 @@ class HomeView(PrivateSettingsView):
     async def tickets(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_tickets_settings(interaction, self.client, self.owner_id)
 
+    @discord.ui.button(label="Голосовые комнаты", emoji="🎙️", style=discord.ButtonStyle.secondary, row=3)
+    async def voice_rooms(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_voice_settings(interaction, self.client, self.owner_id)
+
     @discord.ui.button(label="Уровни и XP", emoji="🏆", style=discord.ButtonStyle.secondary, row=3)
     async def leveling(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_leveling_settings(interaction, self.client, self.owner_id)
@@ -140,6 +146,60 @@ class HomeView(PrivateSettingsView):
         view.max_pages = pages
         view._buttons()
         await interaction.edit_original_response(embed=embed, view=view)
+
+
+class VoiceSettingsView(PrivateSettingsView):
+    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.success, row=0)
+    async def toggle(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        key = "voice_enabled"
+        current = bool(await self.client.database.get_setting(self.client.config.guild_id, key, True))
+        await self.client.database.set_setting(self.client.config.guild_id, key, not current,
+                                               actor_id=interaction.user.id)
+        await show_voice_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Канал создания", emoji="🎤", style=discord.ButtonStyle.secondary, row=0)
+    async def lobby(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=embed_card("NewSquad  /  Канал создания", "Выберите голосовой канал, вход в который "
+                "будет создавать временную комнату для одобренного участника."),
+            view=ValuePickerView(self.client, self.owner_id, "channel", "voice_lobby_channel_id"),
+        )
+
+    @discord.ui.button(label="Категория комнат", emoji="📂", style=discord.ButtonStyle.secondary, row=0)
+    async def category(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=embed_card("NewSquad  /  Категория комнат", "Выберите категорию Discord, "
+                "в которой будут появляться новые голосовые каналы."),
+            view=ValuePickerView(self.client, self.owner_id, "channel", "voice_category_channel_id"),
+        )
+
+    @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=home_embed(), view=HomeView(self.client, self.owner_id))
+
+
+async def show_voice_settings(interaction: discord.Interaction, client: "NewSqadBot", owner_id: int) -> None:
+    from app.services import voice as store
+
+    gid = client.config.guild_id
+    enabled = await client.database.get_setting(gid, "voice_enabled", True)
+    lobby_id = await client.database.get_setting(gid, "voice_lobby_channel_id")
+    category_id = await client.database.get_setting(gid, "voice_category_channel_id")
+    max_rooms = await client.database.get_setting(gid, "voice_max_rooms", 30)
+    limit = await client.database.get_setting(gid, "voice_default_limit", 0)
+    active = len(await store.all_rooms(client.database, gid))
+    text = (
+        f"**Состояние:** {'включены' if enabled else 'отключены'}\n"
+        f"**Канал создания:** {f'<#{lobby_id}>' if lobby_id else 'не выбран'}\n"
+        f"**Категория голосовых комнат:** {category_id or 'не выбрана'}\n"
+        f"**Активных комнат:** {active} / {max_rooms}\n"
+        f"**Лимит по умолчанию:** {limit or 'без ограничений'}\n\n"
+        "Быстрая настройка: `/voice setup`, `/voice configure`.\n"
+        "Панель владельца комнаты: `/voice panel`.\n"
+        "Требуется роль участника и разрешения Manage Channels, Move Members у бота."
+    )
+    await interaction.response.edit_message(embed=embed_card("NewSquad  /  Голосовые комнаты", text),
+                                            view=VoiceSettingsView(client, owner_id))
 
 
 class EngagementSettingsView(PrivateSettingsView):
@@ -357,6 +417,7 @@ def home_embed() -> discord.Embed:
         "**Приветствия** — включение сообщений и ЛС.\n"
         "**Роли участников** — панели, автороли и награды.\n"
         "**Тикеты** — приватная поддержка с удалением после закрытия.\n"
+        "**Голосовые комнаты** — временные каналы и панель управления.\n"
         "**Уровни и XP** — начисление за общение и голосовую активность.\n"
         "**Профили** — интересы, игры и поиск компании.\n"
         "**Экономика** — кошелёк, награды, магазин.\n"
@@ -414,23 +475,29 @@ class RolePicker(discord.ui.RoleSelect):
 
 class ChannelPicker(discord.ui.ChannelSelect):
     def __init__(self, client: "NewSqadBot", owner_id: int, slot: str):
-        self.category_slot = slot == "ticket_category_channel_id"
+        self.category_slot = slot in {"ticket_category_channel_id", "voice_category_channel_id"}
+        self.voice_slot = slot == "voice_lobby_channel_id"
+        channel_type = (discord.ChannelType.category if self.category_slot else
+                        discord.ChannelType.voice if self.voice_slot else discord.ChannelType.text)
         super().__init__(
-            placeholder="Выберите категорию Discord" if self.category_slot else "Выберите текстовый канал",
+            placeholder=("Выберите категорию Discord" if self.category_slot else
+                         "Выберите голосовой канал" if self.voice_slot else "Выберите текстовый канал"),
             min_values=1,
             max_values=1,
-            channel_types=[discord.ChannelType.category if self.category_slot else discord.ChannelType.text],
+            channel_types=[channel_type],
         )
         self.client, self.owner_id, self.slot = client, owner_id, slot
 
     async def callback(self, interaction: discord.Interaction) -> None:
         selected = self.values[0]
         channel = interaction.guild.get_channel(selected.id) if interaction.guild else None
-        expected = discord.CategoryChannel if self.category_slot else discord.TextChannel
+        expected = (discord.CategoryChannel if self.category_slot else
+                    discord.VoiceChannel if self.voice_slot else discord.TextChannel)
         if not isinstance(channel, expected) or channel.guild.id != self.client.config.guild_id:
             await interaction.response.send_message(
                 "Выберите категорию Discord на сервере NewSquad."
-                if self.category_slot else "Выберите текстовый канал NewSquad.",
+                if self.category_slot else "Выберите голосовой канал NewSquad."
+                if self.voice_slot else "Выберите текстовый канал NewSquad.",
                 ephemeral=True,
             )
             return

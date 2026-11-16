@@ -17,6 +17,7 @@ PAGE_OPTIONS = (
     ("roles", "Роли", "Все назначенные роли Discord"),
     ("channels", "Каналы", "Каналы и категория приватных тикетов"),
     ("tickets", "Тикеты", "Параметры и категории обращений"),
+    ("voice", "Голосовые", "Лобби, категория и живые комнаты"),
     ("leveling", "Уровни", "XP, лимиты и исключённые каналы"),
     ("economy", "Экономика", "Баланс, награды, магазин и переводы"),
     ("quests", "Задания", "Дневные и недельные задания, награды и сброс"),
@@ -110,6 +111,19 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
                          f" · {('роль ' + str(c.support_role_id)) if c.support_role_id else 'общая поддержка'}")
         if not cats:
             lines.append("Категории не созданы")
+    elif page == "voice":
+        from app.services import voice as rooms_store
+
+        rooms = await rooms_store.all_rooms(bot.database, bot.config.guild_id)
+        lines = [
+            f"**Включены:** {'да' if settings.get('voice_enabled', True) else 'нет'}",
+            f"**Канал создания:** {f'<#{settings.get("voice_lobby_channel_id")}>' if settings.get('voice_lobby_channel_id') else 'не выбран'}",
+            f"**Категория комнат:** {settings.get('voice_category_channel_id') or 'не выбрана'}",
+            f"**Комнат:** {len(rooms)} / {settings.get('voice_max_rooms', 30)}",
+            f"**Лимит участников:** {settings.get('voice_default_limit', 0) or 'без лимита'}",
+            "", "Настроить: `/voice setup`, `/voice configure`.",
+            "Панель владельца: `/voice panel`.",
+        ]
     elif page == "leveling":
         values = {
             "leveling_enabled": ("Система", True),

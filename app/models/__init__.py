@@ -7,6 +7,7 @@ from app.models.moderation import ModerationAction, ModerationCase
 from app.models.progression import ExperienceAward, MemberProfile, MemberProgress
 from app.models.roles import LevelRoleReward, RolePanel, RolePanelOption, TemporaryRole, WelcomeDelivery
 from app.models.tickets import Ticket, TicketCategory, TicketEvent, TicketPanel, TicketParticipant
+from app.models.voice import VoiceRoom, VoiceRoomAccess
 
 __all__ = (
     "Base", "AuditEntry", "EventReceipt", "GuildSetting", "OutboxEvent", "ScheduledJob",
@@ -15,4 +16,5 @@ __all__ = (
     "Wallet", "CurrencyEntry", "ShopItem", "InventoryItem", "AchievementUnlock", "QuestClaim",
     "LevelRoleReward", "RolePanel", "RolePanelOption", "TemporaryRole", "WelcomeDelivery",
     "Ticket", "TicketCategory", "TicketEvent", "TicketPanel", "TicketParticipant",
+    "VoiceRoom", "VoiceRoomAccess",
 )

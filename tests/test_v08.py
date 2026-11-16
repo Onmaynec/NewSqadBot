@@ -13,7 +13,7 @@ from app.services import achievements, quests
 
 
 def test_catalog_and_timezone_periods():
-    assert VERSION == "0.8.0"
+    assert VERSION == "0.9.0"
     assert len(quests.CATALOG) == 6
     assert len(achievements.CATALOG) == 8
     assert len(quests.BY_CODE) == len(quests.CATALOG)
@@ -37,7 +37,7 @@ def test_receipt_migration_and_uniqueness(tmp_path):
     migrate(f"sqlite+aiosqlite:///{dbfile}")
     with sqlite3.connect(dbfile) as sql:
         sql.execute("PRAGMA foreign_keys=ON")
-        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0007_quests_achievements"
+        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0008_voice_rooms"
         tables = {row[0] for row in sql.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"quest_claims", "achievement_unlocks"} <= tables
         row = (GUILD_ID, 101, "daily_talk", "2026-11-16", "daily", 35, 25, 100)

@@ -25,6 +25,7 @@ class NewSqadBot(commands.Bot):
         intents = discord.Intents.none()
         intents.guilds = True
         intents.members = True
+        intents.voice_states = True
         intents.guild_messages = True
         intents.voice_states = True
         intents.message_content = config.message_content_intent
