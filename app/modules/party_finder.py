@@ -95,14 +95,17 @@ class PartyFinder(commands.Cog):
         if not is_approved(member, member_role_id):
             return False
         async with self.bot.database.sessions() as session:
-            latest = await session.scalar(select(Application.status).where(
+            latest = await session.scalar(select(Application.status, Application.decided_at).where(
                 Application.guild_id == member.guild.id, Application.user_id == member.id
             ).order_by(Application.id.desc()).limit(1))
             banned = await session.scalar(select(ModerationCase.id).where(
                 ModerationCase.guild_id == member.guild.id, ModerationCase.user_id == member.id,
                 ModerationCase.kind == "ban", ModerationCase.status.in_(("active", "external_active"))
             ).limit(1))
-        return latest == "approved" and banned is None
+        if latest is None or latest[0] != "approved" or banned is not None:
+            return False
+        return not (member.joined_at and latest[1] is not None
+                    and int(member.joined_at.timestamp()) > latest[1])
 
     async def enabled(self) -> bool:
         return bool(await self.bot.database.get_setting(self.bot.config.guild_id, "party_enabled", True))
