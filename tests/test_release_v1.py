@@ -19,7 +19,7 @@ from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, card, notice
 
 
 def test_version_theme_and_action_statuses():
-    assert VERSION == "1.1.0"
+    assert VERSION == "1.1.1"
     assert BRAND_BLUE == 0x4A86F7
     assert card("Информация").color == discord.Color(BRAND_BLUE)
     for kind in ("info", "success", "warning", "error"):
