@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import time
+from uuid import uuid4
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -171,7 +172,7 @@ async def change_status(db, *, guild_id: int, suggestion_id: int, actor_id: int,
             "status": status, "reason": reason,
         }, ensure_ascii=False)
         session.add(OutboxEvent(
-            id=f"suggestion-status-{suggestion_id}-{now}-{actor_id}",
+            id=f"suggestion-status-{suggestion_id}-{uuid4()}",
             kind="suggestions.status_changed", payload_json=payload, created_at=now,
         ))
     return await get(db, guild_id, suggestion_id)
