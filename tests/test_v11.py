@@ -14,6 +14,8 @@ import pytest
 from app.config import GUILD_ID, VERSION
 from app.core.catalog import implemented
 from app.core.database import Database, migrate
+from app.modules.events import EventView, Events, GiveawayView
+from app.panels.botsettings import HomeView
 from app.services import events as store
 
 
@@ -215,9 +217,6 @@ async def test_giveaway_restart_persists_entries_and_no_paid_operations(tmp_path
 
 
 def test_discord_views_and_commands_exist():
-    from app.modules.events import EventView, Events, GiveawayView
-    from app.panels.botsettings import HomeView
-
     event_view = EventView(object(), 12)
     draw_view = GiveawayView(object(), 7)
     assert event_view.timeout is None and draw_view.timeout is None
