@@ -8,7 +8,6 @@ import time
 import discord
 from discord import app_commands
 from discord.ext import commands
-from sqlalchemy import select
 
 from app.core.durations import parse_duration
 from app.core.permissions import can_manage_settings
