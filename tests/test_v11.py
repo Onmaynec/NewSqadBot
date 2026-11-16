@@ -8,6 +8,7 @@ import sqlite3
 import time
 from datetime import datetime
 
+import discord
 import pytest
 
 from app.config import GUILD_ID, VERSION
@@ -214,9 +215,6 @@ async def test_giveaway_restart_persists_entries_and_no_paid_operations(tmp_path
 
 
 def test_discord_views_and_commands_exist():
-    pytest.importorskip("discord")
-    import discord
-
     from app.modules.events import EventView, Events, GiveawayView
     from app.panels.botsettings import HomeView
 
