@@ -32,9 +32,9 @@ class Leveling(commands.Cog):
         self.voice_tick.cancel()
 
     async def approved(self, member: discord.Member) -> bool:
-        if member.guild.id != self.bot.config.guild_id or member.bot or member.pending:
+        if member.guild.id != self.bot.config.guild_id or member.bot:
             return False
-        role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
+        role_id = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
         return await approved_member(self.bot.database, member, role_id)
 
     async def _allowed(self, guild_id: int, kind: str) -> bool:
@@ -83,11 +83,11 @@ class Leveling(commands.Cog):
             return
         settings = await self._settings(guild.id)
         minute = int(time.time()) // 60
-        role_id = await self.bot.database.get_setting(guild.id, "member_role_id")
+        role_id = await self.bot.database.get_setting(guild.id, "candidate_role_id")
         for channel in guild.voice_channels:
             if channel == guild.afk_channel or channel.id in settings["excluded_channel_ids"]:
                 continue
-            eligible = [m for m in channel.members if not m.bot and not m.pending
+            eligible = [m for m in channel.members if not m.bot
                         and m.voice is not None and m.voice.channel == channel
                         and not m.voice.deaf and not m.voice.self_deaf
                         and await approved_member(self.bot.database, m, role_id)]
@@ -157,7 +157,7 @@ class Leveling(commands.Cog):
     async def top(self, interaction: discord.Interaction) -> None:
         guild = interaction.guild
         rows = await progress.top(self.bot.database, self.bot.config.guild_id, limit=25)
-        member_role = await self.bot.database.get_setting(self.bot.config.guild_id, "member_role_id")
+        member_role = await self.bot.database.get_setting(self.bot.config.guild_id, "candidate_role_id")
         top = [(r, guild.get_member(r.user_id)) for r in rows]
         top = [(r, m) for r, m in top if m is not None and await approved_member(self.bot.database, m, member_role)][:10]
         description = "\n".join(
