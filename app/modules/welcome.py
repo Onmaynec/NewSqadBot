@@ -62,7 +62,7 @@ class Welcome(commands.Cog):
         self.bot.events.subscribe("membership.approved", "welcome.post_approval", self.on_approved)
 
     async def _member_role(self, guild_id: int) -> int | None:
-        return await self.bot.database.get_setting(guild_id, "member_role_id")
+        return await self.bot.database.get_setting(guild_id, "candidate_role_id")
 
     def _guild(self, guild_id: int) -> discord.Guild | None:
         if guild_id != self.bot.config.guild_id:
