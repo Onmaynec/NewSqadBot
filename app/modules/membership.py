@@ -330,9 +330,11 @@ class Membership(commands.Cog):
                 return f"Проверка ролей не пройдена: {exc}. Исправьте настройки и повторите."
 
             added_female = False
+            member_role_touched = False
             try:
                 if role not in member.roles:
                     await member.add_roles(role, reason=f"[NSB-APPLICATION-{app_id:04d}] Одобрение")
+                member_role_touched = True
                 await store.step(self.bot.database, app_id, "role_status", "done")
                 if female is not None:
                     if female not in member.roles:
@@ -350,7 +352,7 @@ class Membership(commands.Cog):
                 log.exception("Не завершена выдача доступа application_id=%s", app_id)
                 rollback_errors = []
                 try:
-                    if role in member.roles:
+                    if member_role_touched:
                         await member.remove_roles(role, reason=f"[NSB-APPLICATION-{app_id:04d}] Откат")
                     await store.step(self.bot.database, app_id, "role_status", "pending")
                 except discord.HTTPException as rollback_exc:
@@ -389,14 +391,7 @@ class Membership(commands.Cog):
                     await store.step(self.bot.database, app_id, "dm_status", "done")
                 except discord.HTTPException:
                     await store.step(self.bot.database, app_id, "dm_status", "failed")
-            # При сбое внешних уведомлений решение остаётся принятым.
-            # Повторная публикация события безопасна благодаря постоянному event_id.
-            try:
-                await self.bot.events.publish("membership.approved", {
-                    "guild_id": app.guild_id, "user_id": app.user_id, "application_id": app_id,
-                }, event_id=f"membership-approved-{app_id}")
-            except Exception:
-                log.exception("Не опубликовано событие одобрения application_id=%s", app_id)
+            # Durable-событие сохранено атомарно с APPROVED в store.transition.
             try:
                 await log_event(self.bot, channel_setting="membership_audit_channel_id",
                     title=f"Заявка #{app_id:04d} одобрена",
