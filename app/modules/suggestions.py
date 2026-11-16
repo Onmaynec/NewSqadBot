@@ -65,7 +65,7 @@ class CreateSuggestionModal(LoggedModal, title="Предложение для Ne
 class CreateButton(discord.ui.Button):
     def __init__(self, cog: Suggestions):
         super().__init__(
-            label="Предложить идею", style=discord.ButtonStyle.success,
+            label="Предложить идею", style=discord.ButtonStyle.primary,
             custom_id="newsqad:suggest:create",
         )
         self.cog = cog
@@ -89,7 +89,7 @@ class VoteButton(discord.ui.Button):
     def __init__(self, cog: Suggestions, suggestion_id: int,
                  action: Literal["up", "down", "discuss"], *, closed: bool = False):
         specs = {
-            "up": ("За", discord.ButtonStyle.success),
+            "up": ("За", discord.ButtonStyle.primary),
             "down": ("Против", discord.ButtonStyle.danger),
             "discuss": ("Обсудить", discord.ButtonStyle.secondary),
         }

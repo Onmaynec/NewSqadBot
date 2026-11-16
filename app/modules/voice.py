@@ -95,6 +95,8 @@ class RoomControls(LoggedView):
         self.cog, self.channel_id = cog, channel_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         room = await store.by_channel(self.cog.bot.database, interaction.guild_id or 0, self.channel_id)
         admin = can_manage_settings(interaction, self.cog.bot.config.owner_ids)
         owner = (room is not None and room.owner_id == interaction.user.id
@@ -120,7 +122,7 @@ class RoomControls(LoggedView):
         channel = interaction.guild.get_channel(self.channel_id)
         await interaction.edit_original_response(embed=describe_room(room, channel), view=RoomControls(self.cog, self.channel_id))
 
-    @discord.ui.button(label="Закрыть / Открыть вход", emoji="🔒", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Закрыть / Открыть вход", emoji="🔒", style=discord.ButtonStyle.primary, row=0)
     async def lock(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._toggle(interaction, "locked")
 

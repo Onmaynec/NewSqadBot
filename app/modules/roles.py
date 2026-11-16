@@ -21,7 +21,7 @@ from app.services.role_rules import (
     role_safe_for_self_assign,
     validate_panel,
 )
-from app.ui.theme import BRAND_GREEN, LoggedView
+from app.ui.theme import BRAND_BLUE, LoggedView
 
 log = logging.getLogger(__name__)
 PROTECTED_SLOTS = (
@@ -32,7 +32,7 @@ PROTECTED_SLOTS = (
 
 def panel_embed(panel: RolePanel) -> discord.Embed:
     e = discord.Embed(title=f"NewSquad  /  {discord.utils.escape_mentions(panel.title)}",
-        description=discord.utils.escape_mentions(panel.description), color=BRAND_GREEN)
+        description=discord.utils.escape_mentions(panel.description), color=BRAND_BLUE)
     e.set_footer(text="NewSquad · Выбранные роли можно изменить в этом меню")
     return e
 

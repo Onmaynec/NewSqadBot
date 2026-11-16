@@ -9,13 +9,24 @@ import sys
 import threading
 
 
+def _redact(text: str, *, token: str) -> str:
+    """Не записывать в Docker-журнал токен, webhook-секрет или заголовок Auth."""
+    if token:
+        text = text.replace(token, "[REDACTED]")
+    text = re.sub(
+        r"(?i)(authorization\s*[:=]\s*(?:bot|bearer)\s+)\S+",
+        r"\1[REDACTED]", text,
+    )
+    return re.sub(
+        r"(?i)(https?://(?:discord(?:app)?\.com)/api(?:/v\d+)?/webhooks/\d+/)[\w.-]+",
+        r"\1[REDACTED]", text,
+    )
+
+
 class DockerFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         formatted = super().format(record)
-        token = os.getenv("DISCORD_TOKEN", "").strip()
-        if token:
-            formatted = formatted.replace(token, "[REDACTED]")
-        return re.sub(r"(?i)(authorization\s*[:=]\s*bot\s+)\S+", r"\1[REDACTED]", formatted)
+        return _redact(formatted, token=os.getenv("DISCORD_TOKEN", "").strip())
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
         timestamp = dt.datetime.fromtimestamp(record.created, dt.timezone.utc)
@@ -32,9 +43,7 @@ class SecretFilter(logging.Filter):
             raw = record.getMessage()
         except Exception:
             raw = "<ошибка форматирования строки лога>"
-        if self.token:
-            raw = raw.replace(self.token, "[REDACTED]")
-        raw = re.sub(r"(?i)(authorization\s*[:=]\s*bot\s+)\S+", r"\1[REDACTED]", raw)
+        raw = _redact(raw, token=self.token)
         record.msg = raw
         record.args = ()
         return True

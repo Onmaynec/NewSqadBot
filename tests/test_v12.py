@@ -29,7 +29,7 @@ def test_v12_schema_and_discord_components(tmp_path):
     url = database_url(tmp_path)
     migrate(url)
     migrate(url)
-    assert VERSION == "0.13.0"
+    assert VERSION == "1.0.0"
     assert implemented("suggestions")
     with sqlite3.connect(tmp_path / "suggestions.db") as conn:
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0012_statistics"
@@ -275,7 +275,7 @@ async def test_publish_uses_persistent_buttons_and_safe_mentions(monkeypatch):
     assert await cog._publish(item)
     kwargs = channel.send.await_args.kwargs
     assert kwargs["allowed_mentions"].everyone is False
-    assert kwargs["embed"].color.value == 0x4CCE91
+    assert kwargs["embed"].color.value == 0x4A86F7
     assert "@everyone" not in kwargs["embed"].description
     bot.add_view.assert_called_once()
 
@@ -294,5 +294,5 @@ def test_input_safety_and_rendering():
         thread_id=None,
     )
     embed = suggestion_embed(item)
-    assert embed.color.value == 0x4CCE91
+    assert embed.color.value == 0x4A86F7
     assert embed.fields[2].value == "На рассмотрении"

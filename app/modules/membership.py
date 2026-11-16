@@ -14,7 +14,7 @@ from app.core.durations import nickname
 from app.core.permissions import can_manage_settings
 from app.services import applications as store
 from app.services.audit import log_event
-from app.ui.theme import BRAND_GREEN, LoggedModal, LoggedView
+from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView
 
 log = logging.getLogger(__name__)
 
@@ -33,9 +33,10 @@ def application_embed(app) -> discord.Embed:
                   "approving": "Одобрение выполняется", "rejecting": "Отказ выполняется",
                   "approved": "Одобрена", "rejected": "Отклонена", "withdrawn": "Отозвана",
                   "action_failed": "Требуется вмешательство"}
-    e = discord.Embed(title=f"NewSquad  /  Заявка #{app.id:04d}", color=BRAND_GREEN)
-    e.description = "Анкета на вступление в закрытое сообщество. Решение принимает администрация."
-    e.add_field(name="Кандидат", value=f"<@{app.user_id}> (`{app.user_id}`)", inline=False)
+    e = discord.Embed(title=f"NewSquad  /  Заявка #{app.id:04d}", color=BRAND_BLUE)
+    e.description = ("**Рассмотрение кандидата**\n"
+                     "Проверьте ответы, затем возьмите заявку в работу и примите решение.")
+    e.add_field(name="Участник", value=f"<@{app.user_id}>  •  `{app.user_id}`", inline=False)
     e.add_field(name="Discord", value=discord.utils.escape_markdown(app.username), inline=False)
     e.add_field(name="Имя", value=discord.utils.escape_markdown(app.name), inline=True)
     e.add_field(name="Пол", value="Женский" if app.gender == "female" else "Мужской", inline=True)
@@ -47,7 +48,7 @@ def application_embed(app) -> discord.Embed:
     if app.decision_reason:
         e.add_field(name="Решение", value=discord.utils.escape_mentions(app.decision_reason[:500]), inline=False)
     if app.last_error:
-        e.add_field(name="Ошибка выполнения", value=app.last_error[:500], inline=False)
+        e.add_field(name="Не завершено", value=discord.utils.escape_mentions(app.last_error[:500]), inline=False)
     e.set_footer(text="NewSquad • Только для администрации • Данные анкеты")
     return e
 
@@ -112,7 +113,7 @@ class ApplyPanel(LoggedView):
         super().__init__(timeout=None)
         self.cog = cog
 
-    @discord.ui.button(label="Подать заявку", style=discord.ButtonStyle.success,
+    @discord.ui.button(label="Подать заявку", style=discord.ButtonStyle.primary,
                        custom_id="newsqad:membership:apply")
     async def apply(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if interaction.guild_id != self.cog.bot.config.guild_id:
@@ -149,6 +150,8 @@ class ReviewView(LoggedView):
                 child.custom_id = f"newsqad:membership:{child.custom_id}:{app_id}"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if not await self.cog.can_review(interaction):
             await interaction.response.send_message("Нет прав на рассмотрение заявок.", ephemeral=True)
             return False
@@ -162,7 +165,7 @@ class ReviewView(LoggedView):
         await self.cog.refresh(self.app_id)
         await interaction.followup.send("Заявка закреплена за вами." if updated else "Уже находится в работе или завершена.", ephemeral=True)
 
-    @discord.ui.button(label="Одобрить", style=discord.ButtonStyle.success, custom_id="approve", row=0)
+    @discord.ui.button(label="Одобрить", style=discord.ButtonStyle.primary, custom_id="approve", row=0)
     async def approve(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
         result = await self.cog.decide(interaction, self.app_id, approve=True, reason="Одобрено")
@@ -387,7 +390,7 @@ class Membership(commands.Cog):
                         title="✅ NewSquad · Заявка одобрена",
                         description=(f"Ваша заявка **#{app_id:04d}** принята.\n"
                                      "Вам открыт доступ к сообществу. Добро пожаловать!"),
-                        color=BRAND_GREEN))
+                        color=BRAND_BLUE))
                     await store.step(self.bot.database, app_id, "dm_status", "done")
                 except discord.HTTPException:
                     await store.step(self.bot.database, app_id, "dm_status", "failed")
@@ -408,7 +411,7 @@ class Membership(commands.Cog):
                     description=(f"Заявка **#{app_id:04d}** отклонена.\n"
                                  f"**Причина:** {discord.utils.escape_mentions(app.decision_reason or 'Не указана')}\n\n"
                                  "Доступ к серверу будет закрыт."),
-                    color=BRAND_GREEN), allowed_mentions=discord.AllowedMentions.none())
+                    color=BRAND_BLUE), allowed_mentions=discord.AllowedMentions.none())
                 await store.step(self.bot.database, app_id, "dm_status", "done")
             except discord.HTTPException:
                 await store.step(self.bot.database, app_id, "dm_status", "failed")
@@ -437,7 +440,7 @@ class Membership(commands.Cog):
             return
         await channel.send(embed=discord.Embed(title="NewSquad · Вступление",
             description="Заполните анкету: имя, пол, возраст и кто пригласил. После рассмотрения вы получите доступ к сообществу.",
-            color=BRAND_GREEN), view=ApplyPanel(self))
+            color=BRAND_BLUE), view=ApplyPanel(self))
         await interaction.response.send_message("Панель опубликована.", ephemeral=True)
 
     @membership_commands.command(name="applications", description="Список активных заявок")

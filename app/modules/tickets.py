@@ -13,7 +13,7 @@ from app.core.permissions import can_manage_settings
 from app.models import Ticket, TicketCategory
 from app.services import tickets as store
 from app.services.membership_access import approved_member
-from app.ui.theme import BRAND_GREEN, LoggedModal, LoggedView, card, notice
+from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, card, notice
 
 log = logging.getLogger(__name__)
 
@@ -26,9 +26,9 @@ async def report_ticket_ui_error(interaction: discord.Interaction, error: Except
     try:
         message = "Ошибка обработки обращения. Повторите попытку или сообщите администрации."
         if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
+            await interaction.followup.send(embed=notice(message, kind="error"), ephemeral=True)
         else:
-            await interaction.response.send_message(message, ephemeral=True)
+            await interaction.response.send_message(embed=notice(message, kind="error"), ephemeral=True)
     except discord.HTTPException:
         log.exception("Не удалось отправить сообщение об ошибке тикета interaction=%s", interaction.id)
 
@@ -36,8 +36,8 @@ async def report_ticket_ui_error(interaction: discord.Interaction, error: Except
 def ticket_embed(ticket: Ticket, category: TicketCategory | None = None) -> discord.Embed:
     labels = {"creating": "Создаётся", "open": "Открыт", "closing": "Закрывается",
               "closed": "Закрыт", "failed": "Ошибка"}
-    e = card(f"Обращение #{ticket.id:05d} · {labels.get(ticket.status, ticket.status)}",
-        discord.utils.escape_mentions(ticket.description[:1500]))
+    e = card(f"NewSquad  /  Обращение #{ticket.id:05d}",
+        f"**Описание обращения**\n{discord.utils.escape_mentions(ticket.description[:1500])}")
     e.add_field(name="Тема обращения", value=discord.utils.escape_mentions(ticket.subject), inline=False)
     e.add_field(name="Категория", value=category.title if category else str(ticket.category_id))
     e.add_field(name="Автор", value=f"<@{ticket.user_id}>")
@@ -45,7 +45,7 @@ def ticket_embed(ticket: Ticket, category: TicketCategory | None = None) -> disc
     e.add_field(name="Ответственный", value=f"<@{ticket.assignee_id}>" if ticket.assignee_id else "Не назначен")
     if ticket.close_reason:
         e.add_field(name="Причина закрытия", value=discord.utils.escape_mentions(ticket.close_reason[:500]), inline=False)
-    e.set_footer(text="NewSquad • Приватное обращение • При закрытии канал удаляется")
+    e.set_footer(text="NEW SQUAD  •  Поддержка  /  Приватное обращение")
     return e
 
 
@@ -54,7 +54,7 @@ class TicketOpenView(LoggedView):
         super().__init__(timeout=None)
         self.cog = cog
 
-    @discord.ui.button(label="Открыть обращение", emoji="📩", style=discord.ButtonStyle.success,
+    @discord.ui.button(label="Открыть обращение", emoji="📩", style=discord.ButtonStyle.primary,
                        custom_id="newsqad:tickets:open")
     async def open(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if interaction.guild_id != self.cog.bot.config.guild_id or not interaction.message:
@@ -159,6 +159,8 @@ class ConfirmTicketDeletion(LoggedView):
         self.cog, self.ticket_id, self.owner_id = cog, ticket_id, owner_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message(embed=notice("Это подтверждение открыто другим участником.",
                 kind="warning"), ephemeral=True)
@@ -193,7 +195,7 @@ class TicketActions(LoggedView):
     async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
         await report_ticket_ui_error(interaction, error, f"управление тикетом #{self.ticket_id}")
 
-    @discord.ui.button(label="Взять в работу", style=discord.ButtonStyle.success, custom_id="claim")
+    @discord.ui.button(label="Взять в работу", style=discord.ButtonStyle.primary, custom_id="claim")
     async def claim(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         if not await self.cog.staff(interaction):
             await interaction.response.send_message("Нет прав на обработку обращений.", ephemeral=True)
@@ -546,7 +548,7 @@ class Tickets(commands.Cog):
             "\n".join(f"#{c.id} · **{c.title}** — {'активна' if c.enabled else 'отключена'}"
                 f"{' · доступна кандидатам' if c.candidate_allowed else ''}" for c in cats))
         await interaction.response.send_message(embed=discord.Embed(title="Настройки тикетов", description=description,
-            color=BRAND_GREEN), ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+            color=BRAND_BLUE), ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
     @tickets.command(name="limit", description="Установить лимит открытых тикетов на человека")
     async def limit(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 10]) -> None:

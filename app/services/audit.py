@@ -8,7 +8,7 @@ import time
 import discord
 
 from app.models import AuditEntry
-from app.ui.theme import BRAND_GREEN
+from app.ui.theme import BRAND_BLUE
 
 log = logging.getLogger(__name__)
 
@@ -28,8 +28,8 @@ async def log_event(bot, *, channel_setting: str, title: str, details: str,
     if not isinstance(channel, discord.TextChannel):
         log.warning("Журнал %s не настроен или недоступен: %s", channel_setting, channel_id)
         return
-    embed = discord.Embed(title=f"NewSquad  /  {title}",
-        description=discord.utils.escape_mentions(details[:3900]), color=BRAND_GREEN)
+    embed = discord.Embed(title=f"NewSquad  /  Журнал  /  {title}",
+        description=discord.utils.escape_mentions(details[:3900]), color=BRAND_BLUE)
     embed.set_footer(text=f"Журнал сервера • {action}")
     try:
         await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
