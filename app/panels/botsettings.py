@@ -12,7 +12,7 @@ from app.config import VERSION
 from app.core.catalog import MODULES
 from app.core.permissions import can_manage_settings
 from app.models import RolePanel
-from app.ui.theme import LoggedView, card
+from app.ui.theme import LoggedView, card, notice
 
 if TYPE_CHECKING:
     from app.bot import NewSqadBot
@@ -59,7 +59,7 @@ class PrivateSettingsView(LoggedView):
         if not await super().interaction_check(interaction):
             return False
         if interaction.user.id != self.owner_id or not can_manage_settings(interaction, self.client.config.owner_ids):
-            await interaction.response.send_message("Эта панель доступна только администратору, который её открыл.", ephemeral=True)
+            await interaction.response.send_message(embed=notice("Эта панель доступна только администратору, который её открыл.", kind="warning"), ephemeral=True)
             return False
         return True
 
@@ -568,28 +568,20 @@ class BackView(PrivateSettingsView):
 
 def home_embed() -> discord.Embed:
     return embed_card(
-        "NewSquad · Настройки бота",
-        "**Центр управления NewSqadBot**\n"
-        "Все настройки работают только на сервере NewSquad.\n\n"
-        "**Состояние** — подключение и база данных.\n"
-        "**Модули** — фактическая готовность функций.\n"
-        "**Роли** — назначение служебных ролей.\n"
-        "**Каналы** — настройка рабочих каналов.\n"
-        "**Приветствия** — включение сообщений и ЛС.\n"
-        "**Роли участников** — панели, автороли и награды.\n"
-        "**Тикеты** — приватная поддержка с удалением после закрытия.\n"
-        "**Голосовые комнаты** — временные каналы и панель управления.\n"
-        "**Уровни и XP** — начисление за общение и голосовую активность.\n"
-        "**Профили** — интересы, игры и поиск компании.\n"
-        "**Экономика** — кошелёк, награды, магазин.\n"
-        "**Задания** — ежедневная и еженедельная активность.\n"
-        "**Достижения** — постоянные награды участников.\n"
-        "**Статистика** — активность по дням и рейтинги.\n"
-        "**Предложения** — идеи, голоса, обсуждение и решения.\n"
-        "**Все настройки** — единый обзор ролей, каналов, категорий и параметров.\n\n"
-        "Изменение доступно в соответствующих разделах.",
+        "NewSquad  /  Центр управления",
+        "**Панель администратора**\n"
+        "Все разделы связаны с настройками сервера. Выберите нужную кнопку ниже.\n\n"
+        "**01  /  Сервер и безопасность**\n"
+        "Состояние, модули, роли, каналы и полный обзор.\n\n"
+        "**02  /  Участники и поддержка**\n"
+        "Membership, приветствия, роли участников, тикеты и профили.\n\n"
+        "**03  /  Активность сообщества**\n"
+        "Голосовые комнаты, уровни, экономика, достижения, задания и статистика.\n\n"
+        "**04  /  Общение и мероприятия**\n"
+        "Мероприятия, предложения, поиск группы и сопутствующие настройки.\n\n"
+        "**Доступ**  •  Только администрация\n"
+        "**Изменения**  •  Сохраняются в базе и журнале",
     )
-
 
 class SlotMenu(discord.ui.Select):
     def __init__(self, client: "NewSqadBot", owner_id: int, slot_type: str):
