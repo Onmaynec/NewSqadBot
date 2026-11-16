@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 
-from sqlalchemy import case, delete, select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.models import PartyListing, PartyMember
@@ -61,17 +61,10 @@ async def create(db, *, guild_id: int, owner_id: int, game: str, description: st
 
 
 async def join(db, guild_id: int, party_id: int, user_id: int) -> PartyListing:
+    """Получаем место атомарным UPDATE первым, без SQLite read→write deadlock."""
     now = int(time.time())
     try:
         async with db.session() as session:
-            listing = await session.scalar(select(PartyListing).where(
-                PartyListing.id == party_id, PartyListing.guild_id == guild_id))
-            if listing is None or listing.status not in ACTIVE or listing.expires_at <= now:
-                raise ValueError("Объявление закрыто или срок поиска истёк.")
-            exists = await session.scalar(select(PartyMember.id).where(
-                PartyMember.party_id == party_id, PartyMember.user_id == user_id))
-            if exists is not None:
-                raise ValueError("Вы уже состоите в этой группе.")
             result = await session.execute(update(PartyListing).where(
                 PartyListing.id == party_id, PartyListing.guild_id == guild_id,
                 PartyListing.status == "open", PartyListing.expires_at > now,
@@ -82,12 +75,17 @@ async def join(db, guild_id: int, party_id: int, user_id: int) -> PartyListing:
                 updated_at=now,
             ))
             if result.rowcount != 1:
+                exists = await session.scalar(select(PartyMember.id).where(
+                    PartyMember.party_id == party_id, PartyMember.user_id == user_id))
+                if exists is not None:
+                    raise ValueError("Вы уже состоите в этой группе.")
                 raise ValueError("Свободных мест больше нет или объявление закрыто.")
+            # Уникальный ключ защищает от двойного нажатия; rollback
+            # откатывает и счётчик, если пользователь уже состоит в группе.
             session.add(PartyMember(party_id=party_id, user_id=user_id, joined_at=now))
     except IntegrityError as exc:
         raise ValueError("Вы уже состоите в группе.") from exc
     return await get(db, guild_id, party_id)
-
 
 async def leave(db, guild_id: int, party_id: int, user_id: int) -> PartyListing:
     now = int(time.time())
