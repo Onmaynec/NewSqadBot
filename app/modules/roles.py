@@ -17,10 +17,10 @@ from app.models import LevelRoleReward, RolePanel, RolePanelOption, TemporaryRol
 from app.services.audit import log_event
 from app.services.role_rules import (
     forbidden_role_ids,
-    is_approved,
     role_safe_for_self_assign,
     validate_panel,
 )
+from app.services.membership_access import approved_member
 from app.ui.theme import BRAND_GREEN, LoggedView
 
 log = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ class Roles(commands.Cog):
         except discord.NotFound:
             return None
         member_role_id = await self.bot.database.get_setting(guild.id, "member_role_id")
-        return member if is_approved(member, member_role_id) else None
+        return member if await approved_member(self.bot.database, member, member_role_id) else None
 
     async def _panel_data(self, panel_id: int):
         async with self.bot.database.sessions() as session:
@@ -410,7 +410,7 @@ class Roles(commands.Cog):
     async def add(self, interaction: discord.Interaction, user: discord.Member, role: discord.Role) -> None:
         if not await self._admin(interaction):
             return
-        if not await self._role_allowed(interaction.guild, role) or not is_approved(user, await self.bot.database.get_setting(interaction.guild_id, "member_role_id")):
+        if not await self._role_allowed(interaction.guild, role) or not await approved_member(self.bot.database, user, await self.bot.database.get_setting(interaction.guild_id, "member_role_id")):
             await interaction.response.send_message("Недоступная роль или участник не одобрен.", ephemeral=True)
             return
         try:
@@ -444,7 +444,7 @@ class Roles(commands.Cog):
     async def temporary(self, interaction: discord.Interaction, user: discord.Member, role: discord.Role, duration: str) -> None:
         if not await self._admin(interaction):
             return
-        if not await self._role_allowed(interaction.guild, role) or not is_approved(user, await self.bot.database.get_setting(interaction.guild_id, "member_role_id")):
+        if not await self._role_allowed(interaction.guild, role) or not await approved_member(self.bot.database, user, await self.bot.database.get_setting(interaction.guild_id, "member_role_id")):
             await interaction.response.send_message("Недоступная роль или участник не одобрен.", ephemeral=True)
             return
         try:
