@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, time as day_time
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
@@ -68,7 +68,7 @@ def period_bounds(now: int, timezone: str, frequency: str) -> tuple[str, int, in
         raise ValueError("Частота должна быть daily или weekly")
 
     def stamp(day: date) -> int:
-        return int(datetime.combine(day, day_time.min, zone).timestamp())
+        return int(datetime.combine(day, datetime.min.time(), zone).timestamp())
 
     return begin.isoformat(), stamp(begin), stamp(end)
 
