@@ -14,7 +14,7 @@ import pytest
 from app.config import GUILD_ID, VERSION
 from app.core.catalog import implemented
 from app.core.database import Database, migrate
-from app.modules.events import EventView, Events, GiveawayView
+from app.modules.events import Events, EventView, GiveawayView
 from app.panels.botsettings import HomeView
 from app.services import events as store
 
