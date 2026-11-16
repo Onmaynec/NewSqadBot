@@ -9,8 +9,8 @@ from discord.ext import commands
 
 from app.core.permissions import can_manage_settings
 from app.services import achievements as store
-from app.services.profiles import get_profile
 from app.services.membership_access import approved_member
+from app.services.profiles import get_profile
 from app.ui.theme import LoggedView, card, notice
 
 log = logging.getLogger(__name__)
