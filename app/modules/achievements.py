@@ -53,7 +53,7 @@ class AchievementBoardView(LoggedView):
         await interaction.response.defer()
         await self.cog.update_message(interaction)
 
-    @discord.ui.button(label="Получить доступные награды", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Получить доступные награды", style=discord.ButtonStyle.primary)
     async def collect(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.defer(ephemeral=True)
         if not await self.cog.bot.database.get_setting(interaction.guild_id, "achievements_enabled", True) or (
