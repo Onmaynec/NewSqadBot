@@ -50,7 +50,7 @@ class PartyButton(discord.ui.Button):
     def __init__(self, cog: "PartyFinder", party_id: int, action: str, *, disabled: bool = False):
         labels = {"join": "Присоединиться", "leave": "Покинуть",
                   "members": "Участники", "close": "Закрыть"}
-        styles = {"join": discord.ButtonStyle.success, "leave": discord.ButtonStyle.secondary,
+        styles = {"join": discord.ButtonStyle.primary, "leave": discord.ButtonStyle.secondary,
                   "members": discord.ButtonStyle.primary, "close": discord.ButtonStyle.danger}
         super().__init__(label=labels[action], style=styles[action],
                          custom_id=f"newsqad:party:{party_id}:{action}", disabled=disabled)
