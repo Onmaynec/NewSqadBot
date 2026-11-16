@@ -34,6 +34,7 @@ class Application(Base):
     female_role_status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
     nickname_status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
     kick_status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
+    candidate_role_status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False)
     last_error: Mapped[str | None] = mapped_column(Text)
 
 
