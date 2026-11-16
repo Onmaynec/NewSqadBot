@@ -118,7 +118,8 @@ async def event_signups(db, event_id: int, *, status: str | None = None) -> list
         stmt = select(EventSignup).where(EventSignup.event_id == event_id)
         if status:
             stmt = stmt.where(EventSignup.status == status)
-        return list((await session.scalars(stmt.order_by(EventSignup.registered_at, EventSignup.id)))).all())
+        rows = await session.scalars(stmt.order_by(EventSignup.registered_at, EventSignup.id))
+        return list(rows.all())
 
 
 async def register(db, guild_id: int, event_id: int, user_id: int, *, now: int | None = None) -> str:
@@ -315,8 +316,9 @@ async def open_giveaways(db, guild_id: int) -> list[Giveaway]:
 
 async def giveaway_entrants(db, giveaway_id: int) -> list[int]:
     async with db.sessions() as session:
-        return list((await session.scalars(select(GiveawayEntry.user_id).where(
-            GiveawayEntry.giveaway_id == giveaway_id).order_by(GiveawayEntry.id)))).all())
+        rows = await session.scalars(select(GiveawayEntry.user_id).where(
+            GiveawayEntry.giveaway_id == giveaway_id).order_by(GiveawayEntry.id))
+        return list(rows.all())
 
 
 async def enter_giveaway(db, guild_id: int, giveaway_id: int, user_id: int,
@@ -405,5 +407,6 @@ async def reroll_giveaway(db, *, guild_id: int, giveaway_id: int,
 
 async def giveaway_draws(db, giveaway_id: int) -> list[GiveawayDraw]:
     async with db.sessions() as session:
-        return list((await session.scalars(select(GiveawayDraw).where(
-            GiveawayDraw.giveaway_id == giveaway_id).order_by(GiveawayDraw.round)))).all())
+        rows = await session.scalars(select(GiveawayDraw).where(
+            GiveawayDraw.giveaway_id == giveaway_id).order_by(GiveawayDraw.round))
+        return list(rows.all())
