@@ -8,11 +8,9 @@ import time
 import discord
 from discord import app_commands
 from discord.ext import commands
-from sqlalchemy import select
 
 from app.core.durations import parse_duration
 from app.core.permissions import can_manage_settings
-from app.models import Application, ModerationCase
 from app.services import party_finder as store
 from app.services.role_rules import is_approved
 from app.ui.theme import LoggedView, card, notice
@@ -91,21 +89,8 @@ class PartyFinder(commands.Cog):
     async def permitted(self, member: discord.Member) -> bool:
         if not isinstance(member, discord.Member) or member.bot or member.guild.id != self.bot.config.guild_id:
             return False
-        member_role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
-        if not is_approved(member, member_role_id):
-            return False
-        async with self.bot.database.sessions() as session:
-            latest = (await session.execute(select(Application.status, Application.decided_at).where(
-                Application.guild_id == member.guild.id, Application.user_id == member.id
-            ).order_by(Application.id.desc()).limit(1))).one_or_none()
-            banned = await session.scalar(select(ModerationCase.id).where(
-                ModerationCase.guild_id == member.guild.id, ModerationCase.user_id == member.id,
-                ModerationCase.kind == "ban", ModerationCase.status.in_(("active", "external_active"))
-            ).limit(1))
-        if latest is None or latest[0] != "approved" or banned is not None:
-            return False
-        return not (member.joined_at and latest[1] is not None
-                    and int(member.joined_at.timestamp()) > latest[1])
+        candidate_role_id = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
+        return is_approved(member, candidate_role_id)
 
     async def enabled(self) -> bool:
         return bool(await self.bot.database.get_setting(self.bot.config.guild_id, "party_enabled", True))

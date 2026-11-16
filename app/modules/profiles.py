@@ -21,7 +21,7 @@ class Profiles(commands.Cog):
     async def member_ok(self, member: discord.Member) -> bool:
         if member.guild.id != self.bot.config.guild_id or member.bot:
             return False
-        role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
+        role_id = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
         return await approved_member(self.bot.database, member, role_id)
 
     async def ensure_owner(self, interaction: discord.Interaction) -> bool:

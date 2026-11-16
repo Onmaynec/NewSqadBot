@@ -28,9 +28,9 @@ class Economy(commands.Cog):
         bot.events.subscribe("leveling.level_up", "economy.level_reward", self.on_level_up)
 
     async def allowed(self, member: discord.Member) -> bool:
-        if member.guild.id != self.bot.config.guild_id or member.bot or member.pending:
+        if member.guild.id != self.bot.config.guild_id or member.bot:
             return False
-        role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
+        role_id = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
         return await approved_member(self.bot.database, member, role_id)
 
     async def member_check(self, interaction: discord.Interaction) -> bool:

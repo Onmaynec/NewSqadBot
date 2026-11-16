@@ -85,8 +85,12 @@ class ApplicationForm(LoggedModal, title="NewSquad — заявка на вст�
             inviter = clean(self.inviter_field.component.value, limit=120, allow_at=True)
             if gender not in ("male", "female"):
                 raise ValueError("Выберите один из вариантов пола.")
-            member_role_id = await self.cog.bot.database.get_setting(interaction.guild_id, "member_role_id")
-            if member_role_id and any(r.id == member_role_id for r in interaction.user.roles):
+            candidate_role_id = await self.cog.bot.database.get_setting(
+                interaction.guild_id, "candidate_role_id",
+            )
+            if candidate_role_id and not any(
+                role.id == candidate_role_id for role in interaction.user.roles
+            ):
                 raise ValueError("Вы уже являетесь участником NewSquad.")
         except ValueError as exc:
             await interaction.response.send_message(str(exc), ephemeral=True)

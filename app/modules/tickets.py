@@ -82,10 +82,10 @@ class TicketOpenView(LoggedView):
         if not categories:
             await interaction.followup.send("Категории пока не настроены.", ephemeral=True)
             return
-        if not isinstance(interaction.user, discord.Member) or interaction.user.pending:
+        if not isinstance(interaction.user, discord.Member):
             await interaction.followup.send("Завершите проверку правил сервера.", ephemeral=True)
             return
-        member_role = await self.cog.bot.database.get_setting(interaction.guild_id, "member_role_id")
+        member_role = await self.cog.bot.database.get_setting(interaction.guild_id, "candidate_role_id")
         if not await approved_member(self.cog.bot.database, interaction.user, member_role):
             categories = [c for c in categories if c.candidate_allowed]
         if not categories:
@@ -278,12 +278,12 @@ class Tickets(commands.Cog):
         guild = interaction.guild
         if guild is None or guild.id != self.bot.config.guild_id or not isinstance(interaction.user, discord.Member):
             return "Обращения доступны только на NewSquad."
-        if interaction.user.pending or not await self.bot.database.get_setting(guild.id, "tickets_enabled", True):
-            return "Сначала завершите проверку правил; поддержка может быть временно отключена."
+        if not await self.bot.database.get_setting(guild.id, "tickets_enabled", True):
+            return "Поддержка сейчас отключена администрацией."
         category = await store.category(self.bot.database, guild.id, category_id)
         if category is None or not category.enabled:
             return "Эта категория обращений больше не доступна."
-        member_role = await self.bot.database.get_setting(guild.id, "member_role_id")
+        member_role = await self.bot.database.get_setting(guild.id, "candidate_role_id")
         if not await approved_member(self.bot.database, interaction.user, member_role) and not category.candidate_allowed:
             return "Эта категория доступна только одобренным участникам NewSquad."
         support_id = category.support_role_id or await self.bot.database.get_setting(guild.id, "support_role_id")
@@ -645,7 +645,7 @@ class Tickets(commands.Cog):
         if not ticket or not await self.staff(interaction, ticket):
             await interaction.response.send_message("Нет прав.", ephemeral=True)
             return
-        role_id = await self.bot.database.get_setting(ticket.guild_id, "member_role_id")
+        role_id = await self.bot.database.get_setting(ticket.guild_id, "candidate_role_id")
         if not remove and not await approved_member(self.bot.database, member, role_id):
             await interaction.response.send_message("Добавлять можно только одобренных участников NewSquad.", ephemeral=True)
             return

@@ -20,7 +20,7 @@ def test_v010_schema(tmp_path):
     url = f"sqlite+aiosqlite:///{tmp_path / 'schema.db'}"
     migrate(url)
     migrate(url)
-    assert VERSION == "1.1.0"
+    assert VERSION == "1.1.1"
     assert implemented("party_finder")
     with sqlite3.connect(tmp_path / "schema.db") as db:
         db.execute("PRAGMA foreign_keys=ON")
@@ -124,18 +124,22 @@ async def test_membership_approval_outbox_and_rejoin_guard(tmp_path):
         member = SimpleNamespace(guild=SimpleNamespace(id=GUILD_ID), id=101, bot=False,
             pending=False, roles=[SimpleNamespace(id=1234)],
             joined_at=datetime.fromtimestamp(app.created_at-100, tz=timezone.utc))
-        assert not await approved_member(db, member, 1234)
+        # Теперь проверяется только наличие роли кандидата, а не состояние заявки.
+        assert await approved_member(db, member, 5678)
+        member.roles.append(SimpleNamespace(id=5678))
+        assert not await approved_member(db, member, 5678)
+        member.roles.pop()
         await applications.step(db, app.id, "candidate_role_status", "done")
         assert await applications.transition(db, app.id, expected=("approving",), target="approved",
             actor_id=5, reason="Доступ выдан")
-        assert await approved_member(db, member, 1234)
+        assert await approved_member(db, member, 5678)
         with sqlite3.connect(tmp_path / "membership.db") as sql:
             rows = sql.execute("SELECT id, kind FROM outbox_events").fetchall()
             assert rows == [(f"membership-approved-{app.id}", "membership.approved")]
         assert not await applications.transition(db, app.id, expected=("approving",), target="approved",
             actor_id=5, reason="Повтор")
         member.joined_at = datetime.fromtimestamp(int(time.time()) + 100, tz=timezone.utc)
-        assert not await approved_member(db, member, 1234)
+        assert await approved_member(db, member, 5678)
     finally:
         await db.close()
 

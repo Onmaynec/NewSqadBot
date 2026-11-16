@@ -109,9 +109,9 @@ class Achievements(commands.Cog):
             log.info("Открыты достижения guild=%s user=%s codes=%s", guild_id, user_id, ",".join(unlocked))
 
     async def approved(self, member: discord.Member) -> bool:
-        if member.guild.id != self.bot.config.guild_id or member.bot or member.pending:
+        if member.guild.id != self.bot.config.guild_id or member.bot:
             return False
-        role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
+        role_id = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
         return await approved_member(self.bot.database, member, role_id)
 
     async def user_check(self, interaction: discord.Interaction) -> bool:

@@ -10,9 +10,14 @@ DANGEROUS_PERMISSION_NAMES = (
 )
 
 
-def is_approved(member, member_role_id: int | None) -> bool:
-    return (bool(member_role_id) and not getattr(member, "pending", False)
-            and any(role.id == member_role_id for role in member.roles))
+def is_approved(member, candidate_role_id: int | None) -> bool:
+    """Участник авторизован, если у него НЕТ роли кандидата.
+
+    Прочие роли, флаг screening и история заявок не влияют на доступ.
+    Без настроенной роли кандидата проверка закрыта (fail-closed).
+    """
+    return (bool(candidate_role_id) and not getattr(member, "bot", False)
+            and not any(role.id == candidate_role_id for role in member.roles))
 
 
 def role_safe_for_self_assign(role, bot_member, forbidden_ids: set[int]) -> bool:

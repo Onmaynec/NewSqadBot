@@ -32,38 +32,46 @@ def make_cog(db=None, owner_ids=frozenset()):
 
 
 @pytest.mark.asyncio
-async def test_admin_can_create_without_membership_record(monkeypatch):
+async def test_voice_access_only_depends_on_candidate_role(monkeypatch):
     guild = SimpleNamespace(id=GUILD_ID, owner_id=101)
-    cog = make_cog(owner_ids=frozenset({103}))
-    membership = AsyncMock(return_value=False)
+    db = SimpleNamespace(get_setting=AsyncMock(return_value=777))
+    cog = make_cog(db=db, owner_ids=frozenset({103}))
+    membership = AsyncMock(side_effect=lambda db, member, role: member.id != 105)
     monkeypatch.setattr("app.modules.voice.approved_member", membership)
 
     assert await cog._approved(make_member(guild, 101))
     assert await cog._approved(make_member(guild, 102, admin=True))
     assert await cog._approved(make_member(guild, 103))
-    assert not await cog._approved(make_member(guild, 104))
+    assert await cog._approved(make_member(guild, 104))
+    assert not await cog._approved(make_member(guild, 105, admin=True))
     assert not await cog._approved(make_member(guild, 101, bot=True))
     stranger = SimpleNamespace(id=9999, owner_id=101)
     assert not await cog._approved(make_member(stranger, 101))
-    assert membership.await_count == 1
+    assert membership.await_count == 5
+    assert all(call.args[2] == 777 for call in membership.await_args_list)
 
 
 @pytest.mark.asyncio
-async def test_admin_private_room_without_member_role_is_safe():
+async def test_voice_room_excludes_candidates_without_any_member_role():
     guild = SimpleNamespace(id=GUILD_ID, owner_id=101, default_role=object())
     me = make_member(guild, 9999)
     me.guild_permissions = SimpleNamespace(manage_channels=True, move_members=True)
     guild.me = me
-    guild.get_role = lambda _id: None
-    cog = make_cog()
+    candidate = object()
+    guild.get_role = lambda role_id: candidate if role_id == 777 else None
+    db = SimpleNamespace(get_setting=AsyncMock(return_value=777))
+    cog = make_cog(db=db)
     owner = make_member(guild, 101)
     overwrites = await cog._access_overwrites(guild, owner)
-    assert overwrites[guild.default_role].connect is False
-    assert overwrites[guild.default_role].view_channel is False
+    assert overwrites[guild.default_role].connect is True
+    assert overwrites[guild.default_role].view_channel is True
+    assert overwrites[candidate].connect is False
+    assert overwrites[candidate].view_channel is False
     assert overwrites[owner].connect is True
     assert overwrites[me].manage_channels is True
-    assert len(overwrites) == 3  # @everyone запрещён, но участнику и боту доступ разрешён
-    with pytest.raises(ValueError, match="Назначьте роль участника"):
+    assert len(overwrites) == 4
+    guild.get_role = lambda _id: None
+    with pytest.raises(ValueError, match="роль кандидата"):
         await cog._access_overwrites(guild, make_member(guild, 105))
 
 
@@ -132,7 +140,7 @@ async def test_voice_creation_registers_and_moves_when_admitted(monkeypatch):
     guild.create_voice_channel.assert_awaited_once()
     registered.assert_awaited_once()
     member.move_to.assert_awaited_once_with(created, reason="NewSquad: создание временной комнаты")
-    assert VERSION == "1.1.0"
+    assert VERSION == "1.1.1"
 
 
 @pytest.mark.asyncio
@@ -152,4 +160,4 @@ async def test_unapproved_user_does_not_create_room(monkeypatch, caplog):
     with caplog.at_level("WARNING"):
         await cog._create_for(member, lobby)
     called.assert_not_awaited()
-    assert "нет одобренной заявки" in caplog.text
+    assert "роль кандидата" in caplog.text

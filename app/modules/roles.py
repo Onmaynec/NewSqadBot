@@ -106,7 +106,7 @@ class Roles(commands.Cog):
             member = await guild.fetch_member(user_id)
         except discord.NotFound:
             return None
-        member_role_id = await self.bot.database.get_setting(guild.id, "member_role_id")
+        member_role_id = await self.bot.database.get_setting(guild.id, "candidate_role_id")
         return member if await approved_member(self.bot.database, member, member_role_id) else None
 
     async def _panel_data(self, panel_id: int):
@@ -410,7 +410,7 @@ class Roles(commands.Cog):
     async def add(self, interaction: discord.Interaction, user: discord.Member, role: discord.Role) -> None:
         if not await self._admin(interaction):
             return
-        if not await self._role_allowed(interaction.guild, role) or not await approved_member(self.bot.database, user, await self.bot.database.get_setting(interaction.guild_id, "member_role_id")):
+        if not await self._role_allowed(interaction.guild, role) or not await approved_member(self.bot.database, user, await self.bot.database.get_setting(interaction.guild_id, "candidate_role_id")):
             await interaction.response.send_message("Недоступная роль или участник не одобрен.", ephemeral=True)
             return
         try:
@@ -444,7 +444,7 @@ class Roles(commands.Cog):
     async def temporary(self, interaction: discord.Interaction, user: discord.Member, role: discord.Role, duration: str) -> None:
         if not await self._admin(interaction):
             return
-        if not await self._role_allowed(interaction.guild, role) or not await approved_member(self.bot.database, user, await self.bot.database.get_setting(interaction.guild_id, "member_role_id")):
+        if not await self._role_allowed(interaction.guild, role) or not await approved_member(self.bot.database, user, await self.bot.database.get_setting(interaction.guild_id, "candidate_role_id")):
             await interaction.response.send_message("Недоступная роль или участник не одобрен.", ephemeral=True)
             return
         try:

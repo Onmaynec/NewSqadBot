@@ -11,7 +11,7 @@ from discord.ext import commands, tasks
 from sqlalchemy import select
 
 from app.core.permissions import can_manage_settings
-from app.models import MemberProgress, ModerationCase
+from app.models import MemberProgress
 from app.services import suggestions as store
 from app.services.audit import log_event
 from app.services.membership_access import approved_member
@@ -171,20 +171,10 @@ class Suggestions(commands.Cog):
                 or not isinstance(interaction.user, discord.Member)
                 or interaction.user.bot):
             return False
-        member = interaction.user
-        if self.is_staff(member):
-            return True
-        role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
-        if not await approved_member(self.bot.database, member, role_id):
-            return False
-        async with self.bot.database.sessions() as session:
-            banned = await session.scalar(select(ModerationCase.id).where(
-                ModerationCase.guild_id == member.guild.id,
-                ModerationCase.user_id == member.id,
-                ModerationCase.kind == "ban",
-                ModerationCase.status.in_(("active", "external_active")),
-            ).limit(1))
-        return banned is None
+        candidate_id = await self.bot.database.get_setting(
+            interaction.guild_id, "candidate_role_id",
+        )
+        return await approved_member(self.bot.database, interaction.user, candidate_id)
 
     async def check_level(self, member: discord.Member) -> bool:
         if self.is_staff(member):

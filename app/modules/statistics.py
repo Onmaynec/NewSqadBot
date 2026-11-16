@@ -108,19 +108,13 @@ class Statistics(commands.Cog):
         if (interaction.guild_id != self.bot.config.guild_id
                 or not isinstance(interaction.user, discord.Member) or interaction.user.bot):
             return False
-        if self.admin(interaction):
-            return True
-        role_id = await self.bot.database.get_setting(interaction.guild_id, "member_role_id")
+        role_id = await self.bot.database.get_setting(interaction.guild_id, "candidate_role_id")
         return await approved_member(self.bot.database, interaction.user, role_id)
 
     async def approved_participant(self, member: discord.Member) -> bool:
-        if member.bot or member.pending or member.guild.id != self.bot.config.guild_id:
+        if member.bot or member.guild.id != self.bot.config.guild_id:
             return False
-        if (member.id == member.guild.owner_id
-                or member.id in self.bot.config.owner_ids
-                or member.guild_permissions.administrator):
-            return True
-        role = await self.bot.database.get_setting(member.guild.id, "member_role_id")
+        role = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
         return await approved_member(self.bot.database, member, role)
 
     @commands.Cog.listener()
@@ -160,7 +154,7 @@ class Statistics(commands.Cog):
                 continue
             eligible = []
             for member in channel.members:
-                if (member.bot or member.pending or not member.voice
+                if (member.bot or not member.voice
                         or member.voice.channel != channel
                         or member.voice.deaf or member.voice.self_deaf):
                     continue
@@ -204,7 +198,7 @@ class Statistics(commands.Cog):
     async def server_embed(self, guild: discord.Guild, key: str) -> discord.Embed:
         period = await self.period(key)
         gid = guild.id
-        role_id = await self.bot.database.get_setting(gid, "member_role_id")
+        role_id = await self.bot.database.get_setting(gid, "candidate_role_id")
         candidate_id = await self.bot.database.get_setting(gid, "candidate_role_id")
         started = int(await self.bot.database.get_setting(
             gid, "statistics_started_at", int(time.time())))
@@ -311,7 +305,7 @@ class Statistics(commands.Cog):
                 ephemeral=True)
             return
         guild = interaction.guild
-        role_id = await self.bot.database.get_setting(guild.id, "member_role_id")
+        role_id = await self.bot.database.get_setting(guild.id, "candidate_role_id")
         approved = await store.approved_ids(
             self.bot.database, guild.id, list(guild.members), role_id)
         bounds = await self.period(period)

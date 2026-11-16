@@ -105,9 +105,9 @@ class Quests(commands.Cog):
     async def approved(self, interaction: discord.Interaction) -> bool:
         member = interaction.user
         if (interaction.guild_id != self.bot.config.guild_id or not isinstance(member, discord.Member)
-                or member.bot or member.pending):
+                or member.bot):
             return False
-        role = await self.bot.database.get_setting(interaction.guild_id, "member_role_id")
+        role = await self.bot.database.get_setting(interaction.guild_id, "candidate_role_id")
         return await approved_member(self.bot.database, member, role)
 
     async def permitted(self, interaction: discord.Interaction, frequency: str | None = None) -> bool:
