@@ -14,12 +14,12 @@ def _redact(text: str, *, token: str) -> str:
     if token:
         text = text.replace(token, "[REDACTED]")
     text = re.sub(
-        r"(?i)(authorization\\s*[:=]\\s*(?:bot|bearer)\\s+)\\S+",
-        r"\\1[REDACTED]", text,
+        r"(?i)(authorization\s*[:=]\s*(?:bot|bearer)\s+)\S+",
+        r"\1[REDACTED]", text,
     )
     return re.sub(
-        r"(?i)(https?://(?:discord(?:app)?\\.com)/api(?:/v\\d+)?/webhooks/\\d+/)[\\w.-]+",
-        r"\\1[REDACTED]", text,
+        r"(?i)(https?://(?:discord(?:app)?\.com)/api(?:/v\d+)?/webhooks/\d+/)[\w.-]+",
+        r"\1[REDACTED]", text,
     )
 
 
