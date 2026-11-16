@@ -281,7 +281,7 @@ class SettingsOverviewView(LoggedView):
         self.page_number += 1
         await self.refresh(interaction)
 
-    @discord.ui.button(label="Обновить", emoji="🔄", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="Обновить", emoji="🔄", style=discord.ButtonStyle.primary, row=1)
     async def reload(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self.refresh(interaction)
 
