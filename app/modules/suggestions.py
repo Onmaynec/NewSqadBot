@@ -174,7 +174,7 @@ class Suggestions(commands.Cog):
         member = interaction.user
         if self.is_staff(member):
             return True
-        role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
+        role_id = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
         if not await approved_member(self.bot.database, member, role_id):
             return False
         async with self.bot.database.sessions() as session:
