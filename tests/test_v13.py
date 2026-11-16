@@ -15,7 +15,6 @@ from app.models import (
     Application,
     ApplicationEvent,
     MemberProfile,
-    StatsDay,
     Wallet,
 )
 from app.modules.statistics import Statistics, graph
