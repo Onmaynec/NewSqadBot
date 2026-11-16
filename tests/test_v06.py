@@ -12,7 +12,7 @@ from app.services import profiles, progression
 
 def test_version_and_thresholds():
     assert VERSION == "0.6.0"
-    assert [progression.threshold(l) for l in range(1, 5)] == [0, 200, 600, 1200]
+    assert [progression.threshold(level) for level in range(1, 5)] == [0, 200, 600, 1200]
     for xp, level in [(0, 1), (199, 1), (200, 2), (599, 2), (600, 3), (1199, 3), (1200, 4)]:
         assert progression.level_for_xp(xp) == level
     assert len(progression.progress_bar(200)) == 12
