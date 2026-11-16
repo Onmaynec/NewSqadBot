@@ -43,12 +43,14 @@ class Position:
         return self.position <= other.position
 
 
-def test_member_guard_rejects_candidates_and_screening():
-    approved = NS(roles=[NS(id=90)], pending=False)
-    assert is_approved(approved, 90)
-    assert not is_approved(approved, None)
-    assert not is_approved(approved, 91)
-    assert not is_approved(NS(roles=[NS(id=90)], pending=True), 90)
+def test_candidate_role_is_only_membership_guard():
+    ordinary = NS(roles=[NS(id=90)], pending=False, bot=False)
+    assert not is_approved(ordinary, 90)
+    assert is_approved(ordinary, 91)
+    assert not is_approved(ordinary, None)
+    assert is_approved(NS(roles=[], pending=True, bot=False), 90)
+    assert not is_approved(NS(roles=[NS(id=90), NS(id=91)], bot=False), 90)
+    assert not is_approved(NS(roles=[], bot=True), 90)
 
 
 def test_role_safety_for_self_assign_and_protection():
