@@ -12,7 +12,7 @@ from discord.ext import commands
 from app.core.permissions import can_manage_settings
 from app.models import Ticket, TicketCategory
 from app.services import tickets as store
-from app.services.role_rules import is_approved
+from app.services.membership_access import approved_member
 from app.ui.theme import BRAND_GREEN, LoggedModal, LoggedView, card, notice
 
 log = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ class TicketOpenView(LoggedView):
             await interaction.followup.send("Завершите проверку правил сервера.", ephemeral=True)
             return
         member_role = await self.cog.bot.database.get_setting(interaction.guild_id, "member_role_id")
-        if not is_approved(interaction.user, member_role):
+        if not await approved_member(self.cog.bot.database, interaction.user, member_role):
             categories = [c for c in categories if c.candidate_allowed]
         if not categories:
             await interaction.followup.send("Тикеты доступны после принятия в NewSquad.", ephemeral=True)
@@ -282,7 +282,7 @@ class Tickets(commands.Cog):
         if category is None or not category.enabled:
             return "Эта категория обращений больше не доступна."
         member_role = await self.bot.database.get_setting(guild.id, "member_role_id")
-        if not is_approved(interaction.user, member_role) and not category.candidate_allowed:
+        if not await approved_member(self.bot.database, interaction.user, member_role) and not category.candidate_allowed:
             return "Эта категория доступна только одобренным участникам NewSquad."
         support_id = category.support_role_id or await self.bot.database.get_setting(guild.id, "support_role_id")
         support_role = guild.get_role(support_id) if support_id else None
@@ -644,7 +644,7 @@ class Tickets(commands.Cog):
             await interaction.response.send_message("Нет прав.", ephemeral=True)
             return
         role_id = await self.bot.database.get_setting(ticket.guild_id, "member_role_id")
-        if not remove and not is_approved(member, role_id):
+        if not remove and not await approved_member(self.bot.database, member, role_id):
             await interaction.response.send_message("Добавлять можно только одобренных участников NewSquad.", ephemeral=True)
             return
         channel = await self.get_channel(ticket)

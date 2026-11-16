@@ -11,7 +11,7 @@ from discord.ext import commands, tasks
 
 from app.core.permissions import can_manage_settings
 from app.services import progression as progress
-from app.services.role_rules import is_approved
+from app.services.membership_access import approved_member
 from app.ui.theme import card, notice
 
 log = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ class Leveling(commands.Cog):
         if member.guild.id != self.bot.config.guild_id or member.bot or member.pending:
             return False
         role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
-        return is_approved(member, role_id)
+        return await approved_member(self.bot.database, member, role_id)
 
     async def _allowed(self, guild_id: int, kind: str) -> bool:
         return bool(await self.bot.database.get_setting(guild_id, "leveling_enabled", True)
@@ -90,7 +90,7 @@ class Leveling(commands.Cog):
             eligible = [m for m in channel.members if not m.bot and not m.pending
                         and m.voice is not None and m.voice.channel == channel
                         and not m.voice.deaf and not m.voice.self_deaf
-                        and is_approved(m, role_id)]
+                        and await approved_member(self.bot.database, m, role_id)]
             if len(eligible) < 2:
                 continue
             for member in eligible:
@@ -159,7 +159,7 @@ class Leveling(commands.Cog):
         rows = await progress.top(self.bot.database, self.bot.config.guild_id, limit=25)
         member_role = await self.bot.database.get_setting(self.bot.config.guild_id, "member_role_id")
         top = [(r, guild.get_member(r.user_id)) for r in rows]
-        top = [(r, m) for r, m in top if m is not None and is_approved(m, member_role)][:10]
+        top = [(r, m) for r, m in top if m is not None and await approved_member(self.bot.database, m, member_role)][:10]
         description = "\n".join(
             f"**{index}.** {discord.utils.escape_markdown(member.display_name)}  ·  "
             f"**{r.level} ур.**  ·  {r.xp:,} XP"

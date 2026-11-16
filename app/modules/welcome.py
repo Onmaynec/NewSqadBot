@@ -14,7 +14,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from app.core.permissions import can_manage_settings
 from app.models import WelcomeDelivery
 from app.services.audit import log_event
-from app.services.role_rules import is_approved
+from app.services.membership_access import approved_member
 from app.ui.theme import BRAND_GREEN
 
 log = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ class Welcome(commands.Cog):
                 member = await guild.fetch_member(user_id)
             except discord.NotFound:
                 return  # candidate left before delivery
-        if not is_approved(member, await self._member_role(guild_id)):
+        if not await approved_member(self.bot.database, member, await self._member_role(guild_id)):
             raise RuntimeError("Подтверждённая роль ещё не отображается у участника")
         if not await self.bot.database.get_setting(guild_id, "welcome_enabled", True):
             return
@@ -173,7 +173,7 @@ class Welcome(commands.Cog):
         guild = member.guild
         if not await self.bot.database.get_setting(guild.id, "welcome_farewell_enabled", False):
             return
-        if not is_approved(member, await self._member_role(guild.id)):
+        if not await approved_member(self.bot.database, member, await self._member_role(guild.id)):
             return
         channel_id = await self.bot.database.get_setting(guild.id, "farewell_channel_id")
         channel = guild.get_channel(channel_id) if channel_id else None

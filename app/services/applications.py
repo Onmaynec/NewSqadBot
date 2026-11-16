@@ -1,12 +1,14 @@
 """SQL операции с заявками: блокировка повторов и история решений."""
 from __future__ import annotations
 
+import json
 import time
 
 from sqlalchemy import select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
-from app.models import Application, ApplicationEvent
+from app.models import Application, ApplicationEvent, OutboxEvent
 
 OPEN = ("pending", "in_review", "needs_info", "approving", "rejecting", "action_failed")
 REVIEWABLE = ("pending", "in_review", "needs_info")
@@ -61,6 +63,16 @@ async def awaiting_publication(db, guild_id: int) -> list[Application]:
         return list(rows.all())
 
 
+async def unfinished(db, guild_id: int, limit: int = 100) -> list[Application]:
+    """Заявки с принятым решением, но незавершёнными Discord-действиями."""
+    async with db.sessions() as session:
+        rows = await session.scalars(select(Application).where(
+            Application.guild_id == guild_id,
+            Application.status.in_(("approving", "rejecting", "action_failed"))
+        ).order_by(Application.id).limit(limit))
+        return list(rows.all())
+
+
 async def active_reviews(db, guild_id: int) -> list[Application]:
     async with db.sessions() as session:
         rows = await session.scalars(select(Application).where(
@@ -92,11 +104,19 @@ async def transition(db, app_id: int, *, expected: tuple[str, ...], target: str,
             return False
         session.add(ApplicationEvent(application_id=app_id, actor_id=actor_id,
             old_status=old, new_status=target, reason=reason, created_at=now))
+        if target == "approved":
+            # Статус APPROVED и событие Welcome/авторолей сохраняются одной транзакцией.
+            payload = json.dumps({"guild_id": application.guild_id,
+                "user_id": application.user_id, "application_id": app_id}, ensure_ascii=False)
+            stmt = sqlite_insert(OutboxEvent).values(
+                id=f"membership-approved-{app_id}", kind="membership.approved",
+                payload_json=payload, created_at=now)
+            await session.execute(stmt.on_conflict_do_nothing(index_elements=[OutboxEvent.id]))
     return True
 
 
 async def step(db, app_id: int, key: str, status: str, error: str | None = None) -> None:
-    allowed = {"role_status", "female_role_status", "nickname_status", "kick_status", "dm_status"}
+    allowed = {"role_status", "female_role_status", "candidate_role_status", "nickname_status", "kick_status", "dm_status"}
     if key not in allowed or status not in {"pending", "done", "failed", "n_a"}:
         raise ValueError("Неизвестный шаг обработки")
     async with db.session() as session:

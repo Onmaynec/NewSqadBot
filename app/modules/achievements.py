@@ -9,8 +9,8 @@ from discord.ext import commands
 
 from app.core.permissions import can_manage_settings
 from app.services import achievements as store
+from app.services.membership_access import approved_member
 from app.services.profiles import get_profile
-from app.services.role_rules import is_approved
 from app.ui.theme import LoggedView, card, notice
 
 log = logging.getLogger(__name__)
@@ -112,7 +112,7 @@ class Achievements(commands.Cog):
         if member.guild.id != self.bot.config.guild_id or member.bot or member.pending:
             return False
         role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
-        return is_approved(member, role_id)
+        return await approved_member(self.bot.database, member, role_id)
 
     async def user_check(self, interaction: discord.Interaction) -> bool:
         if (interaction.guild_id == self.bot.config.guild_id and isinstance(interaction.user, discord.Member)
