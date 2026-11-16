@@ -184,13 +184,13 @@ async def show_events_settings(interaction: discord.Interaction, client: "NewSqa
     channel = await client.database.get_setting(gid, "event_channel_id")
     prize_channel = await client.database.get_setting(gid, "giveaway_channel_id")
     await interaction.response.edit_message(embed=embed_card("NewSquad / Мероприятия",
-        f"**Мероприятия:** {'включены' if active else 'выключены'}\\n"
-        f"**Розыгрыши:** {'включены' if giveaways else 'выключены'}\\n"
-        f"**Канал мероприятий:** {f'<#{channel}>' if channel else 'не выбран'}\\n"
-        f"**Канал розыгрышей:** {f'<#{prize_channel}>' if prize_channel else 'не выбран'}\\n"
-        f"**Часовой пояс:** {client.config.timezone}\\n\\n"
-        "Создать мероприятие: /event create. Подтвердить участие: /event confirm.\\n"
-        "Создать розыгрыш: /giveaway create; история: /giveaway history.\\n"
+        f"**Мероприятия:** {'включены' if active else 'выключены'}\n"
+        f"**Розыгрыши:** {'включены' if giveaways else 'выключены'}\n"
+        f"**Канал мероприятий:** {f'<#{channel}>' if channel else 'не выбран'}\n"
+        f"**Канал розыгрышей:** {f'<#{prize_channel}>' if prize_channel else 'не выбран'}\n"
+        f"**Часовой пояс:** {client.config.timezone}\n\n"
+        "Создать мероприятие: /event create. Подтвердить участие: /event confirm.\n"
+        "Создать розыгрыш: /giveaway create; история: /giveaway history.\n"
         "Каналы можно назначить в разделе «Каналы» и указывать при создании."),
         view=EventsSettingsView(client, owner_id))
 
