@@ -9,7 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from app.config import VERSION
-from app.ui.theme import LoggedView, NO_MENTIONS, card, notice
+from app.ui.theme import NO_MENTIONS, LoggedView, card, notice
 
 PAGE_SIZE = 8
 CATEGORY_NAMES = {
