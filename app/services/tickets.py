@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import time
+
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
