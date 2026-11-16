@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 GUILD_ID = 1439347293076586638
 FEMALE_ROLE_ID = 1453273881359024231
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +20,7 @@ class Config:
     timezone: str
     log_level: str
     owner_ids: frozenset[int]
+    message_content_intent: bool = False
 
     @classmethod
     def from_env(cls) -> Config:
@@ -33,7 +34,7 @@ class Config:
         default_db = f"sqlite+aiosqlite:///{data_dir / 'newsqad.db'}"
         database_url = os.getenv("DATABASE_URL", default_db)
         if not database_url.startswith("sqlite+aiosqlite:///"):
-            raise ValueError("В v0.3.0 поддерживается только SQLite с aiosqlite.")
+            raise ValueError("В v0.4.0 поддерживается только SQLite с aiosqlite.")
         timezone = os.getenv("TIMEZONE", "Europe/Tallinn")
         try:
             ZoneInfo(timezone)
@@ -46,4 +47,5 @@ class Config:
         owners = frozenset(int(i.strip()) for i in raw_owners.split(",") if i.strip())
         if any(i <= 0 for i in owners):
             raise ValueError("BOT_OWNER_IDS содержит некорректный Discord ID.")
-        return cls(token, guild_id, database_url, data_dir, timezone, level, owners)
+        content_intent = os.getenv("ENABLE_MESSAGE_CONTENT_INTENT", "false").strip().lower() in ("1", "true", "yes")
+        return cls(token, guild_id, database_url, data_dir, timezone, level, owners, content_intent)

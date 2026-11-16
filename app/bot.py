@@ -25,6 +25,8 @@ class NewSqadBot(commands.Bot):
         intents = discord.Intents.none()
         intents.guilds = True
         intents.members = True
+        intents.guild_messages = True
+        intents.message_content = config.message_content_intent
         super().__init__(command_prefix=commands.when_mentioned, intents=intents, tree_cls=GuildCommandTree)
         self.config = config
         self.database: Database | None = None

@@ -36,7 +36,7 @@ def test_owner_and_admin_permissions():
 def test_catalog_and_implemented_modules():
     assert len(MODULES) == 16
     assert len({m.key for m in MODULES}) == 16
-    assert {m.key for m in MODULES if implemented(m.key)} == {"membership", "moderation", "audit_logs", "welcome", "roles"}
+    assert {m.key for m in MODULES if implemented(m.key)} == {"membership", "moderation", "audit_logs", "welcome", "roles", "tickets"}
     assert "custom" not in {m.key for m in MODULES}
 
 

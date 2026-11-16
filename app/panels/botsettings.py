@@ -33,6 +33,8 @@ CHANNEL_SLOTS = (
     ("welcome_channel_id", "Приветственный канал"),
     ("farewell_channel_id", "Канал прощаний"),
     ("rules_channel_id", "Канал правил"),
+    ("ticket_panel_channel_id", "Канал панели тикетов"),
+    ("ticket_log_channel_id", "Журнал тикетов"),
 )
 
 
@@ -93,6 +95,61 @@ class HomeView(PrivateSettingsView):
     async def role_panels(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_role_panels(interaction, self.client, self.owner_id)
 
+    @discord.ui.button(label="Тикеты", emoji="🎫", style=discord.ButtonStyle.secondary, row=3)
+    async def tickets(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_tickets_settings(interaction, self.client, self.owner_id)
+
+
+class TicketSettingsView(PrivateSettingsView):
+    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.primary, row=0)
+    async def toggle(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        enabled = await self.client.database.get_setting(self.client.config.guild_id, "tickets_enabled", True)
+        await self.client.database.set_setting(self.client.config.guild_id, "tickets_enabled", not enabled,
+                                              actor_id=interaction.user.id)
+        await show_tickets_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Лимит 1", style=discord.ButtonStyle.secondary, row=0)
+    async def limit_one(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self.set_limit(interaction, 1)
+
+    @discord.ui.button(label="Лимит 3", style=discord.ButtonStyle.secondary, row=0)
+    async def limit_three(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self.set_limit(interaction, 3)
+
+    async def set_limit(self, interaction: discord.Interaction, value: int) -> None:
+        await self.client.database.set_setting(self.client.config.guild_id, "tickets_max_open", value,
+                                              actor_id=interaction.user.id)
+        await show_tickets_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=home_embed(), view=HomeView(self.client, self.owner_id))
+
+
+async def show_tickets_settings(interaction: discord.Interaction, client: "NewSqadBot", owner_id: int) -> None:
+    guild_id = client.config.guild_id
+    enabled = await client.database.get_setting(guild_id, "tickets_enabled", True)
+    limit = await client.database.get_setting(guild_id, "tickets_max_open", 3)
+    idle_days = await client.database.get_setting(guild_id, "tickets_inactivity_days", 0)
+    room_id = await client.database.get_setting(guild_id, "ticket_category_channel_id")
+    role_id = await client.database.get_setting(guild_id, "support_role_id")
+    log_id = await client.database.get_setting(guild_id, "ticket_log_channel_id")
+    from app.services.tickets import categories
+    items = await categories(client.database, guild_id)
+    text = (f"**Приём обращений:** {'включён' if enabled else 'отключён'}\n"
+            f"**Максимум одновременно:** {limit}\n"
+            f"**Автозакрытие:** {idle_days} дней (0 — выключено)\n"
+            f"**Категория каналов:** {room_id or 'не настроена'}\n"
+            f"**Поддержка (роль):** {role_id or 'не настроена'}\n"
+            f"**Журнал:** {log_id or 'не настроен'}\n"
+            f"**Категории:** {len(items)}\n\n"
+            "Опубликовать панель: `/tickets panel`\n"
+            "Категория каналов: `/tickets location`\n"
+            "Категории: `/tickets category create` и `/tickets category edit`\n"
+            "Роль поддержки и журнал: главная панель → Роли / Каналы.")
+    await interaction.response.edit_message(embed=embed_card("NewSquad · Тикеты", text),
+                                            view=TicketSettingsView(client, owner_id))
+
 
 class BackView(PrivateSettingsView):
     @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary)
@@ -109,7 +166,8 @@ def home_embed() -> discord.Embed:
         "**Роли** — назначение служебных ролей.\n"
         "**Каналы** — настройка рабочих каналов.\n"
         "**Приветствия** — включение сообщений и ЛС.\n"
-        "**Роли участников** — панели, автороли и награды.\n\n"
+        "**Роли участников** — панели, автороли и награды.\n"
+        "**Тикеты** — приём обращений и настройки поддержки.\n\n"
         "Другие разделы будут добавляться по мере реализации.",
     )
 
