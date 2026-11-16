@@ -6,7 +6,7 @@ import json
 import random
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pytest
 
@@ -215,6 +215,8 @@ async def test_giveaway_restart_persists_entries_and_no_paid_operations(tmp_path
 
 def test_discord_views_and_commands_exist():
     pytest.importorskip("discord")
+    import discord
+
     from app.modules.events import EventView, Events, GiveawayView
     from app.panels.botsettings import HomeView
 
@@ -231,7 +233,6 @@ def test_discord_views_and_commands_exist():
         "create", "join", "list", "end", "reroll", "history"}
     class Stub:
         config = type("Config", (), {"owner_ids": frozenset()})()
-    import discord
 
     view = HomeView(Stub(), 1)
     assert "Мероприятия" in {item.label for item in view.children if isinstance(item, discord.ui.Button)}
