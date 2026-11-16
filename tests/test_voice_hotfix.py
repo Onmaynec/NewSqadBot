@@ -160,4 +160,4 @@ async def test_unapproved_user_does_not_create_room(monkeypatch, caplog):
     with caplog.at_level("WARNING"):
         await cog._create_for(member, lobby)
     called.assert_not_awaited()
-    assert "нет одобренной заявки" in caplog.text
+    assert "роль кандидата" in caplog.text
