@@ -12,7 +12,7 @@ from discord.ext import commands
 from app.config import VERSION
 from app.core.permissions import can_manage_settings
 from app.services.audit import log_event
-from app.ui.theme import BRAND_BLUE, LoggedModal, NO_MENTIONS, notice
+from app.ui.theme import BRAND_BLUE, NO_MENTIONS, LoggedModal, notice
 
 log = logging.getLogger(__name__)
 
