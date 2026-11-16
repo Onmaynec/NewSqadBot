@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, time as clock_time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.models import (
@@ -28,7 +28,7 @@ from app.models import (
     Ticket,
     Wallet,
 )
-from app.services.progression import day_key, threshold
+from app.services.progression import day_key
 
 PERIOD_DAYS = {"7d": 7, "30d": 30, "90d": 90}
 
@@ -180,32 +180,40 @@ async def prune_receipts(db, *, now: int | None = None, days: int = 35) -> int:
         return result.rowcount
 
 
+async def approved_ids(db, guild_id: int, members: list,
+                       member_role_id: int | None) -> set[int]:
+    """Одобренные живые участники по последней анкете и актуальной роли."""
+    if not member_role_id:
+        return set()
+    member_by_id = {m.id: m for m in members if not m.bot}
+    latest = select(
+        Application.user_id, func.max(Application.id).label("latest_id"),
+    ).where(Application.guild_id == guild_id).group_by(Application.user_id).subquery()
+    async with db.sessions() as session:
+        approvals = (await session.execute(select(
+            Application.user_id, Application.decided_at,
+        ).join(latest, Application.id == latest.c.latest_id).where(
+            Application.guild_id == guild_id, Application.status == "approved",
+        ))).all()
+    found = set()
+    for uid, approved_at in approvals:
+        member = member_by_id.get(uid)
+        if member is None or not any(r.id == member_role_id for r in member.roles):
+            continue
+        joined_at = getattr(member, "joined_at", None)
+        if joined_at and approved_at and int(joined_at.timestamp()) > approved_at:
+            continue
+        found.add(uid)
+    return found
+
+
 async def server_totals(db, *, guild_id: int, period: Period,
                         members: list, member_count: int,
                         member_role_id: int | None, candidate_role_id: int | None,
                         tracking_started_at: int) -> ServerTotals:
     """Одобрение проверяется по последней заявке, а не только по Discord-роли."""
     member_by_id = {m.id: m for m in members if not m.bot}
-    eligible_ids = set()
-    if member_role_id:
-        latest = select(
-            Application.user_id, func.max(Application.id).label("latest_id"),
-        ).where(Application.guild_id == guild_id).group_by(Application.user_id).subquery()
-        async with db.sessions() as session:
-            approvals = (await session.execute(select(
-                Application.user_id, Application.decided_at,
-            ).join(latest, Application.id == latest.c.latest_id).where(
-                Application.guild_id == guild_id,
-                Application.status == "approved",
-            ))).all()
-        for uid, approved_at in approvals:
-            member = member_by_id.get(uid)
-            if not member or not any(r.id == member_role_id for r in member.roles):
-                continue
-            joined_at = getattr(member, "joined_at", None)
-            if joined_at and approved_at and int(joined_at.timestamp()) > approved_at:
-                continue
-            eligible_ids.add(uid)
+    eligible_ids = await approved_ids(db, guild_id, members, member_role_id)
     candidates = sum(
         1 for m in member_by_id.values()
         if m.id not in eligible_ids and candidate_role_id
