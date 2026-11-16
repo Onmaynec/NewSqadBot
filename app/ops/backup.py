@@ -11,6 +11,7 @@ import os
 import sqlite3
 import tempfile
 import time
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -66,9 +67,10 @@ def snapshot(source: Path, target: Path) -> Path:
     temp = Path(temp_name)
     try:
         os.chmod(temp, 0o600)
-        with sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True) as src:
-            with sqlite3.connect(temp) as dst:
+        with closing(sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True)) as src:
+            with closing(sqlite3.connect(temp)) as dst:
                 src.backup(dst)
+                dst.commit()
         verify(temp)
         os.replace(temp, target)
         return target
@@ -102,7 +104,7 @@ def restore(source: Path, target: Path, *, now: float | None = None) -> Path:
             raise BackupError("Резервная копия перед восстановлением уже существует.")
         snapshot(target, previous)
         # Закрываем WAL до замены файла во избежание применения старых страниц.
-        with sqlite3.connect(target) as live:
+        with closing(sqlite3.connect(target)) as live:
             checkpoint = live.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
             if checkpoint and checkpoint[0]:
                 raise BackupError("WAL занят. Остановите все процессы, использующие SQLite.")
@@ -111,9 +113,10 @@ def restore(source: Path, target: Path, *, now: float | None = None) -> Path:
     tmp = Path(temporary)
     try:
         os.chmod(tmp, 0o600)
-        with sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True) as src:
-            with sqlite3.connect(tmp) as dst:
+        with closing(sqlite3.connect(f"{source.as_uri()}?mode=ro", uri=True)) as src:
+            with closing(sqlite3.connect(tmp)) as dst:
                 src.backup(dst)
+                dst.commit()
         verify(tmp)
         for suffix in ("-wal", "-shm"):
             Path(str(target) + suffix).unlink(missing_ok=True)
