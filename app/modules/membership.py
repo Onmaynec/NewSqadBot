@@ -150,6 +150,8 @@ class ReviewView(LoggedView):
                 child.custom_id = f"newsqad:membership:{child.custom_id}:{app_id}"
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if not await self.cog.can_review(interaction):
             await interaction.response.send_message("Нет прав на рассмотрение заявок.", ephemeral=True)
             return False
