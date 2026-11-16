@@ -50,6 +50,11 @@ class NewSqadBot(commands.Bot):
         guild = discord.Object(id=self.config.guild_id)
         await self.add_cog(CoreCommands(self), guild=guild)
         self.module_states = await load_modules(self)
+        # Системные команды загружаются отдельно от 16 модулей сообщества.
+        # Справка собирает их вместе с командами всех активных модулей.
+        for extension in ("app.modules.announcements", "app.modules.help_center"):
+            await self.load_extension(extension)
+            logger.info("Системный модуль загружен: %s", extension)
         logger.info("Модули: %s", self.module_states)
         synced = await self.tree.sync(guild=guild)
         logger.info("Синхронизировано серверных команд: %s", len(synced))
