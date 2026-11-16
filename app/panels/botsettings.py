@@ -39,6 +39,8 @@ CHANNEL_SLOTS = (
     ("ticket_log_channel_id", "Журнал тикетов"),
     ("voice_lobby_channel_id", "Голосовой канал создания"),
     ("voice_category_channel_id", "Категория голосовых комнат"),
+    ("event_channel_id", "Канал мероприятий"),
+    ("giveaway_channel_id", "Канал розыгрышей"),
 )
 
 
@@ -103,6 +105,10 @@ class HomeView(PrivateSettingsView):
     async def tickets(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_tickets_settings(interaction, self.client, self.owner_id)
 
+    @discord.ui.button(label="Мероприятия", emoji="🎉", style=discord.ButtonStyle.secondary, row=2)
+    async def events(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_events_settings(interaction, self.client, self.owner_id)
+
     @discord.ui.button(label="Голосовые комнаты", emoji="🎙️", style=discord.ButtonStyle.secondary, row=3)
     async def voice_rooms(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_voice_settings(interaction, self.client, self.owner_id)
@@ -146,6 +152,47 @@ class HomeView(PrivateSettingsView):
         view.max_pages = pages
         view._buttons()
         await interaction.edit_original_response(embed=embed, view=view)
+
+
+class EventsSettingsView(PrivateSettingsView):
+    @discord.ui.button(label="Мероприятия: включить / выключить", style=discord.ButtonStyle.success)
+    async def toggle_events(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        key = "events_enabled"
+        value = bool(await self.client.database.get_setting(self.client.config.guild_id, key, True))
+        await self.client.database.set_setting(self.client.config.guild_id, key, not value,
+                                               actor_id=interaction.user.id)
+        await show_events_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Розыгрыши: включить / выключить", style=discord.ButtonStyle.secondary)
+    async def toggle_giveaways(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        key = "giveaways_enabled"
+        value = bool(await self.client.database.get_setting(self.client.config.guild_id, key, True))
+        await self.client.database.set_setting(self.client.config.guild_id, key, not value,
+                                               actor_id=interaction.user.id)
+        await show_events_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=home_embed(), view=HomeView(self.client, self.owner_id))
+
+
+async def show_events_settings(interaction: discord.Interaction, client: "NewSqadBot",
+                               owner_id: int) -> None:
+    gid = client.config.guild_id
+    active = await client.database.get_setting(gid, "events_enabled", True)
+    giveaways = await client.database.get_setting(gid, "giveaways_enabled", True)
+    channel = await client.database.get_setting(gid, "event_channel_id")
+    prize_channel = await client.database.get_setting(gid, "giveaway_channel_id")
+    await interaction.response.edit_message(embed=embed_card("NewSquad / Мероприятия",
+        f"**Мероприятия:** {'включены' if active else 'выключены'}\n"
+        f"**Розыгрыши:** {'включены' if giveaways else 'выключены'}\n"
+        f"**Канал мероприятий:** {f'<#{channel}>' if channel else 'не выбран'}\n"
+        f"**Канал розыгрышей:** {f'<#{prize_channel}>' if prize_channel else 'не выбран'}\n"
+        f"**Часовой пояс:** {client.config.timezone}\n\n"
+        "Создать мероприятие: /event create. Подтвердить участие: /event confirm.\n"
+        "Создать розыгрыш: /giveaway create; история: /giveaway history.\n"
+        "Каналы можно назначить в разделе «Каналы» и указывать при создании."),
+        view=EventsSettingsView(client, owner_id))
 
 
 class VoiceSettingsView(PrivateSettingsView):

@@ -11,7 +11,7 @@ from app.services import profiles, progression
 
 
 def test_version_and_thresholds():
-    assert VERSION == "0.10.0"
+    assert VERSION == "0.11.0"
     assert [progression.threshold(level) for level in range(1, 5)] == [0, 200, 600, 1200]
     for xp, level in [(0, 1), (199, 1), (200, 2), (599, 2), (600, 3), (1199, 3), (1200, 4)]:
         assert progression.level_for_xp(xp) == level
@@ -41,7 +41,7 @@ def test_v06_migration_idempotent(tmp_path):
         db.execute("PRAGMA foreign_keys=ON")
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"member_progress", "member_profiles", "experience_awards"} <= tables
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0009_party_finder"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0010_events"
         db.execute("INSERT INTO member_progress(guild_id,user_id,created_at,updated_at) VALUES (?,?,?,?)",
                    (GUILD_ID, 111, 100, 100))
         with pytest.raises(sqlite3.IntegrityError):
