@@ -261,8 +261,8 @@ async def server_totals(db, *, guild_id: int, period: Period,
         ticket_count = await session.scalar(select(func.count()).select_from(
             Ticket).where(
             Ticket.guild_id == guild_id,
-            Ticket.created_at >= max(period.start_timestamp, tracking_started_at),
-            Ticket.created_at < period.end_timestamp,
+            Ticket.opened_at >= max(period.start_timestamp, tracking_started_at),
+            Ticket.opened_at < period.end_timestamp,
         ))
     membership_stats = dict(status_rows)
     return ServerTotals(
