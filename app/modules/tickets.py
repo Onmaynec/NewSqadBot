@@ -26,9 +26,9 @@ async def report_ticket_ui_error(interaction: discord.Interaction, error: Except
     try:
         message = "Ошибка обработки обращения. Повторите попытку или сообщите администрации."
         if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
+            await interaction.followup.send(embed=notice(message, kind="error"), ephemeral=True)
         else:
-            await interaction.response.send_message(message, ephemeral=True)
+            await interaction.response.send_message(embed=notice(message, kind="error"), ephemeral=True)
     except discord.HTTPException:
         log.exception("Не удалось отправить сообщение об ошибке тикета interaction=%s", interaction.id)
 
