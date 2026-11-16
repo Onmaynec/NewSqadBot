@@ -1,7 +1,14 @@
 """Идеи NewSquad: предложения, голоса, история решений и кнопки."""
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, ForeignKey, Index, Integer,
-    String, Text, UniqueConstraint,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
