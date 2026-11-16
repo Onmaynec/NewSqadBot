@@ -20,6 +20,19 @@ from app.services.role_rules import is_approved
 log = logging.getLogger(__name__)
 
 
+async def ticket_ui_error(interaction: discord.Interaction, error: Exception, action: str) -> None:
+    log.error("Ошибка UI тикетов: %s interaction=%s user=%s", action, interaction.id, interaction.user.id,
+              exc_info=(type(error), error, error.__traceback__))
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send("Ошибка обработки обращения. Попробуйте ещё раз.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Ошибка обработки обращения. Попробуйте ещё раз.", ephemeral=True)
+    except discord.HTTPException:
+        log.exception("Не удалось уведомить участника interaction=%s", interaction.id)
+
+
+
 def ticket_embed(ticket: Ticket, category: TicketCategory | None = None) -> discord.Embed:
     labels = {"creating": "Создаётся", "open": "Открыт", "closing": "Закрывается",
               "closed": "Закрыт", "failed": "Ошибка"}
@@ -48,27 +61,32 @@ class TicketOpenView(discord.ui.View):
         if interaction.guild_id != self.cog.bot.config.guild_id or not interaction.message:
             await interaction.response.send_message("Панель доступна только на NewSquad.", ephemeral=True)
             return
+        await interaction.response.defer(ephemeral=True, thinking=True)
         if not await store.panel_active(self.cog.bot.database, interaction.guild_id, interaction.message.id):
-            await interaction.response.send_message("Эта панель обращений неактивна.", ephemeral=True)
+            await interaction.followup.send("Эта панель обращений неактивна.", ephemeral=True)
             return
         if not await self.cog.bot.database.get_setting(interaction.guild_id, "tickets_enabled", True):
-            await interaction.response.send_message("Поддержка временно недоступна.", ephemeral=True)
+            await interaction.followup.send("Поддержка временно недоступна.", ephemeral=True)
             return
         categories = await store.categories(self.cog.bot.database, interaction.guild_id)
         if not categories:
-            await interaction.response.send_message("Категории пока не настроены.", ephemeral=True)
+            await interaction.followup.send("Категории пока не настроены.", ephemeral=True)
             return
         if not isinstance(interaction.user, discord.Member) or interaction.user.pending:
-            await interaction.response.send_message("Завершите проверку правил сервера.", ephemeral=True)
+            await interaction.followup.send("Завершите проверку правил сервера.", ephemeral=True)
             return
         member_role = await self.cog.bot.database.get_setting(interaction.guild_id, "member_role_id")
         if not is_approved(interaction.user, member_role):
             categories = [c for c in categories if c.candidate_allowed]
         if not categories:
-            await interaction.response.send_message("Тикеты доступны после принятия в NewSquad.", ephemeral=True)
+            await interaction.followup.send("Тикеты доступны после принятия в NewSquad.", ephemeral=True)
             return
-        await interaction.response.send_message("Выберите категорию обращения:",
+        await interaction.followup.send("Выберите категорию обращения:",
                                                 view=TicketCategoryView(self.cog, categories[:25]), ephemeral=True)
+
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        await ticket_ui_error(interaction, error, "открытие тикета")
 
 
 class TicketCategorySelect(discord.ui.Select):
@@ -79,39 +97,42 @@ class TicketCategorySelect(discord.ui.Select):
                                           value=str(c.id)) for c in categories])
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        # Discord требует modal как первый ответ. Проверка БД выполняется позже в create().
         category_id = int(self.values[0])
-        category = await store.category(self.cog.bot.database, interaction.guild_id, category_id)
-        if not category or not category.enabled:
-            await interaction.response.send_message("Категория больше не доступна.", ephemeral=True)
-            return
-        role = await self.cog.bot.database.get_setting(interaction.guild_id, "member_role_id")
-        if not isinstance(interaction.user, discord.Member) or interaction.user.pending or (
-            not is_approved(interaction.user, role) and not category.candidate_allowed
-        ):
-            await interaction.response.send_message("Для этой категории требуется одобренное членство.", ephemeral=True)
-            return
-        await interaction.response.send_modal(NewTicketModal(self.cog, category.id))
-
+        await interaction.response.send_modal(NewTicketModal(self.cog, category_id))
 
 class TicketCategoryView(discord.ui.View):
     def __init__(self, cog: "Tickets", categories: list[TicketCategory]):
         super().__init__(timeout=180)
         self.add_item(TicketCategorySelect(cog, categories))
 
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        await ticket_ui_error(interaction, error, "выбор категории")
+
 
 class NewTicketModal(discord.ui.Modal, title="NewSquad — обращение в поддержку"):
     subject = discord.ui.TextInput(label="Тема обращения", min_length=3, max_length=100)
     description = discord.ui.TextInput(label="Опишите ситуацию", style=discord.TextStyle.paragraph,
-                                       min_length=5, max_length=1500)
+                                       min_length=3, max_length=1500)
 
     def __init__(self, cog: "Tickets", category_id: int):
-        super().__init__(timeout=600)
+        super().__init__(timeout=600, custom_id=f"newsqad:tickets:create:{category_id}")
         self.cog, self.category_id = cog, category_id
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
-        result = await self.cog.create(interaction, self.category_id, self.subject.value, self.description.value)
+        log.info("Получена форма тикета: interaction=%s user=%s category=%s",
+                 interaction.id, interaction.user.id, self.category_id)
+        try:
+            result = await self.cog.create(interaction, self.category_id, self.subject.value, self.description.value)
+        except Exception:
+            log.exception("Ошибка создания тикета: interaction=%s user=%s category=%s",
+                          interaction.id, interaction.user.id, self.category_id)
+            result = "Внутренняя ошибка создания обращения. Сообщите администрации."
         await interaction.followup.send(result, ephemeral=True)
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        await ticket_ui_error(interaction, error, "отправка анкеты")
 
 
 class CloseModal(discord.ui.Modal, title="Закрытие обращения"):
@@ -135,6 +156,9 @@ class TicketActions(discord.ui.View):
         for item in self.children:
             if isinstance(item, discord.ui.Button):
                 item.custom_id = f"newsqad:tickets:{item.custom_id}:{ticket_id}"
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        await ticket_ui_error(interaction, error, f"панель тикета #{self.ticket_id}")
 
     @discord.ui.button(label="Взять в работу", style=discord.ButtonStyle.primary, custom_id="claim")
     async def claim(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:

@@ -9,7 +9,7 @@ from app.services.tickets import safe_text
 
 
 def test_ticket_version_and_validation():
-    assert VERSION == "0.4.1"
+    assert VERSION == "0.4.2"
     assert safe_text(" Вопрос ", 100) == "Вопрос"
     with pytest.raises(ValueError):
         safe_text(" ", 100)
