@@ -120,7 +120,7 @@ class RoomControls(LoggedView):
         channel = interaction.guild.get_channel(self.channel_id)
         await interaction.edit_original_response(embed=describe_room(room, channel), view=RoomControls(self.cog, self.channel_id))
 
-    @discord.ui.button(label="Закрыть / Открыть вход", emoji="🔒", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Закрыть / Открыть вход", emoji="🔒", style=discord.ButtonStyle.primary, row=0)
     async def lock(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._toggle(interaction, "locked")
 
