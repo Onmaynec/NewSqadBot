@@ -48,7 +48,7 @@ class QuestBoardView(LoggedView):
             return False
         return True
 
-    @discord.ui.button(label="Сегодня", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Сегодня", style=discord.ButtonStyle.primary)
     async def daily(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self.cog.refresh_board(interaction, "daily")
 
