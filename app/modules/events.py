@@ -131,7 +131,7 @@ class Events(commands.Cog):
         if (not isinstance(member, discord.Member) or member.bot
                 or member.guild.id != self.bot.config.guild_id):
             return False
-        role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
+        role_id = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
         if not await approved_member(self.bot.database, member, role_id):
             return False
         async with self.bot.database.sessions() as session:
