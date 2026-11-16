@@ -10,8 +10,8 @@ from discord.ext import commands
 from app.core.permissions import can_manage_settings
 from app.services import economy as store
 from app.services.audit import log_event
-from app.services.role_rules import forbidden_role_ids, role_safe_for_self_assign
 from app.services.membership_access import approved_member
+from app.services.role_rules import forbidden_role_ids, role_safe_for_self_assign
 from app.ui.theme import card, notice
 
 log = logging.getLogger(__name__)
