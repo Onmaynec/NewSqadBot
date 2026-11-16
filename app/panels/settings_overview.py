@@ -17,6 +17,8 @@ PAGE_OPTIONS = (
     ("roles", "Роли", "Все назначенные роли Discord"),
     ("channels", "Каналы", "Каналы и категория приватных тикетов"),
     ("tickets", "Тикеты", "Параметры и категории обращений"),
+    ("leveling", "Уровни", "XP, лимиты и исключённые каналы"),
+    ("profiles", "Профили", "Правила и приватность профилей"),
     ("modules", "Модули", "Фактическое состояние всех модулей"),
     ("all", "Все параметры", "Все ключи настройки с постраничным просмотром"),
 )
@@ -105,6 +107,33 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
                          f" · {('роль ' + str(c.support_role_id)) if c.support_role_id else 'общая поддержка'}")
         if not cats:
             lines.append("Категории не созданы")
+    elif page == "leveling":
+        values = {
+            "leveling_enabled": ("Система", True),
+            "leveling_text_enabled": ("Текстовый XP", True),
+            "leveling_voice_enabled": ("Голосовой XP", True),
+            "leveling_message_xp": ("За сообщение", 20),
+            "leveling_voice_xp": ("За 10 голосовых минут", 30),
+            "leveling_cooldown_seconds": ("Задержка, сек", 60),
+            "leveling_daily_cap": ("Дневной лимит XP", 1200),
+            "leveling_excluded_channel_ids": ("Исключённых каналов", []),
+        }
+        for key, (label, default) in values.items():
+            val = settings.get(key, default)
+            if isinstance(default, bool):
+                val = "включено" if val else "выключено"
+            if isinstance(val, list):
+                val = len(val)
+            lines.append(f"**{label}:** {val}")
+        lines.append("\nИзменения: `/levels settings` и `/botsettings` → «Уровни и XP».")
+    elif page == "profiles":
+        lines = [
+            "**Система профилей:** доступна одобренным членам NewSquad.",
+            "**Поля:** описание, игры, интересы, статус поиска компании.",
+            "**Приватность:** каждый участник может скрыть свой профиль.",
+            "**Анкеты Membership:** возраст и ответы не попадают в публичный профиль.",
+            "", "Команды: `/profile view`, `/profile edit`, `/profile status`, `/profile privacy`.",
+        ]
     elif page == "modules":
         states = {"planned": "в планах", "active": "работает", "disabled": "выключен", "error": "ошибка загрузки"}
         lines = [f"{'✅' if bot.module_states.get(m.key) == 'active' else '▫️'} **{m.title}** "

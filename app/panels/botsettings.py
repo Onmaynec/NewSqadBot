@@ -101,6 +101,24 @@ class HomeView(PrivateSettingsView):
     async def tickets(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_tickets_settings(interaction, self.client, self.owner_id)
 
+    @discord.ui.button(label="Уровни и XP", emoji="🏆", style=discord.ButtonStyle.secondary, row=3)
+    async def leveling(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_leveling_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Профили", emoji="👤", style=discord.ButtonStyle.secondary, row=3)
+    async def profiles(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=embed_card("NewSquad  /  Профили",
+                "**Публичные анкеты участников**\n"
+                "`/profile view` — открыть профиль.\n"
+                "`/profile edit` — изменить описание, интересы или игры.\n"
+                "`/profile status` — отметить поиск компании.\n"
+                "`/profile privacy` — закрыть профиль.\n\n"
+                "Профиль не раскрывает имя, возраст или ответы из анкеты Membership. "
+                "Он доступен только после одобрения заявки."),
+            view=BackView(self.client, self.owner_id),
+        )
+
     @discord.ui.button(label="Все настройки", emoji="🗂️", style=discord.ButtonStyle.success, row=4)
     async def settings_overview(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         from app.panels.settings_overview import SettingsOverviewView, overview_embed
@@ -110,6 +128,57 @@ class HomeView(PrivateSettingsView):
         view.max_pages = pages
         view._buttons()
         await interaction.edit_original_response(embed=embed, view=view)
+
+
+class ProgressSettingsView(PrivateSettingsView):
+    async def _toggle(self, interaction: discord.Interaction, setting: str) -> None:
+        key = f"leveling_{setting}_enabled" if setting else "leveling_enabled"
+        current = await self.client.database.get_setting(self.client.config.guild_id, key, True)
+        await self.client.database.set_setting(self.client.config.guild_id, key, not current,
+                                               actor_id=interaction.user.id)
+        await show_leveling_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Общий прогресс", style=discord.ButtonStyle.success, row=0)
+    async def total(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, "")
+
+    @discord.ui.button(label="Текст", style=discord.ButtonStyle.secondary, row=0)
+    async def text(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, "text")
+
+    @discord.ui.button(label="Голосовые", style=discord.ButtonStyle.secondary, row=0)
+    async def voice(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, "voice")
+
+    @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=home_embed(), view=HomeView(self.client, self.owner_id))
+
+
+async def show_leveling_settings(interaction: discord.Interaction, client: "NewSqadBot", owner_id: int) -> None:
+    guild_id = client.config.guild_id
+    fields = {
+        "leveling_enabled": ("Система уровней", True),
+        "leveling_text_enabled": ("Текстовый XP", True),
+        "leveling_voice_enabled": ("Голосовой XP", True),
+        "leveling_message_xp": ("XP за сообщение", 20),
+        "leveling_voice_xp": ("XP за 10 минут", 30),
+        "leveling_cooldown_seconds": ("Задержка между сообщениями, сек", 60),
+        "leveling_daily_cap": ("Дневной лимит XP", 1200),
+    }
+    lines = []
+    for key, (title, default) in fields.items():
+        value = await client.database.get_setting(guild_id, key, default)
+        if isinstance(default, bool):
+            value = "включено" if value else "выключено"
+        lines.append(f"**{title}:** {value}")
+    lines += ["", "Для настройки значений: `/levels rates` и `/levels settings`.",
+              "Исключение каналов: `/levels exclude` / `/levels include`.",
+              "Текстовый XP требует `ENABLE_MESSAGE_CONTENT_INTENT=true` в `.env` и разрешения Discord."]
+    await interaction.response.edit_message(
+        embed=embed_card("NewSquad  /  Уровни и XP", "\n".join(lines)),
+        view=ProgressSettingsView(client, owner_id),
+    )
 
 
 class TicketSettingsView(PrivateSettingsView):
@@ -191,6 +260,8 @@ def home_embed() -> discord.Embed:
         "**Приветствия** — включение сообщений и ЛС.\n"
         "**Роли участников** — панели, автороли и награды.\n"
         "**Тикеты** — приватная поддержка с удалением после закрытия.\n"
+        "**Уровни и XP** — начисление за общение и голосовую активность.\n"
+        "**Профили** — интересы, игры и поиск компании.\n"
         "**Все настройки** — единый обзор ролей, каналов, категорий и параметров.\n\n"
         "Изменение доступно в соответствующих разделах.",
     )
