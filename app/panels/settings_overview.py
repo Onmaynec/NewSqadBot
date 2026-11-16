@@ -24,6 +24,7 @@ PAGE_OPTIONS = (
     ("achievements", "Достижения", "Постоянные достижения и их награды"),
     ("profiles", "Профили", "Правила и приватность профилей"),
     ("suggestions", "Предложения", "Канал, голоса и антиспам"),
+    ("statistics", "Статистика", "Агрегаты, рейтинги и приватность"),
     ("modules", "Модули", "Фактическое состояние всех модулей"),
     ("all", "Все параметры", "Все ключи настройки с постраничным просмотром"),
 )
@@ -197,6 +198,19 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
             f"**Cooldown:** {settings.get('suggest_cooldown_seconds', 1800) // 60} минут",
             f"**Удалённые карточки:** {lost} · **панели:** {lost_panels}",
             "", "Настройка: /suggest configure; обзор: /suggest settings.",
+        ]
+    elif page == "statistics":
+        from app.services import statistics as stats_store
+
+        panels = await stats_store.panels(bot.database, bot.config.guild_id)
+        lines = [
+            f"**Система:** {'включена' if settings.get('statistics_enabled', True) else 'отключена'}",
+            f"**Учёт сообщений:** {'да' if settings.get('statistics_messages_enabled', True) else 'нет'}",
+            f"**Учёт голоса:** {'да' if settings.get('statistics_voice_enabled', True) else 'нет'}",
+            f"**Публичные рейтинги:** {'да' if settings.get('statistics_public_ranking', True) else 'нет'}",
+            f"**Часовой пояс:** {settings.get('statistics_timezone', bot.config.timezone)}",
+            f"**Панелей:** {len(panels)}",
+            "", "Команды: /stats settings, /stats configure, /stats panel.",
         ]
     elif page == "modules":
         states = {"planned": "в планах", "active": "работает", "disabled": "выключен", "error": "ошибка загрузки"}

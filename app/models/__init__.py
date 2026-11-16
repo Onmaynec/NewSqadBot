@@ -8,6 +8,7 @@ from app.models.moderation import ModerationAction, ModerationCase
 from app.models.party import PartyListing, PartyMember
 from app.models.progression import ExperienceAward, MemberProfile, MemberProgress
 from app.models.roles import LevelRoleReward, RolePanel, RolePanelOption, TemporaryRole, WelcomeDelivery
+from app.models.statistics import StatsDay, StatsPanel, StatsPresence, StatsReceipt, StatsServerDay
 from app.models.suggestions import (
     Suggestion,
     SuggestionCreatePanel,
@@ -27,5 +28,6 @@ __all__ = (
     "LevelRoleReward", "RolePanel", "RolePanelOption", "TemporaryRole", "WelcomeDelivery",
     "Ticket", "TicketCategory", "TicketEvent", "TicketPanel", "TicketParticipant",
     "VoiceRoom", "VoiceRoomAccess",
+    "StatsDay", "StatsReceipt", "StatsServerDay", "StatsPresence", "StatsPanel",
     "Suggestion", "SuggestionVote", "SuggestionStatusEvent", "SuggestionThrottle", "SuggestionCreatePanel",
 )
