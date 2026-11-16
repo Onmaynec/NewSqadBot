@@ -10,7 +10,7 @@ from discord.ext import commands
 from app.core.permissions import can_manage_settings
 from app.services import achievements as awards
 from app.services import quests as store
-from app.services.role_rules import is_approved
+from app.services.membership_access import approved_member
 from app.ui.theme import LoggedView, card, notice
 
 log = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ class Quests(commands.Cog):
                 or member.bot or member.pending):
             return False
         role = await self.bot.database.get_setting(interaction.guild_id, "member_role_id")
-        return is_approved(member, role)
+        return await approved_member(self.bot.database, member, role)
 
     async def permitted(self, interaction: discord.Interaction, frequency: str | None = None) -> bool:
         if not await self.approved(interaction):
