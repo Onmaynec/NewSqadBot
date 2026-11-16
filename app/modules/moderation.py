@@ -450,6 +450,8 @@ class ConfirmClear(LoggedView):
         self.count, self.cutoff, self.reason = count, cutoff, reason
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if interaction.user.id != self.moderator_id or not await self.cog.can_moderate(interaction):
             await interaction.response.send_message("Подтвердить может только модератор, запустивший команду.",
                                                     ephemeral=True)
