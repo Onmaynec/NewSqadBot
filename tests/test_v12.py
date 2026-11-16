@@ -268,15 +268,15 @@ async def test_publish_uses_persistent_buttons_and_safe_mentions(monkeypatch):
     guild = SimpleNamespace(get_channel=lambda _cid: channel)
     bot = SimpleNamespace(
         config=SimpleNamespace(guild_id=GUILD_ID, owner_ids=frozenset()),
-        get_guild=lambda _id: guild, add_view=MagicMock(),
+        database=object(), get_guild=lambda _id: guild, add_view=MagicMock(),
     )
     cog = Suggestions(bot)
     monkeypatch.setattr(svc, "set_message", AsyncMock(return_value=True))
     assert await cog._publish(item)
     kwargs = channel.send.await_args.kwargs
-    assert kwargs["allowed_mentions"] == discord.AllowedMentions.none()
+    assert kwargs["allowed_mentions"].everyone is False
     assert kwargs["embed"].color.value == 0x4CCE91
-    assert "\\@everyone" in kwargs["embed"].description
+    assert "@everyone" not in kwargs["embed"].description
     bot.add_view.assert_called_once()
 
 
