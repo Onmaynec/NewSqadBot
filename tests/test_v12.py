@@ -12,7 +12,12 @@ import pytest
 from app.config import GUILD_ID, VERSION
 from app.core.catalog import implemented
 from app.core.database import Database, migrate
-from app.modules.suggestions import CreatePanel, SuggestionView, Suggestions, suggestion_embed
+from app.modules.suggestions import (
+    CreatePanel,
+    Suggestions,
+    SuggestionView,
+    suggestion_embed,
+)
 from app.services import suggestions as store
 
 
