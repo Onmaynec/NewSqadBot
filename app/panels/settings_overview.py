@@ -19,6 +19,8 @@ PAGE_OPTIONS = (
     ("tickets", "Тикеты", "Параметры и категории обращений"),
     ("leveling", "Уровни", "XP, лимиты и исключённые каналы"),
     ("economy", "Экономика", "Баланс, награды, магазин и переводы"),
+    ("quests", "Задания", "Дневные и недельные задания, награды и сброс"),
+    ("achievements", "Достижения", "Постоянные достижения и их награды"),
     ("profiles", "Профили", "Правила и приватность профилей"),
     ("modules", "Модули", "Фактическое состояние всех модулей"),
     ("all", "Все параметры", "Все ключи настройки с постраничным просмотром"),
@@ -140,6 +142,25 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
             lines.append(f"**{label}:** {value if not isinstance(default, bool) else ('включено' if value else 'выключено')}")
         lines += ["", "Управление: `/economy settings` / `/shop create` / `/economy rates`.",
                   "Валютные операции сохраняются в журнале SQLite."]
+    elif page == "quests":
+        lines = [
+            f"**Задания:** {'включены' if settings.get('quests_enabled', True) else 'отключены'}",
+            f"**Ежедневные:** {'включены' if settings.get('quests_daily_enabled', True) else 'отключены'}",
+            f"**Еженедельные:** {'включены' if settings.get('quests_weekly_enabled', True) else 'отключены'}",
+            f"**Часовой пояс:** {bot.config.timezone}",
+            "**Учёт:** сообщения и голосовые минуты с подтверждённым XP.",
+            "**Награды:** один раз за задание в пределах периода.",
+            "", "Управление: `/quests settings` / `/quests switch`.",
+        ]
+    elif page == "achievements":
+        lines = [
+            f"**Достижения:** {'включены' if settings.get('achievements_enabled', True) else 'отключены'}",
+            "**Открытие:** по фактической статистике без повторов.",
+            "**Редкости:** обычная, необычная, редкая, эпическая.",
+            "**Скрытые:** условия не показываются до открытия.",
+            "**Награды:** XP и NS Coins, одна выплата навсегда.",
+            "", "Управление: `/achievements settings` / `/achievements switch`.",
+        ]
     elif page == "profiles":
         lines = [
             "**Система профилей:** доступна одобренным членам NewSquad.",

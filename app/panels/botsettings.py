@@ -123,6 +123,14 @@ class HomeView(PrivateSettingsView):
     async def economy(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_economy_settings(interaction, self.client, self.owner_id)
 
+    @discord.ui.button(label="Задания", emoji="🗓️", style=discord.ButtonStyle.secondary, row=4)
+    async def quests(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_engagement_settings(interaction, self.client, self.owner_id, "quests")
+
+    @discord.ui.button(label="Достижения", emoji="🏅", style=discord.ButtonStyle.secondary, row=4)
+    async def achievements(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_engagement_settings(interaction, self.client, self.owner_id, "achievements")
+
     @discord.ui.button(label="Все настройки", emoji="🗂️", style=discord.ButtonStyle.success, row=4)
     async def settings_overview(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         from app.panels.settings_overview import SettingsOverviewView, overview_embed
@@ -132,6 +140,49 @@ class HomeView(PrivateSettingsView):
         view.max_pages = pages
         view._buttons()
         await interaction.edit_original_response(embed=embed, view=view)
+
+
+class EngagementSettingsView(PrivateSettingsView):
+    def __init__(self, client: "NewSqadBot", owner_id: int, module: str):
+        super().__init__(client, owner_id)
+        self.module = module
+
+    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.success, row=0)
+    async def toggle(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        key = f"{self.module}_enabled"
+        state = await self.client.database.get_setting(self.client.config.guild_id, key, True)
+        await self.client.database.set_setting(self.client.config.guild_id, key, not state,
+                                               actor_id=interaction.user.id)
+        await show_engagement_settings(interaction, self.client, self.owner_id, self.module)
+
+    @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=home_embed(), view=HomeView(self.client, self.owner_id))
+
+
+async def show_engagement_settings(interaction: discord.Interaction, client: "NewSqadBot",
+                                   owner_id: int, module: str) -> None:
+    if module not in {"quests", "achievements"}:
+        raise ValueError("Неизвестный модуль")
+    enabled = await client.database.get_setting(client.config.guild_id, f"{module}_enabled", True)
+    if module == "quests":
+        daily = await client.database.get_setting(client.config.guild_id, "quests_daily_enabled", True)
+        weekly = await client.database.get_setting(client.config.guild_id, "quests_weekly_enabled", True)
+        text = (f"**Задания:** {'включены' if enabled else 'отключены'}\n"
+                f"**Ежедневные:** {'включены' if daily else 'отключены'}\n"
+                f"**Еженедельные:** {'включены' if weekly else 'отключены'}\n"
+                f"**Часовой пояс:** {client.config.timezone}\n\n"
+                "Правила: `/quests settings`, переключатели: `/quests switch`.\n"
+                "Получение наград: `/quests daily`, `/quests weekly`.")
+        title = "Задания"
+    else:
+        text = (f"**Достижения:** {'включены' if enabled else 'отключены'}\n"
+                "**Сохранение:** постоянное, без сезонного сброса.\n"
+                "**Награды:** XP и NS Coins, только один раз.\n\n"
+                "Просмотр: `/achievements list`; настройка: `/achievements switch`.")
+        title = "Достижения"
+    await interaction.response.edit_message(embed=embed_card(f"NewSquad  /  {title}", text),
+                                            view=EngagementSettingsView(client, owner_id, module))
 
 
 class EconomySettingsView(PrivateSettingsView):
@@ -308,6 +359,9 @@ def home_embed() -> discord.Embed:
         "**Тикеты** — приватная поддержка с удалением после закрытия.\n"
         "**Уровни и XP** — начисление за общение и голосовую активность.\n"
         "**Профили** — интересы, игры и поиск компании.\n"
+        "**Экономика** — кошелёк, награды, магазин.\n"
+        "**Задания** — ежедневная и еженедельная активность.\n"
+        "**Достижения** — постоянные награды участников.\n"
         "**Все настройки** — единый обзор ролей, каналов, категорий и параметров.\n\n"
         "Изменение доступно в соответствующих разделах.",
     )

@@ -9,11 +9,11 @@ from app.core.database import migrate
 
 
 def test_version_and_ticket_storage_tables(tmp_path):
-    assert VERSION == "0.7.0"
+    assert VERSION == "0.8.0"
     url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
     migrate(url)
     with sqlite3.connect(tmp_path / "test.db") as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0006_economy"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0007_quests_achievements"
 
 
 def test_console_formatter_redacts_token(monkeypatch):
@@ -68,7 +68,7 @@ def test_discord_views_and_dashboard():
 
     assert BRAND_GREEN == 0x4CCE91
     assert card("test").color == discord.Color(BRAND_GREEN)
-    assert {"summary", "roles", "channels", "tickets", "leveling", "economy", "profiles", "modules", "all"} == {p[0] for p in PAGE_OPTIONS}
+    assert {"summary", "roles", "channels", "tickets", "leveling", "profiles", "modules", "all"} == {p[0] for p in PAGE_OPTIONS}
     class Config:
         owner_ids = frozenset()
     class Bot:

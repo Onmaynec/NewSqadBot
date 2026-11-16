@@ -1,6 +1,7 @@
 from app.models.base import Base
 from app.models.core import AuditEntry, EventReceipt, GuildSetting, OutboxEvent, ScheduledJob
 from app.models.economy import CurrencyEntry, InventoryItem, ShopItem, Wallet
+from app.models.engagement import AchievementUnlock, QuestClaim
 from app.models.membership import Application, ApplicationEvent
 from app.models.moderation import ModerationAction, ModerationCase
 from app.models.progression import ExperienceAward, MemberProfile, MemberProgress
@@ -11,7 +12,7 @@ __all__ = (
     "Base", "AuditEntry", "EventReceipt", "GuildSetting", "OutboxEvent", "ScheduledJob",
     "Application", "ApplicationEvent", "ModerationCase", "ModerationAction",
     "MemberProgress", "MemberProfile", "ExperienceAward",
-    "Wallet", "CurrencyEntry", "ShopItem", "InventoryItem",
+    "Wallet", "CurrencyEntry", "ShopItem", "InventoryItem", "AchievementUnlock", "QuestClaim",
     "LevelRoleReward", "RolePanel", "RolePanelOption", "TemporaryRole", "WelcomeDelivery",
     "Ticket", "TicketCategory", "TicketEvent", "TicketPanel", "TicketParticipant",
 )
