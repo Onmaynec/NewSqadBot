@@ -11,8 +11,8 @@ from app.services import profiles, progression
 
 
 def test_version_and_thresholds():
-    assert VERSION == "0.6.0"
-    assert [progression.threshold(level) for level in range(1, 5)] == [0, 200, 600, 1200]
+    assert VERSION == "0.7.0"
+    assert [progression.threshold(l) for l in range(1, 5)] == [0, 200, 600, 1200]
     for xp, level in [(0, 1), (199, 1), (200, 2), (599, 2), (600, 3), (1199, 3), (1200, 4)]:
         assert progression.level_for_xp(xp) == level
     assert len(progression.progress_bar(200)) == 12
@@ -41,7 +41,7 @@ def test_v06_migration_idempotent(tmp_path):
         db.execute("PRAGMA foreign_keys=ON")
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"member_progress", "member_profiles", "experience_awards"} <= tables
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0005_progression_profiles"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0006_economy"
         db.execute("INSERT INTO member_progress(guild_id,user_id,created_at,updated_at) VALUES (?,?,?,?)",
                    (GUILD_ID, 111, 100, 100))
         with pytest.raises(sqlite3.IntegrityError):
@@ -87,7 +87,8 @@ async def test_message_receipts_cooldown_cap_and_level_outbox(tmp_path):
         assert row.xp == 250 and row.level == 2 and row.credited_messages == 3
         async with db.sessions() as session:
             events = (await session.scalars(select(OutboxEvent))).all()
-        assert len(events) == 1 and events[0].kind == "leveling.level_up"
+        assert sum(e.kind == "leveling.level_up" for e in events) == 1
+        assert sum(e.kind == "leveling.xp_awarded" for e in events) == 3
     finally:
         await db.close()
 

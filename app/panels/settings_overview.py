@@ -18,6 +18,7 @@ PAGE_OPTIONS = (
     ("channels", "Каналы", "Каналы и категория приватных тикетов"),
     ("tickets", "Тикеты", "Параметры и категории обращений"),
     ("leveling", "Уровни", "XP, лимиты и исключённые каналы"),
+    ("economy", "Экономика", "Баланс, награды, магазин и переводы"),
     ("profiles", "Профили", "Правила и приватность профилей"),
     ("modules", "Модули", "Фактическое состояние всех модулей"),
     ("all", "Все параметры", "Все ключи настройки с постраничным просмотром"),
@@ -75,7 +76,7 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
             rid = settings.get(key, FEMALE_ROLE_ID if key == "female_role_id" else None)
             role = guild.get_role(rid) if guild and rid else None
             line = f"**{label}** — " + (f"{discord.utils.escape_markdown(role.name)} (`{rid}`) ✅"
-                                             if role else "⚠️ не настроена" if not rid
+                                             if role else f"⚠️ не настроена" if not rid
                                              else f"⚠️ ID `{rid}` не найден на сервере")
             lines.append(line)
         lines.append("\nРоль кандидата должна находиться **ниже** роли NewSqadBot для автоматического снятия.")
@@ -126,6 +127,19 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
                 val = len(val)
             lines.append(f"**{label}:** {val}")
         lines.append("\nИзменения: `/levels settings` и `/botsettings` → «Уровни и XP».")
+    elif page == "economy":
+        config = (("economy_enabled", "Экономика", True),
+                  ("economy_transfers_enabled", "Переводы", True),
+                  ("economy_activity_enabled", "Выплаты за XP", True),
+                  ("economy_daily_reward", "Ежедневная награда", 100),
+                  ("economy_message_reward", "За текстовое сообщение с XP", 2),
+                  ("economy_voice_reward", "За голосовой XP", 5),
+                  ("economy_level_reward", "За достижение уровня", 25))
+        for key, label, default in config:
+            value = settings.get(key, default)
+            lines.append(f"**{label}:** {value if not isinstance(default, bool) else ('включено' if value else 'выключено')}")
+        lines += ["", "Управление: `/economy settings` / `/shop create` / `/economy rates`.",
+                  "Валютные операции сохраняются в журнале SQLite."]
     elif page == "profiles":
         lines = [
             "**Система профилей:** доступна одобренным членам NewSquad.",

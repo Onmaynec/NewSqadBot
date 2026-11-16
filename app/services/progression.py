@@ -113,6 +113,17 @@ async def _credit(session, row: MemberProgress, *, amount: int, source: str, ref
     row.daily_xp += amount
     row.level = level_for_xp(row.xp)
     row.updated_at = now
+    # Связываем экономику только с фактически начисленным XP. Событие
+    # публикуется в той же транзакции, поэтому дубликаты не оплачиваются.
+    event_id = "xp:" + hashlib.sha256(
+        f"{row.guild_id}:{row.user_id}:{source}:{reference}".encode("utf-8")
+    ).hexdigest()[:61]
+    await session.execute(sqlite_insert(OutboxEvent).values(
+        id=event_id, kind="leveling.xp_awarded",
+        payload_json=json.dumps({"guild_id": row.guild_id, "user_id": row.user_id,
+                                 "source": source, "reference": reference, "xp": amount}),
+        created_at=now,
+    ).on_conflict_do_nothing(index_elements=[OutboxEvent.id]))
     for level in range(previous + 1, row.level + 1):
         key = f"lvl:{row.guild_id}:{row.user_id}:{level}"
         event = sqlite_insert(OutboxEvent).values(

@@ -119,6 +119,10 @@ class HomeView(PrivateSettingsView):
             view=BackView(self.client, self.owner_id),
         )
 
+    @discord.ui.button(label="Экономика", emoji="🪙", style=discord.ButtonStyle.secondary, row=4)
+    async def economy(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_economy_settings(interaction, self.client, self.owner_id)
+
     @discord.ui.button(label="Все настройки", emoji="🗂️", style=discord.ButtonStyle.success, row=4)
     async def settings_overview(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         from app.panels.settings_overview import SettingsOverviewView, overview_embed
@@ -128,6 +132,48 @@ class HomeView(PrivateSettingsView):
         view.max_pages = pages
         view._buttons()
         await interaction.edit_original_response(embed=embed, view=view)
+
+
+class EconomySettingsView(PrivateSettingsView):
+    async def _toggle(self, interaction: discord.Interaction, key: str) -> None:
+        current = bool(await self.client.database.get_setting(self.client.config.guild_id, key, True))
+        await self.client.database.set_setting(self.client.config.guild_id, key, not current,
+                                               actor_id=interaction.user.id)
+        await show_economy_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Включить экономику", style=discord.ButtonStyle.success, row=0)
+    async def enabled(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, "economy_enabled")
+
+    @discord.ui.button(label="Разрешить переводы", style=discord.ButtonStyle.secondary, row=0)
+    async def transfers(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, "economy_transfers_enabled")
+
+    @discord.ui.button(label="Награды за XP", style=discord.ButtonStyle.secondary, row=0)
+    async def activity(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, "economy_activity_enabled")
+
+    @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
+    async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=home_embed(), view=HomeView(self.client, self.owner_id))
+
+
+async def show_economy_settings(interaction: discord.Interaction, client: "NewSqadBot", owner_id: int) -> None:
+    settings = (("economy_enabled", "Экономика включена", True),
+                ("economy_transfers_enabled", "Переводы", True),
+                ("economy_activity_enabled", "Награды за активность", True),
+                ("economy_daily_reward", "Ежедневно", 100),
+                ("economy_message_reward", "За текстовый XP", 2),
+                ("economy_voice_reward", "За голосовой XP", 5),
+                ("economy_level_reward", "За уровень", 25))
+    lines = []
+    for key, label, default in settings:
+        value = await client.database.get_setting(client.config.guild_id, key, default)
+        lines.append(f"**{label}:** {value if not isinstance(default, bool) else ('включено' if value else 'выключено')}")
+    lines += ["", "Товары: `/shop list` / `/shop create` / `/shop disable`.",
+              "Награды: `/economy rates`. Все операции доступны в `/economy history`."]
+    await interaction.response.edit_message(embed=embed_card("NewSquad  /  Экономика", "\n".join(lines)),
+                                            view=EconomySettingsView(client, owner_id))
 
 
 class ProgressSettingsView(PrivateSettingsView):

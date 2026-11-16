@@ -82,7 +82,7 @@ def test_roles_migration_and_unique_constraints(tmp_path):
     migrate(url)
     migrate(url)
     with sqlite3.connect(path) as conn:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0005_progression_profiles"
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0006_economy"
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("INSERT INTO role_panels (guild_id,channel_id,title,description,mode,enabled,created_by,created_at) "
                      "VALUES (?,?,?,?,?,?,?,?)", (GUILD_ID, 1234, "Игры", "Выберите игру", "multi", 1, 1, 1))

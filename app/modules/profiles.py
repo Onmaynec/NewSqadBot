@@ -5,7 +5,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from app.services import profiles, progression
+from app.services import economy, profiles as store, progression
 from app.services.role_rules import is_approved
 from app.ui.theme import card, notice
 
@@ -38,7 +38,7 @@ class Profiles(commands.Cog):
             await interaction.response.send_message(embed=notice("Профиль недоступен.", kind="warning"),
                                                     ephemeral=True)
             return
-        record = await profiles.get_profile(self.bot.database, interaction.guild_id, target.id)
+        record = await store.get_profile(self.bot.database, interaction.guild_id, target.id)
         if record is not None and not record.public and interaction.user.id != target.id:
             await interaction.response.send_message(embed=notice("Участник закрыл свой профиль.", kind="warning"),
                                                     ephemeral=True)
@@ -49,6 +49,10 @@ class Profiles(commands.Cog):
         embed = card(f"NewSquad  /  {discord.utils.escape_markdown(target.display_name)}",
             f"**Уровень {level}** · {xp:,} XP\n{progression.progress_bar(xp)}\n"
             f"**Статус:** {STATUS.get(record.availability if record else 'available', 'Свободен')}")
+        title = await economy.equipped_title(self.bot.database, interaction.guild_id, target.id)
+        if title:
+            embed.add_field(name="Титул", value=discord.utils.escape_mentions(
+                discord.utils.escape_markdown(title)), inline=False)
         embed.set_thumbnail(url=target.display_avatar.url)
         embed.add_field(name="О себе", value=discord.utils.escape_mentions(record.bio[:500]) if record and record.bio
                         else "Не заполнено", inline=False)
@@ -73,7 +77,7 @@ class Profiles(commands.Cog):
         if not await self.ensure_owner(interaction):
             return
         try:
-            await profiles.update_profile(self.bot.database, interaction.guild_id, interaction.user.id,
+            await store.update_profile(self.bot.database, interaction.guild_id, interaction.user.id,
                                        field.value, value)
         except ValueError as exc:
             await interaction.response.send_message(embed=notice(str(exc), kind="warning"), ephemeral=True)
@@ -89,7 +93,7 @@ class Profiles(commands.Cog):
     async def status(self, interaction: discord.Interaction, value: app_commands.Choice[str]) -> None:
         if not await self.ensure_owner(interaction):
             return
-        await profiles.update_profile(self.bot.database, interaction.guild_id, interaction.user.id,
+        await store.update_profile(self.bot.database, interaction.guild_id, interaction.user.id,
                                    "availability", value.value)
         await interaction.response.send_message(embed=notice("Статус обновлён.", kind="success"), ephemeral=True)
 
@@ -97,7 +101,7 @@ class Profiles(commands.Cog):
     async def privacy(self, interaction: discord.Interaction, public: bool) -> None:
         if not await self.ensure_owner(interaction):
             return
-        await profiles.set_visibility(self.bot.database, interaction.guild_id, interaction.user.id, public)
+        await store.set_visibility(self.bot.database, interaction.guild_id, interaction.user.id, public)
         await interaction.response.send_message(embed=notice(
             "Ваш профиль публичен." if public else "Ваш профиль теперь виден только вам.", kind="success"),
             ephemeral=True)
@@ -106,7 +110,7 @@ class Profiles(commands.Cog):
     async def reset(self, interaction: discord.Interaction) -> None:
         if not await self.ensure_owner(interaction):
             return
-        await profiles.reset_profile(self.bot.database, interaction.guild_id, interaction.user.id)
+        await store.reset_profile(self.bot.database, interaction.guild_id, interaction.user.id)
         await interaction.response.send_message(embed=notice("Описание и интересы очищены, XP сохранён.",
                                                                kind="success"), ephemeral=True)
 

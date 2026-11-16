@@ -50,6 +50,11 @@ class EventBus:
         for event_id, kind, payload_json in events:
             subscribers = self.handlers.get(kind, {})
             if not subscribers:
+                # Источники активности могут работать при отключённой экономике.
+                # Не позволяем неиспользуемым XP-событиям заблокировать durable outbox.
+                if kind == "leveling.xp_awarded":
+                    async with self.database.session() as session:
+                        await session.execute(delete(OutboxEvent).where(OutboxEvent.id == event_id))
                 continue
             for name, handler in subscribers.items():
                 async with self.database.sessions() as session:
