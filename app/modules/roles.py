@@ -15,12 +15,12 @@ from app.core.durations import parse_duration
 from app.core.permissions import can_manage_settings
 from app.models import LevelRoleReward, RolePanel, RolePanelOption, TemporaryRole
 from app.services.audit import log_event
+from app.services.membership_access import approved_member
 from app.services.role_rules import (
     forbidden_role_ids,
     role_safe_for_self_assign,
     validate_panel,
 )
-from app.services.membership_access import approved_member
 from app.ui.theme import BRAND_GREEN, LoggedView
 
 log = logging.getLogger(__name__)
