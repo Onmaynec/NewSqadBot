@@ -1,6 +1,7 @@
 """Вступление в NewSquad: одна анкета, приватное рассмотрение и восстановимые решения."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -188,6 +189,8 @@ class Membership(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._execution_locks: dict[int, asyncio.Lock] = {}
+        self._recovered = False
 
     async def cog_load(self) -> None:
         self.bot.add_view(ApplyPanel(self))
@@ -196,12 +199,24 @@ class Membership(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
-        # Recover cards saved before a failed Discord send or crash.
+        if self._recovered:
+            return
+        self._recovered = True
+        # Восстанавливаем и карточки, и решения, прерванные рестартом Docker.
         for app in await store.awaiting_publication(self.bot.database, self.bot.config.guild_id):
             try:
                 await self.publish(app)
             except (discord.HTTPException, RuntimeError):
                 log.exception("Не удалось восстановить карточку заявки %s", app.id)
+        for app in await store.unfinished(self.bot.database, self.bot.config.guild_id):
+            if app.decision not in ("approve", "reject"):
+                continue
+            try:
+                result = await self.execute(app.id)
+                log.info("Восстановлена заявка #%s: %s", app.id, result)
+                await self.refresh(app.id)
+            except Exception:
+                log.exception("Не удалось восстановить решение заявки #%s", app.id)
 
     async def can_review(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id != self.bot.config.guild_id:
@@ -260,6 +275,11 @@ class Membership(commands.Cog):
         return result
 
     async def execute(self, app_id: int) -> str:
+        lock = self._execution_locks.setdefault(app_id, asyncio.Lock())
+        async with lock:
+            return await self._execute_locked(app_id)
+
+    async def _execute_locked(self, app_id: int) -> str:
         app = await store.get_application(self.bot.database, app_id)
         if not app or app.status not in ("approving", "rejecting", "action_failed"):
             return "Нет незавершённых действий."
@@ -287,36 +307,66 @@ class Membership(commands.Cog):
             if getattr(member, "pending", False):
                 await store.fail(self.bot.database, app_id, app.reviewer_id or 0, "Не пройдена встроенная проверка Discord")
                 return "Кандидат ещё не прошёл встроенную проверку правил Discord."
+            # Проверить все роли до изменения доступа. При частичном сбое
+            # откатываем роль Member, чтобы не раскрыть приватные каналы.
+            candidate_id = await self.bot.database.get_setting(app.guild_id, "candidate_role_id")
+            female_id = await self.bot.database.get_setting(app.guild_id, "female_role_id", FEMALE_ROLE_ID)
+            candidate_role = guild.get_role(candidate_id) if candidate_id else None
+            female = guild.get_role(female_id) if app.gender == "female" else None
+            me = guild.me
+            try:
+                if candidate_id == role.id or (candidate_id and candidate_role is None):
+                    raise RuntimeError("Роль кандидата отсутствует или совпадает с ролью участника")
+                if app.gender == "female" and female is None:
+                    raise RuntimeError("Не найдена женская роль")
+                if (me is None or not me.guild_permissions.manage_roles or me.top_role <= role
+                        or me.top_role <= member.top_role):
+                    raise RuntimeError("У бота недостаточно прав для выдачи роли участника")
+                for managed in (female, candidate_role):
+                    if managed is not None and me.top_role <= managed:
+                        raise RuntimeError("Роль бота должна быть выше управляемых ролей")
+            except RuntimeError as exc:
+                await store.fail(self.bot.database, app_id, app.reviewer_id or 0, str(exc))
+                return f"Проверка ролей не пройдена: {exc}. Исправьте настройки и повторите."
+
+            added_female = False
             try:
                 if role not in member.roles:
                     await member.add_roles(role, reason=f"[NSB-APPLICATION-{app_id:04d}] Одобрение")
-                if app.gender == "female":
-                    female_id = await self.bot.database.get_setting(app.guild_id, "female_role_id", FEMALE_ROLE_ID)
-                    female = guild.get_role(female_id)
-                    if female is None:
-                        raise RuntimeError("Не найдена женская роль")
+                await store.step(self.bot.database, app_id, "role_status", "done")
+                if female is not None:
                     if female not in member.roles:
                         await member.add_roles(female, reason=f"[NSB-APPLICATION-{app_id:04d}] Женская роль")
+                        added_female = True
                     await store.step(self.bot.database, app_id, "female_role_status", "done")
                 else:
                     await store.step(self.bot.database, app_id, "female_role_status", "n_a")
-                # Роль кандидата выдаёт другой бот. Удаляем её только ПОСЛЕ выдачи
-                # Member (и женской роли, если требуется). При ошибке повторяем этот
-                # шаг через /membership retry, не помечая заявку как одобренную.
-                candidate_id = await self.bot.database.get_setting(app.guild_id, "candidate_role_id")
-                if candidate_id == role.id:
-                    raise RuntimeError("Роли кандидата и участника совпадают — исправьте /botsettings")
-                if candidate_id:
-                    candidate_role = guild.get_role(candidate_id)
-                    if candidate_role is None:
-                        raise RuntimeError("Настроенная роль кандидата отсутствует на сервере")
-                    if candidate_role in member.roles:
-                        await member.remove_roles(candidate_role,
-                            reason=f"[NSB-APPLICATION-{app_id:04d}] Кандидат принят")
-                await store.step(self.bot.database, app_id, "role_status", "done")
+                if candidate_role is not None and candidate_role in member.roles:
+                    await member.remove_roles(candidate_role,
+                        reason=f"[NSB-APPLICATION-{app_id:04d}] Кандидат принят")
+                await store.step(self.bot.database, app_id, "candidate_role_status",
+                                 "done" if candidate_role is not None else "n_a")
             except (discord.HTTPException, RuntimeError) as exc:
-                await store.fail(self.bot.database, app_id, app.reviewer_id or 0, f"Ошибка выдачи роли: {exc}")
-                return f"Роль не выдана полностью: {exc}. Исправьте права и используйте /membership retry."
+                log.exception("Не завершена выдача доступа application_id=%s", app_id)
+                rollback_errors = []
+                try:
+                    if role in member.roles:
+                        await member.remove_roles(role, reason=f"[NSB-APPLICATION-{app_id:04d}] Откат")
+                    await store.step(self.bot.database, app_id, "role_status", "pending")
+                except discord.HTTPException as rollback_exc:
+                    rollback_errors.append(f"основная роль: {rollback_exc}")
+                if added_female and female is not None:
+                    try:
+                        await member.remove_roles(female, reason=f"[NSB-APPLICATION-{app_id:04d}] Откат")
+                        await store.step(self.bot.database, app_id, "female_role_status", "pending")
+                    except discord.HTTPException as rollback_exc:
+                        rollback_errors.append(f"женская роль: {rollback_exc}")
+                detail = f"Ошибка выдачи доступа: {exc}"
+                if rollback_errors:
+                    detail += "; откат не выполнен: " + ", ".join(rollback_errors)
+                    log.critical("Требуется ручное снятие ролей application_id=%s: %s", app_id, detail)
+                await store.fail(self.bot.database, app_id, app.reviewer_id or 0, detail)
+                return f"Доступ не подтверждён: {detail}. Используйте /membership retry."
             warning = ""
             try:
                 new_nick = nickname(member.name, app.name)
@@ -339,13 +389,21 @@ class Membership(commands.Cog):
                     await store.step(self.bot.database, app_id, "dm_status", "done")
                 except discord.HTTPException:
                     await store.step(self.bot.database, app_id, "dm_status", "failed")
-            # Durable event: handlers of Welcome and Roles can recover after a restart.
-            await self.bot.events.publish("membership.approved", {
-                "guild_id": app.guild_id, "user_id": app.user_id, "application_id": app_id,
-            }, event_id=f"membership-approved-{app_id}")
-            await log_event(self.bot, channel_setting="membership_audit_channel_id",
-                title=f"Заявка #{app_id:04d} одобрена", details=f"Кандидат: {app.user_id}\nМодератор: {app.reviewer_id}\n{warning}",
-                actor_id=app.reviewer_id or 0, action="membership.approved", target_id=app.user_id)
+            # При сбое внешних уведомлений решение остаётся принятым.
+            # Повторная публикация события безопасна благодаря постоянному event_id.
+            try:
+                await self.bot.events.publish("membership.approved", {
+                    "guild_id": app.guild_id, "user_id": app.user_id, "application_id": app_id,
+                }, event_id=f"membership-approved-{app_id}")
+            except Exception:
+                log.exception("Не опубликовано событие одобрения application_id=%s", app_id)
+            try:
+                await log_event(self.bot, channel_setting="membership_audit_channel_id",
+                    title=f"Заявка #{app_id:04d} одобрена",
+                    details=f"Кандидат: {app.user_id}\\nМодератор: {app.reviewer_id}\\n{warning}",
+                    actor_id=app.reviewer_id or 0, action="membership.approved", target_id=app.user_id)
+            except Exception:
+                log.exception("Не удалось записать аудит одобрения application_id=%s", app_id)
             return "Кандидат принят." + warning
         # REJECT: DM before kick; unavailable DMs must not block kick.
         if app.dm_status == "pending":
