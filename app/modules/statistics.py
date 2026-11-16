@@ -108,18 +108,12 @@ class Statistics(commands.Cog):
         if (interaction.guild_id != self.bot.config.guild_id
                 or not isinstance(interaction.user, discord.Member) or interaction.user.bot):
             return False
-        if self.admin(interaction):
-            return True
         role_id = await self.bot.database.get_setting(interaction.guild_id, "candidate_role_id")
         return await approved_member(self.bot.database, interaction.user, role_id)
 
     async def approved_participant(self, member: discord.Member) -> bool:
         if member.bot or member.guild.id != self.bot.config.guild_id:
             return False
-        if (member.id == member.guild.owner_id
-                or member.id in self.bot.config.owner_ids
-                or member.guild_permissions.administrator):
-            return True
         role = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
         return await approved_member(self.bot.database, member, role)
 
