@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime, time as clock_time, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, or_, select, update
@@ -87,8 +87,8 @@ def period_bounds(key: str, *, timezone: str, now: int | None = None) -> Period:
     end_day = last_day + timedelta(days=1)
     return Period(
         key=key, first=first_day.isoformat(), last=last_day.isoformat(),
-        start_timestamp=int(datetime.combine(first_day, clock_time.min, zone).timestamp()),
-        end_timestamp=int(datetime.combine(end_day, clock_time.min, zone).timestamp()),
+        start_timestamp=int(datetime.combine(first_day, datetime.min.time(), zone).timestamp()),
+        end_timestamp=int(datetime.combine(end_day, datetime.min.time(), zone).timestamp()),
         timezone=timezone,
     )
 
