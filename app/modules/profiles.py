@@ -6,7 +6,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from app.services import economy, profiles, progression
-from app.services.role_rules import is_approved
+from app.services.membership_access import approved_member
 from app.ui.theme import card, notice
 
 STATUS = {"available": "Свободен", "looking": "Ищу компанию", "busy": "Не беспокоить"}
@@ -22,7 +22,7 @@ class Profiles(commands.Cog):
         if member.guild.id != self.bot.config.guild_id or member.bot:
             return False
         role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
-        return is_approved(member, role_id)
+        return await approved_member(self.bot.database, member, role_id)
 
     async def ensure_owner(self, interaction: discord.Interaction) -> bool:
         if isinstance(interaction.user, discord.Member) and await self.member_ok(interaction.user):
