@@ -23,6 +23,7 @@ PAGE_OPTIONS = (
     ("quests", "Задания", "Дневные и недельные задания, награды и сброс"),
     ("achievements", "Достижения", "Постоянные достижения и их награды"),
     ("profiles", "Профили", "Правила и приватность профилей"),
+    ("suggestions", "Предложения", "Канал, голоса и антиспам"),
     ("modules", "Модули", "Фактическое состояние всех модулей"),
     ("all", "Все параметры", "Все ключи настройки с постраничным просмотром"),
 )
@@ -182,6 +183,19 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
             "**Приватность:** каждый участник может скрыть свой профиль.",
             "**Анкеты Membership:** возраст и ответы не попадают в публичный профиль.",
             "", "Команды: `/profile view`, `/profile edit`, `/profile status`, `/profile privacy`.",
+        ]
+    elif page == "suggestions":
+        from app.services import suggestions as suggestions_store
+
+        lost, lost_panels = await suggestions_store.missing_count(
+            bot.database, bot.config.guild_id)
+        lines = [
+            f"**Система:** {'включена' if settings.get('suggestions_enabled', True) else 'отключена'}",
+            f"**Канал:** {f'<#{settings.get('suggest_channel_id')}>' if settings.get('suggest_channel_id') else 'не выбран'}",
+            f"**Минимальный уровень:** {settings.get('suggest_min_level', 1)}",
+            f"**Cooldown:** {settings.get('suggest_cooldown_seconds', 1800) // 60} минут",
+            f"**Удалённые карточки:** {lost} · **панели:** {lost_panels}",
+            "", "Настройка: /suggest configure; обзор: /suggest settings.",
         ]
     elif page == "modules":
         states = {"planned": "в планах", "active": "работает", "disabled": "выключен", "error": "ошибка загрузки"}
