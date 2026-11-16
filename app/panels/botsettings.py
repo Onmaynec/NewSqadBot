@@ -56,6 +56,8 @@ class PrivateSettingsView(LoggedView):
         self.owner_id = owner_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if interaction.user.id != self.owner_id or not can_manage_settings(interaction, self.client.config.owner_ids):
             await interaction.response.send_message("Эта панель доступна только администратору, который её открыл.", ephemeral=True)
             return False
@@ -80,14 +82,14 @@ class HomeView(PrivateSettingsView):
         embed.set_footer(text="Модуль становится доступен только после реализации в отдельном файле.")
         await interaction.response.edit_message(embed=embed, view=BackView(self.client, self.owner_id))
 
-    @discord.ui.button(label="Роли", emoji="🎭", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="Роли", emoji="🎭", style=discord.ButtonStyle.primary, row=1)
     async def roles(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.edit_message(
             embed=embed_card("NewSquad · Роли", "Выберите назначение роли, затем саму Discord-роль.\nВыберите роли, используемые действующей системой Membership."),
             view=SlotMenuView(self.client, self.owner_id, "role"),
         )
 
-    @discord.ui.button(label="Каналы", emoji="📁", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="Каналы", emoji="📁", style=discord.ButtonStyle.primary, row=1)
     async def channels(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.edit_message(
             embed=embed_card("NewSquad · Каналы", "Выберите назначение канала или категории, затем объект Discord."),
@@ -152,7 +154,7 @@ class HomeView(PrivateSettingsView):
     async def achievements(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_engagement_settings(interaction, self.client, self.owner_id, "achievements")
 
-    @discord.ui.button(label="Все настройки", emoji="🗂️", style=discord.ButtonStyle.success, row=4)
+    @discord.ui.button(label="Все настройки", emoji="🗂️", style=discord.ButtonStyle.primary, row=4)
     async def settings_overview(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         from app.panels.settings_overview import SettingsOverviewView, overview_embed
         await interaction.response.defer()
@@ -164,7 +166,7 @@ class HomeView(PrivateSettingsView):
 
 
 class StatisticsSettingsView(PrivateSettingsView):
-    @discord.ui.button(label="Учёт: включить / выключить", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Учёт: включить / выключить", style=discord.ButtonStyle.primary)
     async def toggle(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         key = "statistics_enabled"
         gid = self.client.config.guild_id
@@ -219,7 +221,7 @@ async def show_statistics_settings(interaction: discord.Interaction,
 
 
 class SuggestionsSettingsView(PrivateSettingsView):
-    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.primary)
     async def toggle(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         gid = self.client.config.guild_id
         enabled = bool(await self.client.database.get_setting(gid, "suggestions_enabled", True))
@@ -267,7 +269,7 @@ async def show_suggestions_settings(
 
 
 class EventsSettingsView(PrivateSettingsView):
-    @discord.ui.button(label="Мероприятия: включить / выключить", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Мероприятия: включить / выключить", style=discord.ButtonStyle.primary)
     async def toggle_events(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         key = "events_enabled"
         value = bool(await self.client.database.get_setting(self.client.config.guild_id, key, True))
@@ -308,7 +310,7 @@ async def show_events_settings(interaction: discord.Interaction, client: "NewSqa
 
 
 class VoiceSettingsView(PrivateSettingsView):
-    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.primary, row=0)
     async def toggle(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         key = "voice_enabled"
         current = bool(await self.client.database.get_setting(self.client.config.guild_id, key, True))
@@ -366,7 +368,7 @@ class EngagementSettingsView(PrivateSettingsView):
         super().__init__(client, owner_id)
         self.module = module
 
-    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.primary, row=0)
     async def toggle(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         key = f"{self.module}_enabled"
         state = await self.client.database.get_setting(self.client.config.guild_id, key, True)
@@ -411,7 +413,7 @@ class EconomySettingsView(PrivateSettingsView):
                                                actor_id=interaction.user.id)
         await show_economy_settings(interaction, self.client, self.owner_id)
 
-    @discord.ui.button(label="Включить экономику", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Включить экономику", style=discord.ButtonStyle.primary, row=0)
     async def enabled(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._toggle(interaction, "economy_enabled")
 
@@ -454,7 +456,7 @@ class ProgressSettingsView(PrivateSettingsView):
                                                actor_id=interaction.user.id)
         await show_leveling_settings(interaction, self.client, self.owner_id)
 
-    @discord.ui.button(label="Общий прогресс", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Общий прогресс", style=discord.ButtonStyle.primary, row=0)
     async def total(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._toggle(interaction, "")
 
@@ -498,7 +500,7 @@ async def show_leveling_settings(interaction: discord.Interaction, client: "NewS
 
 
 class TicketSettingsView(PrivateSettingsView):
-    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.primary, row=0)
     async def toggle(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         enabled = await self.client.database.get_setting(self.client.config.guild_id, "tickets_enabled", True)
         await self.client.database.set_setting(self.client.config.guild_id, "tickets_enabled", not enabled,
@@ -581,7 +583,9 @@ def home_embed() -> discord.Embed:
         "**Профили** — интересы, игры и поиск компании.\n"
         "**Экономика** — кошелёк, награды, магазин.\n"
         "**Задания** — ежедневная и еженедельная активность.\n"
-        "**Достижения** — постоянные награды участников.\n"        "**Статистика** — активность по дням и рейтинги.\n"        "**Предложения** — идеи, голоса, обсуждение и решения.\n"
+        "**Достижения** — постоянные награды участников.\n"
+        "**Статистика** — активность по дням и рейтинги.\n"
+        "**Предложения** — идеи, голоса, обсуждение и решения.\n"
         "**Все настройки** — единый обзор ролей, каналов, категорий и параметров.\n\n"
         "Изменение доступно в соответствующих разделах.",
     )
@@ -711,7 +715,7 @@ class WelcomeSettingsView(PrivateSettingsView):
         # One response only: show_welcome_settings edits this interaction's message.
         await show_welcome_settings(interaction, self.client, self.owner_id)
 
-    @discord.ui.button(label="Приветствие", style=discord.ButtonStyle.success, row=0)
+    @discord.ui.button(label="Приветствие", style=discord.ButtonStyle.primary, row=0)
     async def greeting(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._toggle(interaction, "welcome_enabled", True)
 
