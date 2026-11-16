@@ -389,8 +389,10 @@ async def reroll_giveaway(db, *, guild_id: int, giveaway_id: int,
         first = await session.scalar(select(GiveawayDraw).where(
             GiveawayDraw.giveaway_id == giveaway_id, GiveawayDraw.round == 1))
         eligible = json.loads(first.eligible_json)
-        old = json.loads(row.winners_json)
-        choices = [uid for uid in eligible if uid not in old]
+        previous_draws = (await session.scalars(select(GiveawayDraw).where(
+            GiveawayDraw.giveaway_id == giveaway_id))).all()
+        selected_before = {uid for draw in previous_draws for uid in json.loads(draw.winners_json)}
+        choices = [uid for uid in eligible if uid not in selected_before]
         if not choices:
             raise ValueError("Нет новых кандидатов для повторного выбора.")
         winners = (rng or secrets.SystemRandom()).sample(choices, min(row.winner_count, len(choices)))
