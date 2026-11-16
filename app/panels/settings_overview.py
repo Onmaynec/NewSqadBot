@@ -257,6 +257,8 @@ class SettingsOverviewView(LoggedView):
         self.next.disabled = self.page != "all" or self.page_number >= self.max_pages - 1
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if interaction.user.id != self.owner_id or not can_manage_settings(interaction, self.bot.config.owner_ids):
             await interaction.response.send_message("Эта панель доступна только тому, кто её открыл.", ephemeral=True)
             return False
