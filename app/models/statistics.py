@@ -1,6 +1,6 @@
 """Дневные агрегаты статистики NewSquad. Содержимое сообщений не сохраняем."""
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, ForeignKey, Index, Integer,
+    BigInteger, Boolean, CheckConstraint, Index, Integer,
     String, UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
