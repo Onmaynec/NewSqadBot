@@ -68,6 +68,16 @@ class TicketOpenView(discord.ui.View):
         if not await self.cog.bot.database.get_setting(interaction.guild_id, "tickets_enabled", True):
             await interaction.followup.send("Поддержка временно недоступна.", ephemeral=True)
             return
+        parent_id = await self.cog.bot.database.get_setting(interaction.guild_id, "ticket_category_channel_id")
+        parent = interaction.guild.get_channel(parent_id) if interaction.guild and parent_id else None
+        if not isinstance(parent, discord.CategoryChannel):
+            await interaction.followup.send(
+                "Тикеты пока не настроены: администрация должна выбрать категорию Discord "
+                "для приватных каналов в `/botsettings` → «Тикеты» → «Категория каналов» "
+                "(или командой `/tickets location`).",
+                ephemeral=True,
+            )
+            return
         categories = await store.categories(self.cog.bot.database, interaction.guild_id)
         if not categories:
             await interaction.followup.send("Категории пока не настроены.", ephemeral=True)
@@ -257,7 +267,9 @@ class Tickets(commands.Cog):
         parent = guild.get_channel(parent_id) if parent_id else None
         me = guild.me
         if not isinstance(parent, discord.CategoryChannel):
-            return "Администрация ещё не выбрала категорию каналов тикетов."
+            return ("Категория Discord для тикетов не настроена или удалена. "
+                    "Администрации нужно выбрать её в `/botsettings` → «Тикеты» → "
+                    "«Категория каналов» либо через `/tickets location`.")
         if not support_role:
             return "Администрация ещё не назначила роль поддержки для этой категории."
         if me is None or not (me.guild_permissions.manage_channels and me.guild_permissions.manage_roles

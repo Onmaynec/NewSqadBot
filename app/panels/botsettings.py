@@ -34,6 +34,7 @@ CHANNEL_SLOTS = (
     ("farewell_channel_id", "Канал прощаний"),
     ("rules_channel_id", "Канал правил"),
     ("ticket_panel_channel_id", "Канал панели тикетов"),
+    ("ticket_category_channel_id", "Категория приватных тикетов"),
     ("ticket_log_channel_id", "Журнал тикетов"),
 )
 
@@ -121,7 +122,17 @@ class TicketSettingsView(PrivateSettingsView):
                                               actor_id=interaction.user.id)
         await show_tickets_settings(interaction, self.client, self.owner_id)
 
-    @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Категория каналов", emoji="📂", style=discord.ButtonStyle.secondary, row=1)
+    async def location(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=embed_card("NewSquad · Категория тикетов",
+                             "Выберите **категорию Discord** (раздел в списке каналов), "
+                             "в которой бот будет создавать приватные обращения. "
+                             "Это не канал публикации панели и не категория обращения."),
+            view=ValuePickerView(self.client, self.owner_id, "channel", "ticket_category_channel_id"),
+        )
+
+    @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary, row=2)
     async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.edit_message(embed=home_embed(), view=HomeView(self.client, self.owner_id))
 
@@ -139,12 +150,12 @@ async def show_tickets_settings(interaction: discord.Interaction, client: "NewSq
     text = (f"**Приём обращений:** {'включён' if enabled else 'отключён'}\n"
             f"**Максимум одновременно:** {limit}\n"
             f"**Автозакрытие:** {idle_days} дней (0 — выключено)\n"
-            f"**Категория каналов:** {room_id or 'не настроена'}\n"
+            f"**Категория приватных каналов:** {f'<#{room_id}>' if room_id else 'не выбрана'}\n"
             f"**Поддержка (роль):** {role_id or 'не настроена'}\n"
             f"**Журнал:** {log_id or 'не настроен'}\n"
             f"**Категории:** {len(items)}\n\n"
             "Опубликовать панель: `/tickets panel`\n"
-            "Категория каналов: `/tickets location`\n"
+            "Выбрать категорию каналов: кнопка выше или `/tickets location`\n"
             "Категории: `/tickets category create` и `/tickets category edit`\n"
             "Роль поддержки и журнал: главная панель → Роли / Каналы.")
     await interaction.response.edit_message(embed=embed_card("NewSquad · Тикеты", text),
@@ -219,21 +230,33 @@ class RolePicker(discord.ui.RoleSelect):
 
 class ChannelPicker(discord.ui.ChannelSelect):
     def __init__(self, client: "NewSqadBot", owner_id: int, slot: str):
-        super().__init__(placeholder="Выберите канал", min_values=1, max_values=1,
-                         channel_types=[discord.ChannelType.text])
+        self.category_slot = slot == "ticket_category_channel_id"
+        super().__init__(
+            placeholder="Выберите категорию Discord" if self.category_slot else "Выберите текстовый канал",
+            min_values=1,
+            max_values=1,
+            channel_types=[discord.ChannelType.category if self.category_slot else discord.ChannelType.text],
+        )
         self.client, self.owner_id, self.slot = client, owner_id, slot
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        channel = self.values[0]
-        channel_guild_id = getattr(channel, "guild_id", None)
-        if channel_guild_id is None:
-            channel_guild_id = getattr(getattr(channel, "guild", None), "id", None)
-        if interaction.guild is None or channel_guild_id != interaction.guild.id:
-            await interaction.response.send_message("Выберите текстовый канал NewSquad.", ephemeral=True)
+        selected = self.values[0]
+        channel = interaction.guild.get_channel(selected.id) if interaction.guild else None
+        expected = discord.CategoryChannel if self.category_slot else discord.TextChannel
+        if not isinstance(channel, expected) or channel.guild.id != self.client.config.guild_id:
+            await interaction.response.send_message(
+                "Выберите категорию Discord на сервере NewSquad."
+                if self.category_slot else "Выберите текстовый канал NewSquad.",
+                ephemeral=True,
+            )
             return
-        await self.client.database.set_setting(self.client.config.guild_id, self.slot, channel.id, actor_id=interaction.user.id)
+        await self.client.database.set_setting(
+            self.client.config.guild_id, self.slot, channel.id, actor_id=interaction.user.id
+        )
+        display = channel.name if self.category_slot else channel.mention
         await interaction.response.edit_message(
-            embed=embed_card("Настройка сохранена", f"**{dict(CHANNEL_SLOTS)[self.slot]}:** {channel.mention}\nID: `{channel.id}`"),
+            embed=embed_card("Настройка сохранена",
+                             f"**{dict(CHANNEL_SLOTS)[self.slot]}:** {display}\nID: `{channel.id}`"),
             view=BackView(self.client, self.owner_id),
         )
 
