@@ -191,7 +191,7 @@ class Voice(commands.Cog):
             return False
         if self._privileged(member):
             return True
-        role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
+        role_id = await self.bot.database.get_setting(member.guild.id, "candidate_role_id")
         return await approved_member(self.bot.database, member, role_id)
 
     def _creation_problems(self, guild: discord.Guild, lobby: discord.VoiceChannel,
