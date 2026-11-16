@@ -141,7 +141,7 @@ async def test_membership_approval_outbox_and_rejoin_guard(tmp_path):
 
 
 def test_party_buttons_after_restart():
-    discord = pytest.importorskip("discord")
+    pytest.importorskip("discord")
     from app.modules.party_finder import PartyFinder, PartyView
 
     v = PartyView(object(), 42)
