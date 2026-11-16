@@ -114,6 +114,10 @@ class HomeView(PrivateSettingsView):
     async def suggestions(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_suggestions_settings(interaction, self.client, self.owner_id)
 
+    @discord.ui.button(label="Статистика", emoji="📈", style=discord.ButtonStyle.secondary, row=2)
+    async def statistics(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_statistics_settings(interaction, self.client, self.owner_id)
+
     @discord.ui.button(label="Голосовые комнаты", emoji="🎙️", style=discord.ButtonStyle.secondary, row=3)
     async def voice_rooms(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_voice_settings(interaction, self.client, self.owner_id)
@@ -157,6 +161,61 @@ class HomeView(PrivateSettingsView):
         view.max_pages = pages
         view._buttons()
         await interaction.edit_original_response(embed=embed, view=view)
+
+
+class StatisticsSettingsView(PrivateSettingsView):
+    @discord.ui.button(label="Учёт: включить / выключить", style=discord.ButtonStyle.success)
+    async def toggle(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        key = "statistics_enabled"
+        gid = self.client.config.guild_id
+        value = bool(await self.client.database.get_setting(gid, key, True))
+        await self.client.database.set_setting(gid, key, not value, actor_id=interaction.user.id)
+        if not value:
+            cog = self.client.get_cog("Statistics")
+            if cog:
+                await cog.init_tracking()
+        await show_statistics_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Публичный рейтинг: переключить", style=discord.ButtonStyle.secondary)
+    async def ranking(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        key = "statistics_public_ranking"
+        gid = self.client.config.guild_id
+        value = bool(await self.client.database.get_setting(gid, key, True))
+        await self.client.database.set_setting(gid, key, not value, actor_id=interaction.user.id)
+        await show_statistics_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=home_embed(), view=HomeView(self.client, self.owner_id))
+
+
+async def show_statistics_settings(interaction: discord.Interaction,
+                                   client: "NewSqadBot", owner_id: int) -> None:
+    from app.services import statistics as store
+
+    gid = client.config.guild_id
+    enabled = await client.database.get_setting(gid, "statistics_enabled", True)
+    messages = await client.database.get_setting(gid, "statistics_messages_enabled", True)
+    voice = await client.database.get_setting(gid, "statistics_voice_enabled", True)
+    ranking = await client.database.get_setting(gid, "statistics_public_ranking", True)
+    timezone = await client.database.get_setting(gid, "statistics_timezone", client.config.timezone)
+    started = await client.database.get_setting(gid, "statistics_started_at")
+    panels = await store.panels(client.database, gid)
+    description = (
+        f"**Сбор:** {'включён' if enabled else 'выключен'}\n"
+        f"**Сообщения:** {'да' if messages else 'нет'}\n"
+        f"**Голос:** {'да' if voice else 'нет'}\n"
+        f"**Публичные рейтинги:** {'да' if ranking else 'нет'}\n"
+        f"**Начало учёта:** {f'<t:{started}:f>' if started else 'не начат'}\n"
+        f"**Часовой пояс:** {timezone}\n"
+        f"**Панелей:** {len(panels)}\n\n"
+        "Команды: /stats server, /stats user, /stats top, /stats activity.\n"
+        "Настроить: /stats configure; опубликовать: /stats panel."
+    )
+    await interaction.response.edit_message(
+        embed=embed_card("NewSquad / Статистика", description),
+        view=StatisticsSettingsView(client, owner_id))
 
 
 class SuggestionsSettingsView(PrivateSettingsView):
@@ -522,7 +581,7 @@ def home_embed() -> discord.Embed:
         "**Профили** — интересы, игры и поиск компании.\n"
         "**Экономика** — кошелёк, награды, магазин.\n"
         "**Задания** — ежедневная и еженедельная активность.\n"
-        "**Достижения** — постоянные награды участников.\n"        "**Предложения** — идеи, голоса, обсуждение и решения.\n"
+        "**Достижения** — постоянные награды участников.\n"        "**Статистика** — активность по дням и рейтинги.\n"        "**Предложения** — идеи, голоса, обсуждение и решения.\n"
         "**Все настройки** — единый обзор ролей, каналов, категорий и параметров.\n\n"
         "Изменение доступно в соответствующих разделах.",
     )
