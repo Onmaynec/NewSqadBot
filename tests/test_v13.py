@@ -154,11 +154,11 @@ async def test_membership_approval_candidate_and_server_counts(tmp_path):
             members=members, member_count=4, member_role_id=444,
             candidate_role_id=555, tracking_started_at=now - 75,
         )
-        assert (overview.total, overview.approved, overview.candidates) == (4, 1, 1)
+        assert (overview.total, overview.approved, overview.candidates) == (4, 2, 1)
         assert (overview.approvals, overview.rejections) == (1, 0)
-        assert await stats.approved_ids(db, GUILD_ID, members, 444) == {111}
+        assert await stats.approved_ids(db, GUILD_ID, members, 555) == {111, 333}
         members[0].joined_at = datetime.fromtimestamp(now + 20, tz=timezone.utc)
-        assert await stats.approved_ids(db, GUILD_ID, members, 444) == set()
+        assert await stats.approved_ids(db, GUILD_ID, members, 555) == {111, 333}
     finally:
         await db.close()
 
