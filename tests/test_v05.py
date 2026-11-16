@@ -9,7 +9,7 @@ from app.core.database import migrate
 
 
 def test_version_and_ticket_storage_tables(tmp_path):
-    assert VERSION == "0.11.0"
+    assert VERSION == "0.11.1"
     url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
     migrate(url)
     with sqlite3.connect(tmp_path / "test.db") as db:
