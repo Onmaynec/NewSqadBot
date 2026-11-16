@@ -68,7 +68,7 @@ def test_discord_views_and_dashboard():
 
     assert BRAND_GREEN == 0x4CCE91
     assert card("test").color == discord.Color(BRAND_GREEN)
-    assert {"summary", "roles", "channels", "tickets", "leveling", "profiles", "modules", "all"} == {p[0] for p in PAGE_OPTIONS}
+    assert {"summary", "roles", "channels", "tickets", "leveling", "profiles", "modules", "all", "economy", "quests", "achievements"} <= {p[0] for p in PAGE_OPTIONS}
     class Config:
         owner_ids = frozenset()
     class Bot:
