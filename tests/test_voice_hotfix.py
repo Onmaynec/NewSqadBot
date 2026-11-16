@@ -11,13 +11,17 @@ from app.config import GUILD_ID, VERSION
 from app.modules.voice import Voice
 
 
+class FakeMember:
+    def __init__(self, guild, uid, *, admin=False, bot=False):
+        self.guild = guild
+        self.id = uid
+        self.bot = bot
+        self.guild_permissions = SimpleNamespace(administrator=admin)
+        self.voice = None
+
+
 def make_member(guild, uid, *, admin=False, bot=False):
-    member = SimpleNamespace(
-        guild=guild, id=uid, bot=bot,
-        guild_permissions=SimpleNamespace(administrator=admin),
-        voice=None,
-    )
-    return member
+    return FakeMember(guild, uid, admin=admin, bot=bot)
 
 
 def make_cog(db=None, owner_ids=frozenset()):
