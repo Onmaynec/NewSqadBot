@@ -20,11 +20,11 @@ def test_v010_schema(tmp_path):
     url = f"sqlite+aiosqlite:///{tmp_path / 'schema.db'}"
     migrate(url)
     migrate(url)
-    assert VERSION == "0.11.1"
+    assert VERSION == "0.12.0"
     assert implemented("party_finder")
     with sqlite3.connect(tmp_path / "schema.db") as db:
         db.execute("PRAGMA foreign_keys=ON")
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0010_events"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0011_suggestions"
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"party_listings", "party_members"} <= tables
         columns = {r[1] for r in db.execute("PRAGMA table_info(membership_applications)")}

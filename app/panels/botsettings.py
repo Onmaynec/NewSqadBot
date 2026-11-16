@@ -41,6 +41,7 @@ CHANNEL_SLOTS = (
     ("voice_category_channel_id", "Категория голосовых комнат"),
     ("event_channel_id", "Канал мероприятий"),
     ("giveaway_channel_id", "Канал розыгрышей"),
+    ("suggest_channel_id", "Канал предложений"),
 )
 
 
@@ -109,6 +110,10 @@ class HomeView(PrivateSettingsView):
     async def events(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_events_settings(interaction, self.client, self.owner_id)
 
+    @discord.ui.button(label="Предложения", emoji="💡", style=discord.ButtonStyle.secondary, row=2)
+    async def suggestions(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_suggestions_settings(interaction, self.client, self.owner_id)
+
     @discord.ui.button(label="Голосовые комнаты", emoji="🎙️", style=discord.ButtonStyle.secondary, row=3)
     async def voice_rooms(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_voice_settings(interaction, self.client, self.owner_id)
@@ -152,6 +157,54 @@ class HomeView(PrivateSettingsView):
         view.max_pages = pages
         view._buttons()
         await interaction.edit_original_response(embed=embed, view=view)
+
+
+class SuggestionsSettingsView(PrivateSettingsView):
+    @discord.ui.button(label="Включить / выключить", style=discord.ButtonStyle.success)
+    async def toggle(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        gid = self.client.config.guild_id
+        enabled = bool(await self.client.database.get_setting(gid, "suggestions_enabled", True))
+        await self.client.database.set_setting(
+            gid, "suggestions_enabled", not enabled, actor_id=interaction.user.id)
+        await show_suggestions_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Канал предложений", style=discord.ButtonStyle.secondary)
+    async def channel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=embed_card("NewSquad / Канал идей",
+                             "Выберите текстовый канал для публикации предложений."),
+            view=ValuePickerView(self.client, self.owner_id, "channel", "suggest_channel_id"),
+        )
+
+    @discord.ui.button(label="Главная", emoji="↩️", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=home_embed(), view=HomeView(self.client, self.owner_id))
+
+
+async def show_suggestions_settings(
+    interaction: discord.Interaction, client: "NewSqadBot", owner_id: int,
+) -> None:
+    from app.services import suggestions as store
+
+    gid = client.config.guild_id
+    enabled = await client.database.get_setting(gid, "suggestions_enabled", True)
+    channel_id = await client.database.get_setting(gid, "suggest_channel_id")
+    minimum = await client.database.get_setting(gid, "suggest_min_level", 1)
+    cooldown = await client.database.get_setting(gid, "suggest_cooldown_seconds", 1800)
+    missing, panels = await store.missing_count(client.database, gid)
+    info = (
+        f"**Приём идей:** {'включён' if enabled else 'отключён'}\n"
+        f"**Канал:** {f'<#{channel_id}>' if channel_id else 'не выбран'}\n"
+        f"**Минимальный уровень:** {minimum}\n"
+        f"**Задержка между идеями:** {cooldown // 60} минут\n"
+        f"**Удалённые карточки:** {missing} · **панели подачи:** {panels}\n\n"
+        "Настройки: /suggest configure, /suggest settings.\n"
+        "Панель создания: /suggest panel; восстановление: /suggest restore."
+    )
+    await interaction.response.edit_message(
+        embed=embed_card("NewSquad / Предложения", info),
+        view=SuggestionsSettingsView(client, owner_id))
 
 
 class EventsSettingsView(PrivateSettingsView):
@@ -469,7 +522,7 @@ def home_embed() -> discord.Embed:
         "**Профили** — интересы, игры и поиск компании.\n"
         "**Экономика** — кошелёк, награды, магазин.\n"
         "**Задания** — ежедневная и еженедельная активность.\n"
-        "**Достижения** — постоянные награды участников.\n"
+        "**Достижения** — постоянные награды участников.\n"        "**Предложения** — идеи, голоса, обсуждение и решения.\n"
         "**Все настройки** — единый обзор ролей, каналов, категорий и параметров.\n\n"
         "Изменение доступно в соответствующих разделах.",
     )
