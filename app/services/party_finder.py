@@ -19,8 +19,9 @@ async def get(db, guild_id: int, party_id: int) -> PartyListing | None:
 
 async def members(db, party_id: int) -> list[int]:
     async with db.sessions() as session:
-        return list((await session.scalars(select(PartyMember.user_id).where(
-            PartyMember.party_id == party_id).order_by(PartyMember.joined_at, PartyMember.id)))).all())
+        rows = await session.scalars(select(PartyMember.user_id).where(
+            PartyMember.party_id == party_id).order_by(PartyMember.joined_at, PartyMember.id))
+        return list(rows.all())
 
 
 async def list_active(db, guild_id: int, *, game: str | None = None, limit: int = 20) -> list[PartyListing]:
@@ -130,9 +131,10 @@ async def close(db, guild_id: int, party_id: int, actor_id: int, *, admin: bool 
 async def expire_due(db, guild_id: int, *, now: int | None = None) -> list[int]:
     now = int(time.time()) if now is None else now
     async with db.session() as session:
-        ids = list((await session.scalars(select(PartyListing.id).where(
+        rows = await session.scalars(select(PartyListing.id).where(
             PartyListing.guild_id == guild_id, PartyListing.status.in_(ACTIVE),
-            PartyListing.expires_at <= now)))).all())
+            PartyListing.expires_at <= now))
+        ids = list(rows.all())
         if ids:
             await session.execute(update(PartyListing).where(
                 PartyListing.id.in_(ids), PartyListing.status.in_(ACTIVE),
