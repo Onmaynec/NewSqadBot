@@ -1,4 +1,4 @@
-"""v0.11.0: мероприятия, очередь ожидания, розыгрыши, миграция и идемпотентность."""
+"""v0.11.1: мероприятия, очередь ожидания, розыгрыши, миграция и идемпотентность."""
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +27,7 @@ def test_events_migration_and_constraints(tmp_path):
     url = db_url(tmp_path)
     migrate(url)
     migrate(url)
-    assert VERSION == "0.11.0"
+    assert VERSION == "0.11.1"
     assert implemented("events")
     with sqlite3.connect(tmp_path / "events.db") as con:
         con.execute("PRAGMA foreign_keys=ON")
