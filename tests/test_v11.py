@@ -233,3 +233,29 @@ def test_discord_views_and_commands_exist():
 
     view = HomeView(Stub(), 1)
     assert "Мероприятия" in {item.label for item in view.children if isinstance(item, discord.ui.Button)}
+
+
+@pytest.mark.asyncio
+async def test_event_completion_and_cancellation_have_single_durable_notice(tmp_path):
+    url = db_url(tmp_path, "notices.db")
+    migrate(url)
+    db = Database(url)
+    now = int(time.time())
+    try:
+        completed = await store.create_event(db, guild_id=GUILD_ID, creator_id=3,
+            host_id=3, channel_id=4, title="Первое", description="Проверка",
+            timezone_name="UTC", starts_at=now+3600, now=now)
+        cancelled = await store.create_event(db, guild_id=GUILD_ID, creator_id=3,
+            host_id=3, channel_id=4, title="Второе", description="Проверка",
+            timezone_name="UTC", starts_at=now+7200, now=now)
+        assert await store.mark_finished(db, GUILD_ID, completed.id, now=now+12000)
+        assert not await store.mark_finished(db, GUILD_ID, completed.id, now=now+12001)
+        assert await store.cancel_event(db, GUILD_ID, cancelled.id, reason="Нет ведущего", now=now)
+        assert not await store.cancel_event(db, GUILD_ID, cancelled.id, reason="Повтор", now=now)
+        with sqlite3.connect(tmp_path / "notices.db") as con:
+            results = con.execute("SELECT id, kind, payload_json FROM outbox_events WHERE kind LIKE 'events.%'").fetchall()
+            assert len(results) == 2
+            assert {row[1] for row in results} == {"events.finished", "events.cancelled"}
+            assert any(json.loads(row[2]).get("reason") == "Нет ведущего" for row in results)
+    finally:
+        await db.close()
