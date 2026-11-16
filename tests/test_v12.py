@@ -29,10 +29,10 @@ def test_v12_schema_and_discord_components(tmp_path):
     url = database_url(tmp_path)
     migrate(url)
     migrate(url)
-    assert VERSION == "0.12.0"
+    assert VERSION == "0.13.0"
     assert implemented("suggestions")
     with sqlite3.connect(tmp_path / "suggestions.db") as conn:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0011_suggestions"
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0012_statistics"
         tables = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert {
