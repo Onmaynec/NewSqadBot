@@ -111,6 +111,8 @@ class Events(commands.Cog):
         self.bot.scheduler.register("events.start", self._start)
         self.bot.scheduler.register("events.finish", self._finish)
         self.bot.scheduler.register("events.giveaway_end", self._end_task)
+        self.bot.events.subscribe("events.finished", "events.finish_notice", self._finished_notice)
+        self.bot.events.subscribe("events.cancelled", "events.cancel_notice", self._cancelled_notice)
         gid = self.bot.config.guild_id
         for e in await store.active_events(self.bot.database, gid):
             if e.message_id:
@@ -197,6 +199,21 @@ class Events(commands.Cog):
         await channel.send(embed=card("NewSquad / Мероприятия", message),
                            allowed_mentions=ALLOWED_MENTIONS)
 
+    async def _finished_notice(self, payload: dict) -> None:
+        if int(payload["guild_id"]) != self.bot.config.guild_id:
+            return
+        title = discord.utils.escape_mentions(str(payload["title"]))
+        await self._send_notice(int(payload["channel_id"]),
+            f"Мероприятие **{title}** завершено. Благодарим участников!")
+
+    async def _cancelled_notice(self, payload: dict) -> None:
+        if int(payload["guild_id"]) != self.bot.config.guild_id:
+            return
+        title = discord.utils.escape_mentions(str(payload["title"]))
+        reason = discord.utils.escape_mentions(str(payload["reason"]))
+        await self._send_notice(int(payload["channel_id"]),
+            f"Мероприятие **{title}** отменено.\nПричина: {reason}")
+
     async def _remind(self, payload: dict) -> None:
         event_id, minutes = int(payload["id"]), int(payload["minutes"])
         row = await store.reminder_state(self.bot.database, self.bot.config.guild_id, event_id, minutes)
@@ -204,7 +221,8 @@ class Events(commands.Cog):
             return
         _, starts_at, status, channel_id, title = row
         now = int(time.time())
-        if status != "scheduled" or now >= starts_at:
+        # Просроченные интервалы не выдаём за актуальные напоминания.
+        if status != "scheduled" or now >= starts_at or now > starts_at - minutes * 60 + 300:
             return
         await self._send_notice(channel_id,
             f"**{discord.utils.escape_mentions(title)}** начинается через {minutes} мин.\n"
@@ -464,8 +482,12 @@ class Events(commands.Cog):
                                                     ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        reason = store.clean_text(reason, 400)
-        if not await store.cancel_event(self.bot.database, interaction.guild_id, number):
+        try:
+            reason = store.clean_text(reason, 400)
+        except ValueError as exc:
+            await interaction.followup.send(embed=notice(str(exc), kind="warning"), ephemeral=True)
+            return
+        if not await store.cancel_event(self.bot.database, interaction.guild_id, number, reason=reason):
             await interaction.followup.send(embed=notice("Мероприятие уже закрыто или отсутствует.",
                                                         kind="warning"), ephemeral=True)
             return
