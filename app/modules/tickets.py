@@ -159,6 +159,8 @@ class ConfirmTicketDeletion(LoggedView):
         self.cog, self.ticket_id, self.owner_id = cog, ticket_id, owner_id
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
         if interaction.user.id != self.owner_id:
             await interaction.response.send_message(embed=notice("Это подтверждение открыто другим участником.",
                 kind="warning"), ephemeral=True)
