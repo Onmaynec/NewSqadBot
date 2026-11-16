@@ -175,9 +175,39 @@ class Voice(commands.Cog):
             ("enabled", True), ("lobby_channel_id", None), ("category_channel_id", None),
             ("default_limit", 0), ("max_rooms", 30))}
 
+    def _privileged(self, member: discord.Member) -> bool:
+        """Администрация не обязана подавать анкету для создания комнаты."""
+        if member.bot or member.guild.id != self.bot.config.guild_id:
+            return False
+        permissions = getattr(member, "guild_permissions", None)
+        return (member.id == member.guild.owner_id or
+                member.id in self.bot.config.owner_ids or
+                bool(permissions and permissions.administrator))
+
     async def _approved(self, member: discord.Member) -> bool:
+        if member.bot or member.guild.id != self.bot.config.guild_id:
+            return False
+        if self._privileged(member):
+            return True
         role_id = await self.bot.database.get_setting(member.guild.id, "member_role_id")
-        return not member.bot and await approved_member(self.bot.database, member, role_id)
+        return await approved_member(self.bot.database, member, role_id)
+
+    def _creation_problems(self, guild: discord.Guild, lobby: discord.VoiceChannel,
+                           category: discord.CategoryChannel) -> list[str]:
+        """Называем недостающие разрешения до Discord API-запроса."""
+        me = self._bot_member(guild)
+        if me is None:
+            return ["Бот не найден среди участников сервера."]
+        issues = []
+        if not me.guild_permissions.manage_channels:
+            issues.append("У бота нет серверного разрешения «Управлять каналами» (Manage Channels).")
+        if not me.guild_permissions.move_members:
+            issues.append("У бота нет серверного разрешения «Перемещать участников» (Move Members).")
+        if not lobby.permissions_for(me).move_members:
+            issues.append("У бота нет «Перемещать участников» в канале создания.")
+        if not category.permissions_for(me).manage_channels:
+            issues.append("У бота нет «Управлять каналами» в категории временных комнат.")
+        return issues
 
     def _bot_member(self, guild: discord.Guild) -> discord.Member | None:
         return guild.me or (guild.get_member(self.bot.user.id) if self.bot.user else None)
@@ -214,24 +244,35 @@ class Voice(commands.Cog):
         member_role_id = await self.bot.database.get_setting(guild.id, "member_role_id")
         member_role = guild.get_role(member_role_id) if member_role_id else None
         me = self._bot_member(guild)
-        if member_role is None:
-            raise ValueError("Сначала назначьте роль участника в /botsettings.")
+        if member_role is None and not self._privileged(owner):
+            raise ValueError("Назначьте роль участника в /botsettings → Роли.")
         if not self._permissions_ok(me):
-            raise ValueError("Для комнат нужны разрешения Manage Channels и Move Members у бота.")
-        return {
+            raise ValueError("Для комнат нужны серверные права Manage Channels и Move Members у бота.")
+        overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False, connect=False),
-            member_role: discord.PermissionOverwrite(view_channel=True, connect=True),
             owner: discord.PermissionOverwrite(view_channel=True, connect=True, speak=True),
             me: discord.PermissionOverwrite(view_channel=True, connect=True, move_members=True, manage_channels=True),
         }
+        if member_role is not None:
+            overwrites[member_role] = discord.PermissionOverwrite(view_channel=True, connect=True)
+        return overwrites
 
     async def _create_for(self, member: discord.Member, lobby: discord.VoiceChannel) -> None:
         lock = self._creation_locks.setdefault(member.id, asyncio.Lock())
         async with lock, self._creation_guard:
             settings = await self._settings()
             if not settings["enabled"] or lobby.id != settings["lobby_channel_id"]:
+                log.info("Создание комнаты отключено/другой генератор guild=%s lobby=%s configured=%s enabled=%s",
+                         member.guild.id, lobby.id, settings["lobby_channel_id"], settings["enabled"])
                 return
-            if member.voice is None or member.voice.channel != lobby or not await self._approved(member):
+            if member.voice is None or member.voice.channel != lobby:
+                log.info("Участник уже вышел из канала создания guild=%s user=%s",
+                         member.guild.id, member.id)
+                return
+            if not await self._approved(member):
+                log.warning("Создание комнаты запрещено: нет одобренной заявки или роли участника "
+                            "guild=%s user=%s; для администрации разрешён обход Membership",
+                            member.guild.id, member.id)
                 return
             old = await store.by_owner(self.bot.database, member.guild.id, member.id)
             if old:
@@ -245,7 +286,13 @@ class Voice(commands.Cog):
                 await store.remove(self.bot.database, member.guild.id, old.channel_id)
             parent = member.guild.get_channel(settings["category_channel_id"])
             if not isinstance(parent, discord.CategoryChannel):
-                log.warning("Не назначена категория для голосовых комнат guild=%s", member.guild.id)
+                log.warning("Категория комнат отсутствует/неверного типа guild=%s category_id=%s",
+                            member.guild.id, settings["category_channel_id"])
+                return
+            issues = self._creation_problems(member.guild, lobby, parent)
+            if issues:
+                log.warning("Создание временной комнаты запрещено guild=%s user=%s: %s",
+                            member.guild.id, member.id, " | ".join(issues))
                 return
             rooms = await store.all_rooms(self.bot.database, member.guild.id)
             if len(rooms) >= int(settings["max_rooms"]):
@@ -339,6 +386,10 @@ class Voice(commands.Cog):
                                     after: discord.VoiceState) -> None:
         if member.guild.id != self.bot.config.guild_id or member.bot or before.channel == after.channel:
             return
+        log.info("Голосовое подключение guild=%s user=%s from=%s to=%s",
+                 member.guild.id, member.id,
+                 before.channel.id if before.channel else None,
+                 after.channel.id if after.channel else None)
         if before.channel is not None:
             room = await store.by_channel(self.bot.database, member.guild.id, before.channel.id)
             if room:
@@ -357,6 +408,20 @@ class Voice(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         await self._reconcile()
+        # Discord не присылает повторно on_voice_state_update для тех,
+        # кто уже находился в генераторе до запуска контейнера.
+        settings = await self._settings()
+        guild = self.bot.get_guild(self.bot.config.guild_id)
+        lobby = guild.get_channel(settings["lobby_channel_id"]) if guild else None
+        if settings["enabled"] and isinstance(lobby, discord.VoiceChannel):
+            for member in tuple(lobby.members):
+                if member.bot:
+                    continue
+                try:
+                    await self._create_for(member, lobby)
+                except Exception:
+                    log.exception("Не удалось восстановить голосовой вход guild=%s user=%s",
+                                  member.guild.id, member.id)
 
     async def _reconcile(self) -> None:
         async with self._reconcile_lock:
@@ -519,6 +584,72 @@ class Voice(commands.Cog):
             return "Discord не разрешил удалить комнату. Проверьте права бота."
         await store.remove(self.bot.database, interaction.guild_id, channel_id)
         return "Готово. Комната удалена."
+
+    @voice_commands.command(name="diagnose", description="Проверить, почему не создаются голосовые комнаты")
+    async def diagnose(self, interaction: discord.Interaction) -> None:
+        if not can_manage_settings(interaction, self.bot.config.owner_ids):
+            await interaction.response.send_message(embed=notice("Диагностика доступна администрации.",
+                                                     kind="warning"), ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        settings = await self._settings()
+        guild = interaction.guild
+        lobby = guild.get_channel(settings["lobby_channel_id"]) if settings["lobby_channel_id"] else None
+        category = guild.get_channel(settings["category_channel_id"]) if settings["category_channel_id"] else None
+        role_id = await self.bot.database.get_setting(guild.id, "member_role_id")
+        issues = []
+        if not settings["enabled"]:
+            issues.append("Модуль временных комнат выключен: /voice configure.")
+        if not isinstance(lobby, discord.VoiceChannel):
+            issues.append("Не настроен голосовой канал создания: /voice setup.")
+        if not isinstance(category, discord.CategoryChannel):
+            issues.append("Не настроена категория комнат: /voice setup.")
+        if guild.get_role(role_id) is None:
+            issues.append("Роль участника не назначена: /botsettings → Роли. "
+                          "Администрация может создать приватную комнату и без неё.")
+        if isinstance(lobby, discord.VoiceChannel) and isinstance(category, discord.CategoryChannel):
+            issues.extend(self._creation_problems(guild, lobby, category))
+        room_count = len(await store.all_rooms(self.bot.database, guild.id))
+        if room_count >= int(settings["max_rooms"]):
+            issues.append("Достигнут лимит временных комнат: /voice configure.")
+        approved = await self._approved(interaction.user)
+        if not approved:
+            issues.append("Ваш аккаунт не одобрен Membership и не имеет прав администрации.")
+        inside = bool(interaction.user.voice and interaction.user.voice.channel == lobby)
+        text = ("**Модуль:** " + ("включён" if settings["enabled"] else "отключён")
+                + f"\\n**Генератор:** {f'<#{lobby.id}>' if lobby else 'не найден'}"
+                + f"\\n**Категория:** {category.name if category else 'не найдена'}"
+                + f"\\n**Активные комнаты:** {room_count}/{settings['max_rooms']}"
+                + f"\\n**Вы допущены:** {'да' if approved else 'нет'}"
+                + f"\\n**Вы в генераторе:** {'да' if inside else 'нет'}\\n\\n"
+                + ("**Что исправить:**\\n" + "\\n".join(f"• {item}" for item in issues)
+                   if issues else "**Проверка пройдена.** Войдите в генератор или используйте /voice retry."))
+        await interaction.followup.send(embed=card("NewSquad / Диагностика голосовых комнат", text),
+                                        ephemeral=True)
+
+    @voice_commands.command(name="retry", description="Повторить создание комнаты, находясь в канале генератора")
+    async def retry(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id != self.bot.config.guild_id or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message(embed=notice("Только на NewSquad.", kind="warning"),
+                                                    ephemeral=True)
+            return
+        settings = await self._settings()
+        guild = interaction.guild
+        lobby = guild.get_channel(settings["lobby_channel_id"]) if settings["lobby_channel_id"] else None
+        if not isinstance(lobby, discord.VoiceChannel) or not interaction.user.voice or \
+                interaction.user.voice.channel != lobby:
+            await interaction.response.send_message(embed=notice(
+                "Зайдите в настроенный канал создания и повторите команду.", kind="warning"), ephemeral=True)
+            return
+        if not await self._approved(interaction.user):
+            await interaction.response.send_message(embed=notice(
+                "Нет одобренной заявки Membership или права администратора.", kind="warning"), ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await self._create_for(interaction.user, lobby)
+        await interaction.followup.send(embed=notice(
+            "Попытка создания комнаты выполнена. Если перенос не произошёл, "
+            "администратор может проверить причину через /voice diagnose.", kind="info"), ephemeral=True)
 
     @voice_commands.command(name="setup", description="Назначить канал входа и категорию временных комнат")
     async def setup_command(self, interaction: discord.Interaction, lobby: discord.VoiceChannel,
