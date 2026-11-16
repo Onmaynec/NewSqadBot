@@ -6,11 +6,11 @@ pytest.importorskip("discord")
 
 def test_v02_extensions_can_be_imported():
     from app.modules.audit_logs import AuditLogs
+    from app.modules.leveling import Leveling
     from app.modules.membership import ApplicationForm, Membership, ReviewView
     from app.modules.moderation import Moderation
-    from app.modules.roles import RolePanelView, Roles
-    from app.modules.leveling import Leveling
     from app.modules.profiles import Profiles
+    from app.modules.roles import RolePanelView, Roles
     from app.modules.tickets import TicketActions, TicketOpenView, Tickets
     from app.modules.welcome import Welcome
     assert AuditLogs and ApplicationForm and Membership and ReviewView and Moderation

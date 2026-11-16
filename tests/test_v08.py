@@ -105,6 +105,7 @@ async def test_daily_quest_and_achievement_rewards_idempotent(tmp_path):
 async def test_failed_coin_payout_rolls_back_quest_and_xp(tmp_path):
     pytest.importorskip("aiosqlite")
     from sqlalchemy import select, update
+
     from app.core.database import Database
     from app.models import QuestClaim, Wallet
     from app.services import economy, progression

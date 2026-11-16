@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, time as day_time, timedelta
+from datetime import date, datetime, timedelta, time as day_time
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
