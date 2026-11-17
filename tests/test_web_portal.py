@@ -235,5 +235,53 @@ async def test_ticket_messages_are_live_only_and_staff_can_reply(tmp_path, monke
         await db.close()
 
 
+
+@pytest.mark.asyncio
+async def test_oauth_callback_issues_secure_cookie_and_has_no_access_token(tmp_path, monkeypatch):
+    import app.web.server as server
+
+    async def mock_exchange(*args):
+        return 12
+
+    monkeypatch.setattr(server, "exchange_code", mock_exchange)
+    bot = FakeBot(Database(f"sqlite+aiosqlite:///{tmp_path / 'state.db'}"))
+    try:
+        app = create_app(bot, "", discord_client_id="12345678",
+                         discord_client_secret="mock_not_used_secret",
+                         public_url="https://portal.test.ts.net")
+        async with TestClient(TestServer(app)) as client:
+            response = await client.get("/auth/discord", headers={
+                "Host": "portal.test.ts.net"}, allow_redirects=False)
+            assert response.status == 302
+            generated_state = parse_qs(urlsplit(response.headers["Location"]).query)["state"][0]
+            bad = await client.get("/auth/callback?state=wrong&code=fake", headers={
+                "Host": "portal.test.ts.net",
+                "Cookie": "nsb_oauth_state=" + generated_state}, allow_redirects=False)
+            assert bad.status == 403
+            redirect = await client.get(
+                "/auth/callback?state=" + generated_state + "&code=fake",
+                headers={"Host": "portal.test.ts.net",
+                         "Cookie": "nsb_oauth_state=" + generated_state},
+                allow_redirects=False)
+            assert redirect.status == 302
+            assert redirect.headers["Location"] == "https://portal.test.ts.net/"
+            cookie = redirect.headers["Set-Cookie"]
+            assert "nsb_session=" in cookie
+            assert "Secure" in cookie and "HttpOnly" in cookie
+            assert "mock_not_used_secret" not in cookie
+            # OAuth state is single-use and cannot be replayed.
+            second = await client.get(
+                "/auth/callback?state=" + generated_state + "&code=fake",
+                headers={"Host": "portal.test.ts.net",
+                         "Cookie": "nsb_oauth_state=" + generated_state},
+                allow_redirects=False)
+            assert second.status == 403
+            site = await client.get("/api/site")
+            assert site.status == 200
+            assert (await site.json()) == {"name": "NewSqad", "icon_url": None}
+    finally:
+        await bot.database.close()
+
+
 def test_presence_unavailable_is_not_falsely_offline():
     assert Guild().members_by_id[14].status == "online"
