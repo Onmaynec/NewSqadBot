@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 import discord
 from aiohttp import web
 
+from app.models import AuditEntry
 from app.services import events, suggestions
 from app.web.moderation_portal import identifier, number
 from app.web.server import guild_for, json_payload, require_csrf, require_role, state
@@ -22,6 +24,20 @@ async def admin(request: web.Request):
 def require_actor(actor) -> None:
     if actor is None:
         raise web.HTTPForbidden(text="Для действий с Discord нужен вход через Discord OAuth.")
+
+
+async def record_action(bot, actor_id: int, action: str, entry_id: int) -> None:
+    """Only action metadata. Never store private ticket messages or suggestion text."""
+    try:
+        async with bot.database.session() as session:
+            session.add(AuditEntry(
+                guild_id=bot.config.guild_id, actor_id=actor_id,
+                action=action,
+                data_json=json.dumps({"id": entry_id, "source": "web"}, ensure_ascii=False),
+                created_at=int(time.time()),
+            ))
+    except Exception:
+        log.exception("Не удалось записать системный аудит %s id=%s", action, entry_id)
 
 
 def choice(payload, key, values):
@@ -102,6 +118,9 @@ async def event_create(request: web.Request) -> web.Response:
     data = await json_payload(request)
     if not await bot.database.get_setting(bot.config.guild_id, "events_enabled", True):
         raise web.HTTPConflict(text="Мероприятия отключены в настройках бота.")
+    cog = bot.get_cog("Events")
+    if cog is None:
+        raise web.HTTPServiceUnavailable(text="Модуль мероприятий выключен.")
     channel = require_channel(bot, data.get("channel_id"))
     try:
         start = events.local_to_utc(message(data, "starts", 25), bot.config.timezone)
@@ -117,9 +136,6 @@ async def event_create(request: web.Request) -> web.Response:
             reward_coins=positive(data, "reward_coins", 0, 1000, 0))
     except ValueError as exc:
         raise web.HTTPUnprocessableEntity(text=str(exc)) from exc
-    cog = bot.get_cog("Events")
-    if cog is None:
-        raise web.HTTPServiceUnavailable(text="Модуль мероприятий отключён: запись сохранена, нужна публикация.")
     await cog._schedule_event(row)
     try:
         await cog._publish_event(row)
@@ -127,6 +143,7 @@ async def event_create(request: web.Request) -> web.Response:
     except (discord.HTTPException, RuntimeError):
         log.exception("Мероприятие #%s сохранено, Discord-публикация не подтверждена", row.id)
         published = False
+    await record_action(bot, actor.id, "web.events.created", row.id)
     return web.json_response({"ok": True, "item": public_event(row),
                               "message": "Создано и опубликовано." if published
                               else "Создано, но Discord не подтвердил публикацию. Проверьте канал."})
@@ -150,6 +167,7 @@ async def event_action(request: web.Request) -> web.Response:
             if not await events.cancel_event(bot.database, bot.config.guild_id, eid, reason=reason):
                 raise web.HTTPConflict(text="Мероприятие завершено или отсутствует.")
             await cog._refresh_event(eid)
+            await record_action(bot, actor.id, "web.events.cancelled", eid)
             return web.json_response({"ok": True, "message": "Мероприятие отменено."})
         uid = identifier(data.get("user_id"))
         guild = guild_for(bot)
@@ -162,6 +180,7 @@ async def event_action(request: web.Request) -> web.Response:
         xp, coins = await events.confirm_attendance(
             bot.database, guild_id=bot.config.guild_id, event_id=eid,
             user_id=uid, actor_id=actor.id, timezone_name=bot.config.timezone)
+        await record_action(bot, actor.id, "web.events.attendance", eid)
         return web.json_response({"ok": True,
                                   "message": f"Участие подтверждено: {xp} XP, {coins} NS Coins."})
     except ValueError as exc:
@@ -193,6 +212,9 @@ async def giveaway_create(request: web.Request) -> web.Response:
     data = await json_payload(request)
     if not await bot.database.get_setting(bot.config.guild_id, "giveaways_enabled", True):
         raise web.HTTPConflict(text="Розыгрыши отключены.")
+    cog = bot.get_cog("Events")
+    if cog is None:
+        raise web.HTTPServiceUnavailable(text="Модуль розыгрышей выключен.")
     channel = require_channel(bot, data.get("channel_id"))
     try:
         end = events.local_to_utc(message(data, "ends", 25), bot.config.timezone)
@@ -204,9 +226,6 @@ async def giveaway_create(request: web.Request) -> web.Response:
             min_level=positive(data, "min_level", 0, 1000, 0))
     except ValueError as exc:
         raise web.HTTPUnprocessableEntity(text=str(exc)) from exc
-    cog = bot.get_cog("Events")
-    if cog is None:
-        raise web.HTTPServiceUnavailable(text="Модуль мероприятий отключён. Розыгрыш сохранён.")
     await cog._schedule_giveaway(row)
     try:
         await cog._publish_giveaway(row)
@@ -214,6 +233,7 @@ async def giveaway_create(request: web.Request) -> web.Response:
     except (discord.HTTPException, RuntimeError):
         log.exception("Розыгрыш #%s не опубликован", row.id)
         published = False
+    await record_action(bot, actor.id, "web.giveaways.created", row.id)
     return web.json_response({"ok": True, "item": public_giveaway(row),
                               "message": "Розыгрыш открыт." if published
                               else "Розыгрыш сохранён, Discord-публикация не подтверждена."})
@@ -243,6 +263,8 @@ async def giveaway_action(request: web.Request) -> web.Response:
             await cog._refresh_giveaway(gid)
     except ValueError as exc:
         raise web.HTTPUnprocessableEntity(text=str(exc)) from exc
+    await record_action(bot, actor.id,
+                        "web.giveaways.draw" if action == "draw" else "web.giveaways.reroll", gid)
     return web.json_response({"ok": True, "winners": [str(uid) for uid in winners]})
 
 
@@ -281,6 +303,7 @@ async def suggestion_action(request: web.Request) -> web.Response:
     cog = bot.get_cog("Suggestions")
     if cog:
         await cog._refresh(row.id)
+    await record_action(bot, actor.id, "web.suggestions.status_changed", row.id)
     return web.json_response({"ok": True, "message": "Статус идеи обновлён; автор будет уведомлён."})
 
 
