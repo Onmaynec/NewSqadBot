@@ -254,6 +254,9 @@ async def ticket_action(request: web.Request) -> web.Response:
         except discord.HTTPException as exc:
             log.warning("Не удалось отправить ответ в тикет #%s", tid)
             raise web.HTTPServiceUnavailable(text="Discord не подтвердил отправку.") from exc
+        # Mark the first staff reply and activity timestamp, without persisting text.
+        # The Discord on_message listener can also touch the ticket; this is idempotent.
+        await tickets.touch(bot.database, bot.config.guild_id, tid, actor, staff_reply=True)
         return web.json_response({"ok": True, "message": "Ответ отправлен."})
     if action in ("claim", "transfer"):
         target = actor
@@ -288,7 +291,10 @@ async def ticket_action(request: web.Request) -> web.Response:
         if cog is None:
             raise web.HTTPServiceUnavailable(text="Модуль тикетов не загружен. Закрытие восстановится после запуска.")
         result = await cog._delete_ticket(row)
-        return web.json_response({"ok": True, "message": result})
+        # A failed channel deletion leaves the case in 'closing' for recovery.
+        complete = await tickets.get(bot.database, bot.config.guild_id, tid) is None
+        return web.json_response({"ok": complete, "message": result},
+                                 status=200 if complete else 503)
     raise web.HTTPBadRequest(text="Неизвестная операция.")
 
 
