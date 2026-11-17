@@ -4,6 +4,7 @@ from app.models.core import AuditEntry, EventReceipt, GuildSetting, OutboxEvent,
 from app.models.economy import CurrencyEntry, InventoryItem, ShopItem, Wallet
 from app.models.engagement import AchievementUnlock, QuestClaim
 from app.models.events import CommunityEvent, EventReminder, EventSignup, Giveaway, GiveawayDraw, GiveawayEntry
+from app.models.live_ops import SupportSurvey, WebNotice, WebNoticeRead
 from app.models.membership import Application, ApplicationEvent
 from app.models.moderation import ModerationAction, ModerationCase
 from app.models.party import PartyListing, PartyMember
@@ -23,6 +24,7 @@ from app.models.voice import VoiceRoom, VoiceRoomAccess
 __all__ = (
     "Base", "Announcement", "AnnouncementTemplate", "AuditEntry", "EventReceipt", "GuildSetting", "OutboxEvent", "ScheduledJob",
     "Application", "ApplicationEvent", "PartyListing", "PartyMember",
+    "SupportSurvey", "WebNotice", "WebNoticeRead",
     "CommunityEvent", "EventSignup", "EventReminder", "Giveaway", "GiveawayEntry", "GiveawayDraw", "ModerationCase", "ModerationAction",
     "MemberProgress", "MemberProfile", "ExperienceAward",
     "Wallet", "CurrencyEntry", "ShopItem", "InventoryItem", "AchievementUnlock", "QuestClaim",
