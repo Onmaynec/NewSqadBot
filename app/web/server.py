@@ -524,6 +524,8 @@ def create_app(bot, password_hash: str, *, discord_client_id: str = "",
     app.router.add_get("/api/diagnostics", diagnostics)
     app.router.add_post("/api/settings/batch", save_batch)
     app.router.add_post("/api/settings/{key}", save_setting)
+    from app.web.portal import register
+    register(app)
     return app
 
 
