@@ -23,8 +23,8 @@ from app.models import GuildSetting
 from app.services.diagnostics import collect
 from app.services.role_rules import DANGEROUS_PERMISSION_NAMES
 from app.web.auth import SessionStore, validate_hash, verify_password
-from app.web.oauth import authorize_url, consume_state, exchange_code, new_state, permission
 from app.web.catalog import BY_KEY, GROUPS, SETTINGS, Setting
+from app.web.oauth import authorize_url, consume_state, exchange_code, new_state, permission
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).parent / "static"
