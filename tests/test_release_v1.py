@@ -97,6 +97,11 @@ def test_backup_full_cycle_and_running_guard(tmp_path):
     with pytest.raises(BackupError, match="Бот ещё работает"):
         restore(first, source, now=now + 2)
     state.write_text(json.dumps({"ready": False, "timestamp": now}), encoding="utf-8")
+    # Раньше ready=False разрешал restore при ещё открытой SQLite.
+    with pytest.raises(BackupError, match="Бот ещё работает"):
+        restore(first, source, now=now + 5)
+    state.write_text(json.dumps({"ready": False, "phase": "stopped", "timestamp": now}),
+                     encoding="utf-8")
     restore(first, source, now=now + 5)
     with sqlite3.connect(source) as conn:
         assert json.loads(conn.execute(
