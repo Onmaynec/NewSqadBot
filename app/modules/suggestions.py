@@ -36,10 +36,10 @@ def suggestion_embed(item) -> discord.Embed:
     e = card(f"NewSquad / Предложение #{item.id:04d}",
         f"**Тема:** {safe(item.topic)}\n**Автор:** <@{item.author_id}>\n"
         f"**Описание:**\n{safe(item.description)}")
-    e.add_field(name="Категория", value=getattr(item, "category", "general"), inline=True)
     e.add_field(name="За", value=str(item.votes_for), inline=True)
     e.add_field(name="Против", value=str(item.votes_against), inline=True)
     e.add_field(name="Статус", value=STATES[item.status], inline=True)
+    e.add_field(name="Категория", value=getattr(item, "category", "general"), inline=True)
     if item.status_reason:
         e.add_field(name="Решение администрации", value=safe(item.status_reason[:500]), inline=False)
     if item.thread_id:
