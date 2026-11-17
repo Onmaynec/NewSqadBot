@@ -89,6 +89,32 @@ class Database:
                 created_at=int(time.time()),
             ))
 
+
+    async def set_settings(self, guild_id: int, values: dict[str, Any], *, actor_id: int) -> None:
+        """Один atomic commit для раздела веб-панели, включая audit каждой настройки."""
+        if not 1 <= len(values) <= 80:
+            raise ValueError("Изменений должно быть от 1 до 80.")
+        prepared: dict[str, str] = {}
+        for key, value in values.items():
+            if not isinstance(key, str) or not 1 <= len(key) <= 120:
+                raise ValueError("Недопустимый ключ настройки.")
+            prepared[key] = json.dumps(value, ensure_ascii=False)
+        now = int(time.time())
+        async with self.session() as session:
+            for key, payload in prepared.items():
+                statement = sqlite_insert(GuildSetting).values(
+                    guild_id=guild_id, key=key, value_json=payload)
+                await session.execute(statement.on_conflict_do_update(
+                    index_elements=[GuildSetting.guild_id, GuildSetting.key],
+                    set_={"value_json": payload},
+                ))
+                session.add(AuditEntry(
+                    guild_id=guild_id, actor_id=actor_id,
+                    action="settings.updated",
+                    data_json=json.dumps({"key": key, "source": "local_web"}, ensure_ascii=False),
+                    created_at=now,
+                ))
+
     async def ping(self) -> bool:
         async with self.sessions() as session:
             await session.execute(text("SELECT 1"))
