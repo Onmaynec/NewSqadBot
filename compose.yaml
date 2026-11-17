@@ -6,6 +6,12 @@ services:
         PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-public.ecr.aws/docker/library/python:3.12-slim-bookworm}
     env_file:
       - .env
+    # Сайт внутри контейнера слушает 0.0.0.0, снаружи доступен ТОЛЬКО с localhost.
+    environment:
+      WEB_ADMIN_BIND: 0.0.0.0
+      WEB_ADMIN_PORT: "8787"
+    ports:
+      - "127.0.0.1:${WEB_ADMIN_PORT:-8787}:8787"
     restart: unless-stopped
     init: true
     stop_signal: SIGTERM

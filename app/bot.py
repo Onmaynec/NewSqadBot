@@ -38,6 +38,7 @@ class NewSqadBot(commands.Bot):
         self.module_states: dict[str, str] = {}
         self._heartbeat: asyncio.Task[None] | None = None
         self._startup_finished = False
+        self._web_runner = None
 
     async def setup_hook(self) -> None:
         loop = asyncio.get_running_loop()
@@ -71,6 +72,15 @@ class NewSqadBot(commands.Bot):
         self.events.start()
         self._startup_finished = True
         self._heartbeat = asyncio.create_task(self._health_loop(), name="newsqad-health")
+        if self.config.web_admin_password_hash:
+            from app.web.server import start_server
+
+            self._web_runner = await start_server(
+                self, password_hash=self.config.web_admin_password_hash,
+                bind=self.config.web_admin_bind, port=self.config.web_admin_port,
+            )
+        else:
+            logger.info("Локальная web-панель выключена: WEB_ADMIN_PASSWORD_HASH не задан.")
 
     @staticmethod
     def _asyncio_error(loop: asyncio.AbstractEventLoop, context: dict) -> None:
@@ -189,6 +199,9 @@ class NewSqadBot(commands.Bot):
             except asyncio.CancelledError:
                 pass
             self._heartbeat = None
+        if self._web_runner is not None:
+            runner, self._web_runner = self._web_runner, None
+            await runner.cleanup()
         if self.scheduler is not None:
             await self.scheduler.stop()
         if self.events is not None:

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 GUILD_ID = 1439347293076586638
 FEMALE_ROLE_ID = 1453273881359024231
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +21,9 @@ class Config:
     log_level: str
     owner_ids: frozenset[int]
     message_content_intent: bool = False
+    web_admin_password_hash: str = ""
+    web_admin_port: int = 8787
+    web_admin_bind: str = "127.0.0.1"
 
     @classmethod
     def from_env(cls) -> Config:
@@ -48,4 +51,18 @@ class Config:
         if any(i <= 0 for i in owners):
             raise ValueError("BOT_OWNER_IDS содержит некорректный Discord ID.")
         content_intent = os.getenv("ENABLE_MESSAGE_CONTENT_INTENT", "false").strip().lower() in ("1", "true", "yes")
-        return cls(token, guild_id, database_url, data_dir, timezone, level, owners, content_intent)
+        admin_hash = os.getenv("WEB_ADMIN_PASSWORD_HASH", "").strip()
+        if admin_hash:
+            from app.web.auth import validate_hash
+
+            if not validate_hash(admin_hash):
+                raise ValueError("Неверный WEB_ADMIN_PASSWORD_HASH. Используйте python -m app.web.auth hash.")
+        try:
+            admin_port = int(os.getenv("WEB_ADMIN_PORT", "8787"))
+        except ValueError as exc:
+            raise ValueError("WEB_ADMIN_PORT должен быть целым числом.") from exc
+        admin_bind = os.getenv("WEB_ADMIN_BIND", "127.0.0.1").strip()
+        if not 1 <= admin_port <= 65535 or admin_bind not in ("127.0.0.1", "0.0.0.0"):
+            raise ValueError("Неверный адрес или порт локальной панели.")
+        return cls(token, guild_id, database_url, data_dir, timezone, level, owners,
+                   content_intent, admin_hash, admin_port, admin_bind)

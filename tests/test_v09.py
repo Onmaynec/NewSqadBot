@@ -18,7 +18,7 @@ def test_voice_schema_and_unique_ownership(tmp_path):
     migrate(url)
     with sqlite3.connect(file) as sql:
         sql.execute("PRAGMA foreign_keys=ON")
-        assert VERSION == "1.5.0"
+        assert VERSION == "1.6.0"
         assert implemented("voice")
         assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0014_community_categories"
         tables = {r[0] for r in sql.execute("SELECT name FROM sqlite_master WHERE type='table'")}

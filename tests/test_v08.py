@@ -13,7 +13,7 @@ from app.services import achievements, quests
 
 
 def test_catalog_and_timezone_periods():
-    assert VERSION == "1.5.0"
+    assert VERSION == "1.6.0"
     assert len(quests.CATALOG) == 8
     assert len(achievements.CATALOG) == 10
     assert len(quests.BY_CODE) == len(quests.CATALOG)

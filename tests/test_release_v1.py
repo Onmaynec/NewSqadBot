@@ -19,7 +19,7 @@ from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, card, notice
 
 
 def test_version_theme_and_action_statuses():
-    assert VERSION == "1.5.0"
+    assert VERSION == "1.6.0"
     assert BRAND_BLUE == 0x4A86F7
     assert card("Информация").color == discord.Color(BRAND_BLUE)
     for kind in ("info", "success", "warning", "error"):
@@ -97,6 +97,11 @@ def test_backup_full_cycle_and_running_guard(tmp_path):
     with pytest.raises(BackupError, match="Бот ещё работает"):
         restore(first, source, now=now + 2)
     state.write_text(json.dumps({"ready": False, "timestamp": now}), encoding="utf-8")
+    # Раньше ready=False разрешал restore при ещё открытой SQLite.
+    with pytest.raises(BackupError, match="Бот ещё работает"):
+        restore(first, source, now=now + 5)
+    state.write_text(json.dumps({"ready": False, "phase": "stopped", "timestamp": now}),
+                     encoding="utf-8")
     restore(first, source, now=now + 5)
     with sqlite3.connect(source) as conn:
         assert json.loads(conn.execute(

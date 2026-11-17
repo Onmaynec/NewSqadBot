@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f7">
+  <title>NewSqadBot — Консоль управления</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="shell" id="shell" hidden>
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">N<span>·</span></div>
+        <div class="brand-copy"><strong>NEW SQUAD</strong><small>Панель управления</small></div>
+      </div>
+      <div class="workspace"><span class="workspace-avatar">NS</span><span class="workspace-copy"><strong id="workspace-name">NewSquad</strong><small>Discord · Один сервер</small></span><span class="workspace-chevron">⌄</span></div>
+      <div class="sidebar-heading">РАЗДЕЛЫ</div>
+      <nav class="navigation" id="navigation" aria-label="Навигация панели"></nav>
+      <div class="sidebar-bottom">
+        <div class="sidebar-note"><span class="lock-icon" aria-hidden="true">⌁</span><span>Доступ только локально<br><strong>127.0.0.1</strong></span></div>
+        <button type="button" class="logout" id="logout">Выйти из панели <span>↗</span></button>
+      </div>
+    </aside>
+
+    <main class="main" id="main">
+      <header class="topbar">
+        <button type="button" id="menu-toggle" class="menu-toggle" aria-label="Открыть меню">☰</button>
+        <div class="breadcrumbs">NEW SQUAD <span>/</span> <strong id="breadcrumb">Обзор</strong></div>
+        <div class="top-actions"><span class="connection" id="connection"><i></i> Проверка...</span><span class="top-divider"></span><span class="avatar" title="Локальный администратор">AD</span></div>
+      </header>
+
+      <div class="page">
+        <div class="page-head">
+          <div><div class="eyebrow" id="eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</div>
+            <h1 id="page-title">Обзор системы</h1><p class="page-subtitle" id="page-subtitle">Состояние и настройки Discord-сервера.</p></div>
+          <button type="button" id="refresh" class="button secondary"><span aria-hidden="true">↻</span> Обновить</button>
+        </div>
+
+        <section id="overview" class="section">
+          <div class="metrics">
+            <div class="metric"><div class="metric-label">ПОДКЛЮЧЕНИЕ DISCORD <span class="metric-arrow">↗</span></div><div id="metric-discord" class="metric-value">—</div><div class="metric-detail">Состояние основного шлюза</div></div>
+            <div class="metric"><div class="metric-label">НАСТРОЙКИ <span class="metric-arrow">↗</span></div><div id="metric-config" class="metric-value">—</div><div class="metric-detail">Заполнено в SQLite</div></div>
+            <div class="metric"><div class="metric-label">МОДУЛИ <span class="metric-arrow">↗</span></div><div id="metric-modules" class="metric-value">—</div><div class="metric-detail">Активно в текущем процессе</div></div>
+            <div class="metric"><div class="metric-label">ВЕРСИЯ <span class="metric-arrow">↗</span></div><div id="metric-version" class="metric-value">—</div><div class="metric-detail">Установленный код</div></div>
+          </div>
+          <div class="intro-grid">
+            <article class="panel intro-panel"><div class="panel-kicker">БЫСТРЫЙ СТАРТ</div><h2>Всё под контролем.</h2><p>Выбери роли и каналы из существующего Discord-сервера, настрой модули и сохрани изменения. Никаких ручных Discord ID.</p><button type="button" id="quick-roles" class="button primary">Настроить роли <span>↗</span></button></article>
+            <article class="panel status-panel"><div class="panel-kicker">ДИАГНОСТИКА</div><h2>Состояние сервисов</h2><div class="service-line"><span>Discord Gateway</span><strong id="service-discord">—</strong></div><div class="service-line"><span>SQLite</span><strong id="service-db">—</strong></div><div class="service-line"><span>Scheduler</span><strong id="service-scheduler">—</strong></div><div class="service-line"><span>EventBus</span><strong id="service-events">—</strong></div><button type="button" class="link-button" id="open-diagnostics">Посмотреть подробности <span>↗</span></button></article>
+          </div>
+          <div class="panel foot-panel"><div><strong>Безопасная конфигурация</strong><p>Настройки записываются в существующую базу с записью в журнал. Токен Discord и пароль панели недоступны через сайт.</p></div><div class="round-icon" aria-hidden="true">✓</div></div>
+        </section>
+
+        <section id="settings-section" class="section" hidden>
+          <div class="settings-toolbar"><label class="search" for="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Поиск по названию или ключу..." autocomplete="off"><kbd>/</kbd></label><span id="item-count" class="item-count">0 параметров</span></div>
+          <div class="settings-grid" id="settings-grid"></div>
+          <div id="empty" class="empty" hidden>Нет параметров по этому запросу.</div>
+          <p class="section-hint" id="settings-hint">Изменения сохраняются по одному параметру, сразу в SQLite. Модули перечитываются при перезапуске бота.</p>
+        </section>
+
+        <section id="diagnostics-section" class="section" hidden>
+          <div class="panel diagnostics-panel"><div class="diag-header"><strong>Проверки окружения</strong><button type="button" class="button secondary small" id="refresh-diagnostics">Повторить проверку</button></div><div id="diagnostics-list"></div></div>
+          <div class="panel foot-panel"><div><strong>Проверка на сервере</strong><p>После изменения ролей или каналов проверь реальную работу команд и интерфейсов в Discord. Веб-диагностика не заменяет приёмочные тесты.</p></div></div>
+        </section>
+        <footer class="footer"><span>© NewSquad · Локальная консоль</span><span>PRODUCTION / <span id="footer-version">1.6.0</span></span></footer>
+      </div>
+    </main>
+  </div>
+
+  <div id="login-screen" class="login-screen">
+    <div class="login-art"><div class="login-brand"><span class="login-logo">N<span>·</span></span><strong>NEW SQUAD</strong></div><div class="login-statement">Управление.<br>Без лишнего.</div><div class="login-art-bottom">NEW SQUAD / ADMIN CONSOLE <span>EST. 2026</span></div></div>
+    <div class="login-form-area">
+      <div class="login-card">
+        <span class="login-kicker">ЛОКАЛЬНАЯ АДМИНИСТРАТИВНАЯ ПАНЕЛЬ</span>
+        <h1>Добро пожаловать.</h1>
+        <p>Войди, чтобы управлять настройками NewSqadBot.</p>
+        <form id="login-form">
+          <label for="password">Пароль администратора</label>
+          <input id="password" name="password" type="password" required minlength="14" autocomplete="current-password" placeholder="Введите пароль">
+          <button class="button primary login-submit" type="submit" id="login-submit">Войти в панель <span>↗</span></button>
+        </form>
+        <div class="login-error" id="login-error" role="alert" aria-live="polite"></div>
+        <div class="login-security">Доступ ограничен локальным компьютером. Сеанс автоматически истекает через 4 часа.</div>
+      </div>
+      <div class="login-corner">SECURE LOCAL ACCESS · v1.6.0</div>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

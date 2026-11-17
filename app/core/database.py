@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,8 +11,9 @@ from typing import Any, AsyncIterator
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models import AuditEntry, GuildSetting
@@ -26,11 +28,30 @@ def migrate(database_url: str) -> None:
     cfg = AlembicConfig(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
     cfg.set_main_option("sqlalchemy.url", database_url.replace("sqlite+aiosqlite", "sqlite", 1))
     command.upgrade(cfg, "head")
+    # WAL снижает конкуренцию чтения и записи между веб-панелью и Discord
+    # обработчиками. Устанавливается однократно, ДО запуска фоновых задач.
+    db_path = make_url(database_url).database
+    if db_path and db_path != ":memory:":
+        with sqlite3.connect(db_path, timeout=15) as connection:
+            mode = connection.execute("PRAGMA journal_mode=WAL").fetchone()
+            if not mode or mode[0].lower() != "wal":
+                raise RuntimeError("SQLite не удалось перевести в WAL; проверьте filesystem/volume.")
 
 
 class Database:
     def __init__(self, url: str):
         self.engine = create_async_engine(url, pool_pre_ping=True, connect_args={"timeout": 15})
+        # sqlite+aiosqlite возвращает адаптированный DBAPI, события connect
+        # выполняются при создании каждого физического соединения.
+        @event.listens_for(self.engine.sync_engine, "connect")
+        def configure_connection(connection, _record) -> None:
+            cursor = connection.cursor()
+            try:
+                cursor.execute("PRAGMA foreign_keys = ON")
+                cursor.execute("PRAGMA busy_timeout = 15000")
+            finally:
+                cursor.close()
+
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
 
     @asynccontextmanager
