@@ -26,6 +26,7 @@ class RolePanelOption(Base):
     panel_id: Mapped[int] = mapped_column(ForeignKey("role_panels.id", ondelete="CASCADE"), nullable=False)
     role_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     label: Mapped[str] = mapped_column(String(100), nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False, default="games")
 
 
 class TemporaryRole(Base):
