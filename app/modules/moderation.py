@@ -5,18 +5,20 @@ import asyncio
 import datetime as dt
 import logging
 import time
+from typing import Literal
 
 import discord
 from discord import app_commands
 from discord.ext import commands
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.durations import parse_duration
 from app.core.permissions import can_manage_settings
-from app.models import ModerationAction, ModerationCase
+from app.models import ModerationAction, ModerationCase, ScheduledJob
+from app.services import moderation_cases as cases_store
 from app.services.audit import log_event
-from app.ui.theme import BRAND_BLUE, LoggedView
+from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, panel_card, notice
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ class Moderation(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.bot.scheduler.register("moderation.unban", self._expire_ban)
+        self._case_locks: dict[int, asyncio.Lock] = {}
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -161,11 +164,19 @@ class Moderation(commands.Cog):
         except discord.HTTPException:
             await self.update_case(case_id, dm_status="failed")
 
-    async def report(self, case, title: str):
-        await log_event(self.bot, channel_setting="audit_channel_id", title=title,
-            details=f"Дело: #{case.id:05d}\nУчастник: {case.user_id}\nМодератор: {case.moderator_id}\n"
-                    f"Причина: {discord.utils.escape_mentions(case.reason)}\nСтатус: {case.status}",
-            actor_id=case.moderator_id, action=f"moderation.{case.kind}", target_id=case.user_id)
+    async def report(self, case, title: str, *, actor_id: int | None = None,
+                     note: str = "", operation: str | None = None):
+        channel = "moderation_audit_channel_id" if await self.bot.database.get_setting(
+            self.bot.config.guild_id, "moderation_audit_channel_id") else "audit_channel_id"
+        await log_event(self.bot, channel_setting=channel, title=title,
+            details=(f"Дело: #{case.id:05d}\nУчастник: <@{case.user_id}>\n"
+                     f"Модератор: <@{case.moderator_id}>\n"
+                     f"Исполнитель: <@{actor_id or case.moderator_id}>\n"
+                     f"Причина: {discord.utils.escape_mentions(case.reason)}\n"
+                     f"Статус: {case.status}\n"
+                     f"{discord.utils.escape_mentions(note[:500])}"),
+            actor_id=actor_id or case.moderator_id,
+            action=operation or f"moderation.{case.kind}", target_id=case.user_id)
 
     async def _expire_ban(self, data: dict) -> None:
         case_id = int(data["case_id"])
@@ -383,6 +394,228 @@ class Moderation(commands.Cog):
         await interaction.response.send_message("\n".join(lines)[:1800] or "История пуста.", ephemeral=True,
                                                 allowed_mentions=discord.AllowedMentions.none())
 
+
+    def case_card(self, case: ModerationCase) -> discord.Embed:
+        statuses = {
+            "active": "Активно", "pending": "Ожидает Discord", "completed": "Завершено",
+            "revoked": "Отменено", "removed": "Снято вне бота", "failed": "Ошибка",
+            "expired": "Срок истёк", "superseded": "Заменено другим наказанием",
+            "external_active": "Внешний бан Discord",
+        }
+        kind = {"ban": "Блокировка", "mute": "Тайм-аут", "warn": "Предупреждение",
+                "kick": "Исключение"}.get(case.kind, case.kind)
+        expiry = f"<t:{case.expires_at}:F> · <t:{case.expires_at}:R>" if case.expires_at else "Бессрочно"
+        embed = panel_card(
+            f"NewSquad / Дело #{case.id:05d}",
+            f"**{kind}** · {statuses.get(case.status, case.status)}",
+            ("Участник", f"<@{case.user_id}>"),
+            ("Модератор", f"<@{case.moderator_id}>"),
+            ("Причина", discord.utils.escape_mentions(case.reason[:900])),
+            ("Срок и дата", f"Создано <t:{case.created_at}:F>\nДо: {expiry}"),
+        )
+        if case.closed_by:
+            embed.add_field(name="Закрыл", value=f"<@{case.closed_by}>", inline=True)
+        if case.error:
+            embed.add_field(name="Последняя ошибка", value=discord.utils.escape_mentions(case.error[:500]),
+                            inline=False)
+        return embed
+
+    async def _case_change(self, interaction: discord.Interaction, number: int, *,
+                           action: str, value: str) -> str:
+        if not await self.can_moderate(interaction):
+            return "Недостаточно прав модератора."
+        lock = self._case_locks.setdefault(number, asyncio.Lock())
+        async with lock:
+            found = await cases_store.find(self.bot.database, interaction.guild_id, number=number)
+            if not found:
+                return "Дело не найдено."
+            case = found[0]
+            if case.status != "active":
+                return "Изменять можно только активные дела бота."
+            guild = interaction.guild
+            member = guild.get_member(case.user_id)
+            if member is None and case.kind == "mute":
+                try:
+                    member = await guild.fetch_member(case.user_id)
+                except discord.NotFound:
+                    return "Участник уже покинул сервер, тайм-аут изменить нельзя."
+                except discord.HTTPException:
+                    return "Не удалось проверить участника в Discord."
+            if member is not None and (
+                member.id == interaction.user.id or member.id == guild.owner_id
+                or member.guild_permissions.administrator
+                or (not can_manage_settings(interaction, self.bot.config.owner_ids)
+                    and member.top_role >= interaction.user.top_role)
+            ):
+                return "Недостаточно прав относительно роли участника."
+            if action == "reason":
+                reason = value.strip()
+                if not 3 <= len(reason) <= 400:
+                    return "Новая причина должна содержать 3–400 символов."
+                changed = await cases_store.apply(self.bot.database, interaction.guild_id, number,
+                    actor_id=interaction.user.id, action="reason_changed",
+                    details=f"Старая причина: {case.reason[:175]}; новая: {reason[:175]}",
+                    changes={"reason": reason})
+                if not changed:
+                    return "Дело уже изменено другим модератором."
+                updated = (await cases_store.find(self.bot.database, interaction.guild_id, number=number))[0]
+                await self.report(updated, "Причина дела изменена", actor_id=interaction.user.id,
+                    note="Изменение в базе бота; существующая запись в аудите Discord остаётся прежней.",
+                    operation="moderation.reason_changed")
+                return f"Причина дела #{number:05d} изменена."
+            if action == "duration":
+                if case.kind not in ("ban", "mute"):
+                    return "У этого вида дела нет изменяемого срока."
+                try:
+                    seconds = parse_duration(value, allow_permanent=case.kind == "ban",
+                        max_seconds=28 * 86400 if case.kind == "mute" else None)
+                except ValueError as exc:
+                    return str(exc)
+                expires = None if seconds is None else int(time.time()) + seconds
+                if case.kind == "mute":
+                    if member is None:
+                        return "Участник недоступен для изменения тайм-аута."
+                    try:
+                        await member.timeout(dt.timedelta(seconds=seconds),
+                            reason=audit_reason(number, "Изменение срока"))
+                    except discord.HTTPException:
+                        logger.exception("Не удалось обновить тайм-аут #%s", number)
+                        return "Discord отклонил изменение срока."
+                changed = await cases_store.apply(self.bot.database, interaction.guild_id, number,
+                    actor_id=interaction.user.id, action="duration_changed",
+                    details=f"Срок: {case.expires_at} -> {expires}; модератор: {interaction.user.id}",
+                    changes={"expires_at": expires})
+                if not changed:
+                    return "Дело было изменено параллельно; проверьте Discord."
+                if case.kind == "ban":
+                    job_key = f"moderation:unban:{number}"
+                    async with self.bot.database.session() as session:
+                        row = await session.execute(update(ScheduledJob).where(
+                            ScheduledJob.job_key == job_key).values(
+                                status="done" if expires is None else "pending",
+                                due_at=expires or int(time.time()), locked_until=0, attempts=0))
+                        existing = row.rowcount
+                    if expires is not None and not existing:
+                        await self.bot.scheduler.schedule(job_key=job_key, handler="moderation.unban",
+                            due_at=expires, payload={"case_id": number})
+                updated = (await cases_store.find(self.bot.database, interaction.guild_id, number=number))[0]
+                await self.report(updated, "Срок наказания изменён", actor_id=interaction.user.id,
+                    note=f"Старый срок: {case.expires_at or 'per'}. Новый: {expires or 'per'}.",
+                    operation="moderation.duration_changed")
+                return f"Срок дела #{number:05d} обновлён."
+            if action == "revoke":
+                reason = value.strip()
+                if not 3 <= len(reason) <= 400:
+                    return "Для отмены нужна причина от 3 до 400 символов."
+                if case.kind == "kick":
+                    return "Исключение нельзя отменить задним числом."
+                try:
+                    if case.kind == "ban":
+                        ban = await guild.fetch_ban(discord.Object(id=case.user_id))
+                        if not (ban.reason or "").startswith(f"[NSB-{case.id:05d}]"):
+                            return "Discord-бан был заменён: чужой бан нельзя снимать."
+                        await guild.unban(discord.Object(id=case.user_id),
+                            reason=audit_reason(number, f"Отмена: {reason}"))
+                    elif case.kind == "mute" and member is not None:
+                        await member.timeout(None, reason=audit_reason(number, f"Отмена: {reason}"))
+                except discord.NotFound:
+                    if case.kind != "ban":
+                        return "Участник или наказание не найдены."
+                except discord.HTTPException:
+                    logger.exception("Discord отклонил отмену дела #%s", number)
+                    return "Discord не подтвердил отмену. Статус дела не изменён."
+                changed = await cases_store.apply(self.bot.database, interaction.guild_id, number,
+                    actor_id=interaction.user.id, action="revoked", details=reason,
+                    changes={"status": "revoked", "closed_by": interaction.user.id,
+                             "completed_at": int(time.time())})
+                if not changed:
+                    return "Действие Discord выполнено, но дело уже изменено; проверьте журнал."
+                updated = (await cases_store.find(self.bot.database, interaction.guild_id, number=number))[0]
+                await self.report(updated, "Наказание отменено", actor_id=interaction.user.id,
+                    note=f"Причина отмены: {reason}. Результат Discord: подтверждён.",
+                    operation="moderation.revoked")
+                return f"Дело #{number:05d} отменено. Причина записана."
+            return "Неизвестное действие."
+
+    @m.command(name="case", description="Карточка дела и доступные действия")
+    async def case(self, interaction: discord.Interaction, number: int) -> None:
+        if not await self.guard(interaction):
+            return
+        found = await cases_store.find(self.bot.database, interaction.guild_id, number=number)
+        if not found:
+            await interaction.response.send_message("Дело не найдено.", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=self.case_card(found[0]),
+            view=CaseActions(self, number, interaction.user.id), ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+
+    @m.command(name="cases", description="Список дел с фильтрами")
+    async def cases(self, interaction: discord.Interaction, user: discord.User | None = None,
+                    kind: Literal["all", "ban", "mute", "warn", "kick"] = "all",
+                    status: Literal["all", "active", "closed"] = "all") -> None:
+        if not await self.guard(interaction):
+            return
+        rows = await cases_store.find(self.bot.database, interaction.guild_id,
+            user_id=user.id if user else None, kind=None if kind == "all" else kind,
+            status=None if status == "all" else status, limit=25)
+        lines = [f"**#{c.id:05d}** · {c.kind} · {c.status} · <@{c.user_id}> · "
+                 f"{discord.utils.escape_mentions(c.reason[:70])}" for c in rows]
+        await interaction.response.send_message(embed=panel_card(
+            "NewSquad / Дела модерации",
+            "\n".join(lines)[:3700] if lines else "Нет подходящих дел.",
+        ), ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @m.command(name="revoke", description="Отменить активное дело с обязательной причиной")
+    async def revoke(self, interaction: discord.Interaction, number: int, reason: str) -> None:
+        if not await self.guard(interaction):
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        result = await self._case_change(interaction, number, action="revoke", value=reason)
+        await interaction.followup.send(result, ephemeral=True)
+
+    @m.command(name="reason", description="Изменить причину активного дела")
+    async def reason_command(self, interaction: discord.Interaction, number: int, reason: str) -> None:
+        if not await self.guard(interaction):
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        result = await self._case_change(interaction, number, action="reason", value=reason)
+        await interaction.followup.send(result, ephemeral=True)
+
+    @m.command(name="duration", description="Изменить срок бана или тайм-аута")
+    async def duration_command(self, interaction: discord.Interaction, number: int, duration: str) -> None:
+        if not await self.guard(interaction):
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        result = await self._case_change(interaction, number, action="duration", value=duration)
+        await interaction.followup.send(result, ephemeral=True)
+
+    @m.command(name="log-channel", description="Назначить отдельный канал журнала модерации")
+    async def log_channel(self, interaction: discord.Interaction, channel: discord.TextChannel) -> None:
+        if not can_manage_settings(interaction, self.bot.config.owner_ids) or channel.guild.id != self.bot.config.guild_id:
+            await interaction.response.send_message("Только администрация NewSquad.", ephemeral=True)
+            return
+        me = channel.guild.me
+        perms = channel.permissions_for(me)
+        if not (perms.view_channel and perms.send_messages and perms.embed_links):
+            await interaction.response.send_message("Бот не может писать Embed в этот канал.", ephemeral=True)
+            return
+        await self.bot.database.set_setting(interaction.guild_id, "moderation_audit_channel_id",
+            channel.id, actor_id=interaction.user.id)
+        await interaction.response.send_message(
+            f"Журнал модерации настроен: {channel.mention}.", ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+
+    @m.command(name="panel", description="Интерактивная панель модерации")
+    async def panel(self, interaction: discord.Interaction) -> None:
+        if not await self.guard(interaction):
+            return
+        await interaction.response.send_message(embed=panel_card(
+            "NewSquad / Центр модерации",
+            "Просмотр дел, поиск участника и открытие карточки с действиями.\n"
+            "Операции доступны только модераторам и администрации."),
+            view=ModerationPanel(self, interaction.user.id), ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+
     async def execute_clear(self, interaction: discord.Interaction, *, user: discord.User,
                             channel: discord.TextChannel, count: int, cutoff: dt.datetime | None,
                             reason: str) -> str:
@@ -440,6 +673,156 @@ class Moderation(commands.Cog):
         result = await self.execute_clear(interaction, user=user, channel=selected_channel,
                                           count=count, cutoff=cutoff, reason=reason)
         await interaction.followup.send(result, ephemeral=True)
+
+
+
+class CaseOperationForm(LoggedModal):
+    value = discord.ui.TextInput(label="Значение или причина", min_length=3, max_length=400)
+
+    def __init__(self, cog: Moderation, number: int, operation: str, owner_id: int):
+        self.title = {"revoke": "Подтвердить отмену наказания",
+                      "reason": "Изменение причины", "duration": "Изменение срока"}[operation]
+        super().__init__(timeout=300)
+        self.cog, self.number, self.operation, self.owner_id = cog, number, operation, owner_id
+        if operation == "duration":
+            self.value.label = "Срок: 10m, 2h, 7d или per"
+            self.value.min_length = 2
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Только инициатор операции.", ephemeral=True)
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        result = await self.cog._case_change(
+            interaction, self.number, action=self.operation, value=str(self.value))
+        await interaction.followup.send(embed=notice(result), ephemeral=True)
+
+
+class CaseActions(LoggedView):
+    def __init__(self, cog: Moderation, number: int, owner_id: int):
+        super().__init__(timeout=300)
+        self.cog, self.number, self.owner_id = cog, number, owner_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if interaction.user.id != self.owner_id or not await self.cog.can_moderate(interaction):
+            await interaction.response.send_message("Панель принадлежит другому модератору.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Отменить наказание", style=discord.ButtonStyle.danger)
+    async def revoke(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.send_modal(CaseOperationForm(
+            self.cog, self.number, "revoke", self.owner_id))
+
+    @discord.ui.button(label="Изменить причину", style=discord.ButtonStyle.secondary)
+    async def edit_reason(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.send_modal(CaseOperationForm(
+            self.cog, self.number, "reason", self.owner_id))
+
+    @discord.ui.button(label="Изменить срок", style=discord.ButtonStyle.secondary)
+    async def duration(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.send_modal(CaseOperationForm(
+            self.cog, self.number, "duration", self.owner_id))
+
+    @discord.ui.button(label="Журнал действий", style=discord.ButtonStyle.secondary)
+    async def actions(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        rows = await cases_store.actions(self.cog.bot.database, interaction.guild_id, self.number)
+        lines = [f"<t:{row.created_at}:f> · <@{row.actor_id}> · "
+                 f"**{row.action}** · {discord.utils.escape_mentions(row.details[:200])}"
+                 for row in rows]
+        await interaction.response.send_message(embed=panel_card(
+            f"NewSquad / История дела #{self.number:05d}",
+            "\n".join(lines)[:3600] if lines else "Изменений нет."),
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+
+class CaseLookupForm(LoggedModal, title="Поиск дела модерации"):
+    number = discord.ui.TextInput(label="Номер дела", min_length=1, max_length=10)
+    def __init__(self, cog: Moderation, owner_id: int):
+        super().__init__(timeout=300)
+        self.cog, self.owner_id = cog, owner_id
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self.owner_id or not await self.cog.can_moderate(interaction):
+            await interaction.response.send_message("Нет доступа.", ephemeral=True)
+            return
+        if not str(self.number).isascii() or not str(self.number).isdecimal():
+            await interaction.response.send_message("Введите цифровой номер дела.", ephemeral=True)
+            return
+        number = int(str(self.number))
+        rows = await cases_store.find(self.cog.bot.database, interaction.guild_id, number=number)
+        if not rows:
+            await interaction.response.send_message("Дело не найдено.", ephemeral=True)
+            return
+        await interaction.response.send_message(embed=self.cog.case_card(rows[0]),
+            view=CaseActions(self.cog, number, self.owner_id), ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+
+
+class MemberCasesForm(LoggedModal, title="История пользователя"):
+    user_id = discord.ui.TextInput(label="Discord ID участника", min_length=15, max_length=22)
+    def __init__(self, cog: Moderation, owner_id: int):
+        super().__init__(timeout=300)
+        self.cog, self.owner_id = cog, owner_id
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self.owner_id or not await self.cog.can_moderate(interaction):
+            await interaction.response.send_message("Нет доступа.", ephemeral=True)
+            return
+        if not str(self.user_id).isascii() or not str(self.user_id).isdecimal():
+            await interaction.response.send_message("Введите цифровой Discord ID.", ephemeral=True)
+            return
+        rows = await cases_store.find(self.cog.bot.database, interaction.guild_id,
+                                      user_id=int(str(self.user_id)), limit=25)
+        lines = [f"#{c.id:05d} · {c.kind} · {c.status}: "
+                 f"{discord.utils.escape_mentions(c.reason[:70])}" for c in rows]
+        await interaction.response.send_message(embed=panel_card(
+            "NewSquad / История участника",
+            "\n".join(lines)[:3500] if lines else "Дел нет."), ephemeral=True)
+
+
+class ModerationPanel(LoggedView):
+    def __init__(self, cog: Moderation, owner_id: int):
+        super().__init__(timeout=300)
+        self.cog, self.owner_id = cog, owner_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if not await super().interaction_check(interaction):
+            return False
+        if interaction.user.id != self.owner_id or not await self.cog.can_moderate(interaction):
+            await interaction.response.send_message("Эта панель открыта другим модератором.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Активные дела", style=discord.ButtonStyle.primary)
+    async def active(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        rows = await cases_store.find(self.cog.bot.database, interaction.guild_id, status="active", limit=20)
+        lines = [f"#{r.id:05d} · {r.kind} · <@{r.user_id}> · {r.status}"
+                 for r in rows]
+        await interaction.response.send_message(embed=panel_card(
+            "NewSquad / Активные дела", "\n".join(lines) if lines else "Активных дел нет."),
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @discord.ui.button(label="Найти дело", style=discord.ButtonStyle.secondary)
+    async def lookup(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.send_modal(CaseLookupForm(self.cog, self.owner_id))
+
+    @discord.ui.button(label="История участника", style=discord.ButtonStyle.secondary)
+    async def history(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.send_modal(MemberCasesForm(self.cog, self.owner_id))
+
+    @discord.ui.button(label="Предупреждения", style=discord.ButtonStyle.secondary)
+    async def warnings(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        rows = await cases_store.find(self.cog.bot.database, interaction.guild_id,
+                                      kind="warn", status="active", limit=20)
+        lines = [f"#{r.id:05d} · <@{r.user_id}> · "
+                 f"{discord.utils.escape_mentions(r.reason[:80])}" for r in rows]
+        await interaction.response.send_message(embed=panel_card(
+            "NewSquad / Активные предупреждения",
+            "\n".join(lines) if lines else "Предупреждений нет."), ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
 
 
 class ConfirmClear(LoggedView):
