@@ -300,7 +300,8 @@ async def test_complete_staff_and_owner_editor_permissions(tmp_path):
     owner_paths = ("/api/owner/shop", "/api/owner/role-panels",
                    "/api/owner/ticket-categories", "/api/owner/announcements")
     admin_paths = ("/api/portal/events", "/api/portal/giveaways",
-                   "/api/portal/suggestions", "/api/portal/activity", "/api/portal/audit")
+                   "/api/portal/suggestions", "/api/portal/activity", "/api/portal/audit",
+                   "/api/portal/voice-rooms", "/api/portal/parties")
     moder_paths = ("/api/portal/moderation", "/api/portal/members")
     support_paths = ("/api/portal/tickets", "/api/portal/applications",
                      "/api/portal/tickets/staff")
@@ -345,6 +346,8 @@ def test_management_ui_permissions_are_not_only_client_side():
     assert '"/api/owner/shop"' in management
     assert '"/api/owner/role-panels"' in management
     assert '"/api/portal/events"' in management
+    assert '"/api/portal/voice-rooms"' in management
+    assert '"/api/portal/parties"' in management
     assert '"/api/portal/suggestions?' in management
     assert '"/api/portal/moderation"' in portal
     assert "roleLabels" in portal
