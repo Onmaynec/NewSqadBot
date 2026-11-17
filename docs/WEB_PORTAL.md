@@ -35,21 +35,14 @@
 
 Tailscale Funnel создаёт публичный стабильный HTTPS-адрес вида https://my-pc.my-tailnet.ts.net и проксирует его на локальный порт компьютера. **Это публичный адрес: любой может открыть страницу входа, но внутренние данные и действия требуют Discord OAuth и подходящей роли**. Защита Windows, обновления Docker/Tailscale и сохранность OAuth client secret остаются ответственностью владельца.
 
-1. Установить Tailscale на ПК с Docker Desktop: https://tailscale.com/download
-2. Подключиться к Tailscale и включить Funnel для машины (может потребовать MagicDNS, HTTPS и изменение политики tailnet).
-3. Запустить бот как обычно: `docker compose up -d --build`.
-4. На Windows открыть PowerShell (от администратора при необходимости), выполнить:
-
-   `tailscale funnel --bg 8787`
-
-5. Скопировать адрес https://...ts.net **из реального вывода** Tailscale. Не придумывать hostname.
-6. В Discord Developer Portal (https://discord.com/developers/applications) открыть приложение **этого бота**, раздел OAuth2. Получить Client ID и Client Secret. **Client Secret никому не отправлять.**
-7. Добавить в OAuth2 Redirects строго:
+1. Установить [Tailscale](https://tailscale.com/download) на ПК с Docker Desktop, войти в свой tailnet. В настройках tailnet должны быть включены MagicDNS, HTTPS и разрешение использовать Funnel.
+2. **До публикации порта** найти собственное DNS-имя ПК: в Tailscale Admin Console → Machines → ваш компьютер. Оно имеет вид `my-pc.my-tailnet.ts.net`. Скопируйте **реальное** имя с вашей машины; показанное здесь — лишь пример. Суффикс `.ts.net` предоставляет Tailscale, собственный домен покупать не требуется.
+3. В [Discord Developer Portal](https://discord.com/developers/applications) открыть приложение **этого бота**, раздел OAuth2. Скопировать Client ID и сгенерировать Client Secret. **Client Secret никогда не отправлять в чат и не публиковать в GitHub.**
+4. В списке OAuth2 Redirects добавить адрес по своему реальному DNS-имени:
 
    `https://my-pc.my-tailnet.ts.net/auth/callback`
 
-   Хост должен быть точно тем же, который выдал Funnel.
-8. В .env указать:
+5. Записать в локальный `.env` (без кавычек):
 
    ```env
    WEB_DISCORD_CLIENT_ID=ВАШ_CLIENT_ID
@@ -57,9 +50,20 @@ Tailscale Funnel создаёт публичный стабильный HTTPS-а
    WEB_PUBLIC_URL=https://my-pc.my-tailnet.ts.net
    ```
 
-   URL без завершающего слэша и без /auth/callback. Client Secret остаётся только на сервере.
-9. Перезапустить: `docker compose up -d --force-recreate`. Пересборка не нужна, если код уже обновлён.
-10. В браузере открыть HTTPS-адрес Funnel и нажать **Войти через Discord**. Пользователь разрешит приложению видеть его Discord-профиль, после чего бот проверит текущие роли на NewSqad.
+   URL не должен иметь завершающий слэш или `/auth/callback`. Все три значения обязательны. OAuth-режим **отключит парольный вход**; доступ по ролям начнёт проверяться сервером.
+6. Перезапустить контейнер и убедиться по логам, что web-панель запущена:
+
+   `docker compose up -d --build --force-recreate`
+
+7. Только **после подготовки OAuth** открыть PowerShell на компьютере с ботом и включить публичный HTTPS Funnel:
+
+   `tailscale funnel --bg 8787`
+
+8. Скопировать фактически выданный Tailscale адрес и убедиться, что он **точно совпадает** с `WEB_PUBLIC_URL`. Если адрес отличается, сразу выключить Funnel командой `tailscale funnel --bg 8787 off`, исправить OAuth Redirect URI и `.env`, перезапустить бота и только после этого включить Funnel заново.
+9. Открыть выданный HTTPS-адрес и нажать **Войти через Discord**. Discord перенаправит пользователя обратно на сайт, после чего бот проверит его текущие роли на NewSqad.
+
+**Не включайте Funnel, пока действует парольный локальный режим**. Публичный URL доступен всему интернету, хотя информация и действия после настройки защищены OAuth и разрешениями Discord.
+
 
 **Примечание о локальном адресе.** В OAuth-режиме вход на http://127.0.0.1:8787 автоматически отправит браузер на HTTPS-адрес Tailscale перед авторизацией: Discord не может возвращать Secure cookie на другой HTTP-hostname. Пользуйтесь публичным HTTPS-адресом при входе.
 
