@@ -16,6 +16,7 @@ from app.models import MemberProgress
 from app.services import events as store
 from app.services.audit import log_event
 from app.services.membership_access import approved_member
+from app.ui.mentions import role_mention
 from app.ui.theme import LoggedView, card, notice
 
 log = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ def giveaway_embed(giveaway) -> discord.Embed:
         f"**Окончание:** <t:{giveaway.ends_at}:F>\n"
         f"**Победителей:** {giveaway.winner_count}\n"
         f"**Минимальный уровень:** {giveaway.min_level or 'без требований'}\n"
-        f"**Дополнительная роль:** {f'<@&{giveaway.required_role_id}>' if giveaway.required_role_id else 'не требуется'}")
+        f"**Дополнительная роль:** {role_mention(None, role_id=giveaway.required_role_id, guild=guild) if giveaway.required_role_id else 'не требуется'}")
     e.add_field(name="Заявок", value=str(giveaway.entry_count), inline=True)
     e.add_field(name="Статус", value="Идёт" if giveaway.status == "open" else "Завершён", inline=True)
     if giveaway.status == "ended":
