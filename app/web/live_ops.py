@@ -5,6 +5,7 @@ Discord state and current guild role; permissions stay enforced server-side.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -66,7 +67,7 @@ async def room_action(request: web.Request) -> web.Response:
     cog = bot.get_cog("Voice")
     if cog is None:
         raise web.HTTPServiceUnavailable(text="Модуль голосовых комнат отключён.")
-    lock = cog._room_locks.setdefault(cid, __import__("asyncio").Lock())
+    lock = cog._room_locks.setdefault(cid, asyncio.Lock())
     async with lock:
         row = await voice.by_channel(bot.database, bot.config.guild_id, cid)
         if row is None:
