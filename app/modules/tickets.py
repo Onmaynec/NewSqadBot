@@ -468,9 +468,11 @@ class Tickets(commands.Cog):
                               ticket.id, ticket.channel_id)
                 return "Discord не разрешил удалить канал. Проверьте Manage Channels и повторите закрытие."
         await tickets.erase_ticket(self.bot.database, ticket.guild_id, ticket.id)
-        # Отправка ЛС не влияет на факт успешного закрытия: снимок оценки
-        # создан той же транзакцией, что и удаление приватного тикета.
-        await self._deliver_surveys(requester_id=ticket.user_id)
+        # Даже если чтение/доставка опроса ошибочно, закрытие уже завершено.
+        try:
+            await self._deliver_surveys(requester_id=ticket.user_id)
+        except Exception:
+            log.exception("Опрос недоступен после успешного удаления приватного тикета")
         return "Обращение закрыто. Канал удалён, переписка и история не сохранены."
 
     async def close_ticket(self, interaction: discord.Interaction, ticket_id: int, reason: str = "") -> str:
