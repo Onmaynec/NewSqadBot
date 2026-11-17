@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const ui = {csrf: "", data: null, group: "Обзор", query: "", saving: new Set(), toastTimer: null};
+const ui = {csrf: "", data: null, group: "Обзор", query: "", saving: false, dirty: new Map(), toastTimer: null};
 const icons = {
   "Обзор": "◈", "Роли": "◇", "Каналы": "▤", "Участники": "♙",
   "Поддержка": "□", "Голосовые": "◉", "Прогрессия": "↗",
@@ -57,7 +57,7 @@ async function api(path, options = {}) {
 function loginScreen(visible) {
   $("login-screen").hidden = !visible;
   $("shell").hidden = visible;
-  if (visible) { ui.data = null; ui.csrf = ""; }
+  if (visible) { ui.data = null; ui.csrf = ""; ui.dirty.clear(); }
 }
 async function initialize() {
   try {
@@ -78,6 +78,26 @@ async function refresh() {
   try {
     ui.data = await api("/api/bootstrap");
     $("workspace-name").textContent = ui.data.guild_name;
+    $("overview-guild-name").textContent = ui.data.guild_name;
+    const initials = ui.data.guild_name.trim().slice(0, 2).toLocaleUpperCase("ru") || "NS";
+    for (const [imgId, initialsId] of [
+      ["workspace-icon", "workspace-initials"],
+      ["top-guild-icon", "top-guild-initials"],
+      ["overview-guild-icon", "overview-guild-initials"],
+    ]) {
+      const img = $(imgId);
+      img.hidden = !ui.data.guild_icon_url;
+      $(initialsId).hidden = Boolean(ui.data.guild_icon_url);
+      if (ui.data.guild_icon_url) img.src = ui.data.guild_icon_url;
+      else { img.removeAttribute("src"); $(initialsId).textContent = initials; }
+    }
+    $("guild-meta").textContent = (ui.data.guild_member_count === null
+      ? "Участники: информация недоступна"
+      : "Участников: " + Number(ui.data.guild_member_count).toLocaleString("ru-RU"))
+      + "  ·  ID: " + ui.data.guild_id;
+    $("guild-banner").style.backgroundImage = ui.data.guild_banner_url
+      ? 'linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,.05)), url("' + ui.data.guild_banner_url + '")'
+      : "";
     $("metric-version").textContent = ui.data.version;
     $("footer-version").textContent = ui.data.version;
     $("metric-discord").textContent = ui.data.discord_ready ? "Online" : "Offline";
@@ -95,7 +115,27 @@ async function refresh() {
     toast(error.message, true);
   }
 }
-function navigate(group) {
+async function confirmDiscard() {
+  if (ui.saving) { toast("Сохранение ещё выполняется.", true); return false; }
+  if (!ui.dirty.size) return true;
+  return new Promise((resolve) => {
+    const dialog = $("leave-dialog");
+    dialog.hidden = false;
+    $("stay-here").focus();
+    function finish(value) {
+      dialog.hidden = true;
+      $("stay-here").onclick = null;
+      $("leave-anyway").onclick = null;
+      if (value) ui.dirty.clear();
+      resolve(value);
+    }
+    $("stay-here").onclick = () => finish(false);
+    $("leave-anyway").onclick = () => finish(true);
+  });
+}
+async function navigate(group) {
+  if (group === ui.group) return;
+  if (!await confirmDiscard()) return;
   ui.group = group;
   ui.query = "";
   $("search").value = "";
@@ -103,7 +143,6 @@ function navigate(group) {
   renderNav();
   renderPage();
   if (group === "Диагностика" || group === "Обзор") void refreshDiagnostics();
-  $("main").scrollTo({top: 0, behavior: "smooth"});
   window.scrollTo({top: 0, behavior: "smooth"});
 }
 function renderNav() {
@@ -116,7 +155,7 @@ function renderNav() {
     button.append(element("span", "nav-icon", icons[group] || "○"));
     button.append(element("span", "nav-text", group));
     button.append(element("span", "nav-indicator"));
-    button.addEventListener("click", () => navigate(group));
+    button.addEventListener("click", () => { void navigate(group); });
     nav.append(button);
   }
 }
@@ -146,8 +185,8 @@ function option(value, text, selected = false, disabled = false) {
   item.disabled = disabled;
   return item;
 }
-function createControl(spec) {
-  const current = spec.value;
+function createControl(spec, value = spec.value) {
+  const current = value;
   let field;
   if (spec.kind === "bool") {
     const toggle = element("label", "toggle-wrap");
@@ -167,7 +206,7 @@ function createControl(spec) {
       const values = new Set();
       for (const item of pool) {
         values.add(String(item.id));
-        field.append(option(item.id, item.name + " · " + item.id, current === item.id,
+        field.append(option(item.id, item.name + " · " + item.id, String(current) === String(item.id),
                             item.managed === true));
       }
       if (current !== null && current !== undefined && !values.has(String(current)))
@@ -182,10 +221,10 @@ function createControl(spec) {
       const pool = ui.data.channels.filter((item) => item.type === "text");
       const values = new Set();
       for (const item of pool) {
-        values.add(item.id);
-        field.append(option(item.id, item.name, selected.includes(item.id)));
+        values.add(String(item.id));
+        field.append(option(item.id, item.name, selected.map(String).includes(String(item.id))));
       }
-      for (const id of selected) if (!values.has(id)) field.append(option(id, "Удалённый канал · " + id, true, true));
+      for (const id of selected) if (!values.has(String(id))) field.append(option(id, "Удалённый канал · " + id, true, true));
     }
     return [field, field];
   }
@@ -208,9 +247,18 @@ function readValue(spec, field) {
     if (field.value.trim() === "" || !/^-?\d+$/.test(field.value.trim())) throw new Error("Укажите целое число.");
     return Number(field.value);
   }
-  if (spec.kind === "role" || spec.kind === "channel") return field.value ? Number(field.value) : null;
-  if (spec.kind === "channel_list") return [...field.selectedOptions].map((item) => Number(item.value));
+  if (spec.kind === "role" || spec.kind === "channel") return field.value || null;
+  if (spec.kind === "channel_list") return [...field.selectedOptions].map((item) => item.value);
   return field.value.trim();
+}
+function updateSaveBar() {
+  const count = ui.dirty.size;
+  $("bulk-save").hidden = count === 0;
+  $("pending-count").textContent = count + " " + (
+    count % 10 === 1 && count % 100 !== 11 ? "изменение" :
+    [2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100) ? "изменения" : "изменений");
+  $("save-all").disabled = count === 0 || ui.saving;
+  $("discard-changes").disabled = ui.saving;
 }
 function renderSettings() {
   const grid = $("settings-grid");
@@ -221,50 +269,75 @@ function renderSettings() {
   $("item-count").textContent = found.length + " параметров";
   $("empty").hidden = found.length !== 0;
   for (const spec of found) {
-    const card = element("article", "setting");
+    const card = element("article", "setting" + (ui.dirty.has(spec.key) ? " setting-dirty" : ""));
     const head = element("div", "setting-top");
     const names = element("div");
     names.append(element("div", "setting-name", spec.label), element("div", "setting-key", spec.key));
     head.append(names, element("span", "setting-tag", labelFor(spec)));
     card.append(head);
-    if (spec.description) card.append(element("p", "setting-description", spec.description));
-    else card.append(element("p", "setting-description", "Сохраняется в настройках сервера NewSquad."));
+    card.append(element("p", "setting-description",
+      spec.description || "Сохраняется в настройках сервера NewSquad."));
     if (spec.warning) card.append(element("div", "setting-warning", spec.warning));
     const controls = element("div", "setting-controls");
-    const [widget, field] = createControl(spec);
+    const savedDraft = ui.dirty.has(spec.key) ? ui.dirty.get(spec.key) : spec.value;
+    const shownDraft = savedDraft && savedDraft.invalid ? savedDraft.raw : savedDraft;
+    const [widget, field] = createControl(spec, shownDraft);
     field.setAttribute("aria-label", spec.label);
-    const save = element("button", "", "Сохранить");
-    save.type = "button";
-    save.disabled = true;
-    field.addEventListener("change", () => { save.disabled = false; });
-    field.addEventListener("input", () => { save.disabled = false; });
-    save.addEventListener("click", async () => {
-      if (ui.saving.has(spec.key)) return;
+    const note = element("span", "field-note",
+      ui.dirty.has(spec.key) ? "Не сохранено" : (spec.configured ? "Сохранено" : "По умолчанию"));
+    function track() {
       let value;
-      try { value = readValue(spec, field); } catch (error) { toast(error.message, true); return; }
-      ui.saving.add(spec.key);
-      save.disabled = true;
-      save.textContent = "Сохраняю...";
-      try {
-        const result = await api("/api/settings/" + encodeURIComponent(spec.key), {
-          method: "POST", body: {value},
-        });
-        spec.value = result.value;
-        spec.configured = true;
-        spec.warning = "";
-        toast(result.restart_required ? "Сохранено. Перезапустите контейнер, чтобы применить изменение." : "Настройка сохранена.");
-        save.textContent = "Сохранено ✓";
-        window.setTimeout(() => { save.textContent = "Сохранить"; }, 1800);
-      } catch (error) {
-        save.textContent = "Сохранить";
-        save.disabled = false;
-        if (error.status === 401) loginScreen(true);
-        toast(error.message, true);
-      } finally { ui.saving.delete(spec.key); }
-    });
-    controls.append(widget, save);
-    card.append(controls);
+      try { value = readValue(spec, field); }
+      catch { value = {invalid: true, raw: field.value}; }
+      if (!value?.invalid && JSON.stringify(value) === JSON.stringify(spec.value)) {
+        ui.dirty.delete(spec.key);
+      } else {
+        ui.dirty.set(spec.key, value);
+      }
+      card.classList.toggle("setting-dirty", ui.dirty.has(spec.key));
+      note.textContent = ui.dirty.has(spec.key) ? "Не сохранено" : "Сохранено";
+      updateSaveBar();
+    }
+    field.addEventListener("change", track);
+    field.addEventListener("input", track);
+    controls.append(widget);
+    card.append(controls, note);
     grid.append(card);
+  }
+  updateSaveBar();
+}
+async function saveAll() {
+  if (!ui.dirty.size || ui.saving) return;
+  const changes = Object.fromEntries(ui.dirty);
+  if (Object.values(changes).some((value) => value && value.invalid)) {
+    toast("Проверьте числовые значения перед сохранением.", true);
+    return;
+  }
+  ui.saving = true;
+  updateSaveBar();
+  $("save-all").textContent = "Сохраняю...";
+  try {
+    const result = await api("/api/settings/batch", {
+      method: "POST", body: {group: ui.group, changes},
+    });
+    for (const [key, value] of Object.entries(result.values)) {
+      const spec = ui.data.settings.find((item) => item.key === key);
+      if (spec) { spec.value = value; spec.configured = true; spec.warning = ""; }
+    }
+    ui.dirty.clear();
+    renderSettings();
+    ui.data.total_configured = ui.data.settings.filter((item) => item.configured).length;
+    $("metric-config").textContent = ui.data.total_configured + " / " + ui.data.settings.length;
+    toast(result.restart_required
+      ? "Все изменения сохранены. Для применения настроек модулей перезапустите бота."
+      : "Сохранено параметров: " + result.count);
+  } catch (error) {
+    if (error.status === 401) loginScreen(true);
+    toast(error.message, true);
+  } finally {
+    ui.saving = false;
+    $("save-all").textContent = "Сохранить изменения";
+    updateSaveBar();
   }
 }
 async function refreshDiagnostics() {
@@ -311,9 +384,14 @@ $("login-form").addEventListener("submit", async (event) => {
 $("logout").addEventListener("click", async () => {
   try { await api("/api/logout", {method: "POST", body: {}}); }
   catch (error) { toast(error.message, true); }
+  if (!await confirmDiscard()) return;
+  try { await api("/api/logout", {method: "POST", body: {}}); }
+  catch (error) { toast(error.message, true); return; }
   loginScreen(true);
 });
-$("refresh").addEventListener("click", refresh);
+$("refresh").addEventListener("click", async () => {
+  if (await confirmDiscard()) await refresh();
+});
 $("refresh-diagnostics").addEventListener("click", refreshDiagnostics);
 $("open-diagnostics").addEventListener("click", () => navigate("Диагностика"));
 $("quick-roles").addEventListener("click", () => navigate("Роли"));
