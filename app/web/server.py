@@ -1,6 +1,6 @@
 """Однопроцессная web-консоль: локальный порт, пароль, CSRF, whitelist настроек.
 
-Нет OAuth, удалённого хостинга, SQL API или редактирования произвольных ключей.
+Поддерживает отдельный Discord OAuth на публичном HTTPS и локальный пароль без OAuth.
 Discord данные берутся из работающего бота; секреты из .env никогда не возвращаются.
 """
 from __future__ import annotations
@@ -8,10 +8,8 @@ from __future__ import annotations
 import hmac
 import json
 import logging
-from dataclasses import field
-from urllib.parse import urlsplit
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -200,6 +198,11 @@ async def oauth_start(request: web.Request) -> web.Response:
     panel = state(request)
     if not panel.discord_client_id:
         raise web.HTTPNotFound()
+    # Cookie must be issued from public HTTPS origin: localhost cookie cannot
+    # return to a distinct ts.net callback host.
+    host = request.headers.get("Host", "")
+    if host != urlsplit(panel.public_url).netloc:
+        return web.HTTPFound(location=panel.public_url + "/auth/discord")
     ticket = new_state(panel.pending_states)
     redirect = panel.public_url + "/auth/callback"
     location = authorize_url(panel.discord_client_id, redirect, ticket)
