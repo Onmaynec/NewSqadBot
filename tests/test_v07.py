@@ -31,7 +31,7 @@ def test_economy_migration(tmp_path):
     migrate(url)
     with sqlite3.connect(file) as sql:
         sql.execute("PRAGMA foreign_keys=ON")
-        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0013_announcements"
+        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0014_community_categories"
         tables = {x[0] for x in sql.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"economy_wallets", "economy_ledger", "economy_shop_items", "economy_inventory"} <= tables
         sql.execute("INSERT INTO economy_wallets(guild_id,user_id,created_at,updated_at) VALUES (?,?,?,?)",
