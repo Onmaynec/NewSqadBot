@@ -15,12 +15,7 @@ from aiohttp import web
 from sqlalchemy import func, select
 
 from app.models import Application, ApplicationEvent, AuditEntry, ModerationCase, Ticket
-from app.services import (
-    applications as membership_store,
-    moderation_cases,
-    statistics as stats,
-    tickets as ticket_store,
-)
+from app.services import applications, moderation_cases, statistics, tickets
 from app.web.oauth import site_role
 from app.web.server import guild_for, json_payload, require_auth, require_csrf, require_role, state
 
@@ -106,10 +101,10 @@ async def application_detail(request: web.Request) -> web.Response:
     await require_role(request)
     bot = state(request).bot
     aid = number(request.match_info["id"])
-    row = await membership_store.get_application(bot.database, aid)
+    row = await applications.get_application(bot.database, aid)
     if not row or row.guild_id != bot.config.guild_id:
         raise web.HTTPNotFound(text="Заявка не найдена.")
-    changes = await membership_store.timeline(bot.database, bot.config.guild_id, aid)
+    changes = await applications.timeline(bot.database, bot.config.guild_id, aid)
     return web.json_response({"application": public_application(row), "history": [
         {"actor_id": str(evt.actor_id), "previous": evt.old_status,
          "status": evt.new_status, "reason": evt.reason, "at": evt.created_at}
@@ -123,7 +118,7 @@ async def application_action(request: web.Request) -> web.Response:
     aid = number(request.match_info["id"])
     data = await json_payload(request)
     action = data.get("action")
-    row = await membership_store.get_application(bot.database, aid)
+    row = await applications.get_application(bot.database, aid)
     if not row or row.guild_id != bot.config.guild_id:
         raise web.HTTPNotFound(text="Заявка не найдена.")
     actor = require_auth(request).user_id
@@ -139,8 +134,8 @@ async def application_action(request: web.Request) -> web.Response:
         if action == "approve":
             reason = "Одобрено через сайт"
         stage = "approving" if action == "approve" else "rejecting"
-        ok = await membership_store.transition(
-            bot.database, aid, expected=membership_store.REVIEWABLE, target=stage,
+        ok = await applications.transition(
+            bot.database, aid, expected=applications.REVIEWABLE, target=stage,
             actor_id=actor, reason=reason,
             decision="approve" if action == "approve" else "reject")
         if not ok:
@@ -155,7 +150,7 @@ async def application_action(request: web.Request) -> web.Response:
         await cog.refresh(aid)
         return web.json_response({"ok": True, "message": result})
     if action == "claim":
-        ok = await membership_store.assign_reviewer(bot.database, bot.config.guild_id, aid, actor, actor)
+        ok = await applications.assign_reviewer(bot.database, bot.config.guild_id, aid, actor, actor)
         if ok:
             await cog.refresh(aid)
         return web.json_response({"ok": ok, "message": "Ответственный назначен." if ok else "Заявка уже закрыта."},
@@ -164,7 +159,7 @@ async def application_action(request: web.Request) -> web.Response:
         reason = str(data.get("reason", "")).strip()
         if not 5 <= len(reason) <= 500:
             raise web.HTTPUnprocessableEntity(text="Укажите вопрос от 5 до 500 символов.")
-        ok = await membership_store.transition(
+        ok = await applications.transition(
             bot.database, aid, expected=("pending", "in_review"), target="needs_info",
             actor_id=actor, reason="Уточнение через сайт: " + reason)
         if not ok:
@@ -184,7 +179,7 @@ async def application_action(request: web.Request) -> web.Response:
 async def ticket_list(request: web.Request) -> web.Response:
     await require_role(request)
     bot = state(request).bot
-    rows = await ticket_store.list_tickets(bot.database, bot.config.guild_id,
+    rows = await tickets.list_tickets(bot.database, bot.config.guild_id,
                                            statuses=("open", "creating", "closing"), limit=100)
     return web.json_response({"items": [public_ticket(row) for row in rows]})
 
@@ -210,7 +205,7 @@ async def ticket_detail(request: web.Request) -> web.Response:
     await require_role(request)
     bot = state(request).bot
     tid = number(request.match_info["id"])
-    row = await ticket_store.get(bot.database, bot.config.guild_id, tid)
+    row = await tickets.get(bot.database, bot.config.guild_id, tid)
     if row is None:
         raise web.HTTPNotFound(text="Обращение не найдено.")
     channel = await _ticket_channel(bot, row)
@@ -238,7 +233,7 @@ async def ticket_action(request: web.Request) -> web.Response:
     require_csrf(request)
     bot = state(request).bot
     tid = number(request.match_info["id"])
-    row = await ticket_store.get(bot.database, bot.config.guild_id, tid)
+    row = await tickets.get(bot.database, bot.config.guild_id, tid)
     if row is None or row.status != "open":
         raise web.HTTPNotFound(text="Открытый тикет не найден.")
     data = await json_payload(request)
@@ -274,7 +269,7 @@ async def ticket_action(request: web.Request) -> web.Response:
                 raise web.HTTPBadRequest(text="Сотрудник не найден на сервере.") from exc
             if site_role(new_staff, guild) is None:
                 raise web.HTTPForbidden(text="У сотрудника нет доступа к поддержке.")
-        success = await ticket_store.claim(bot.database, bot.config.guild_id, tid, target,
+        success = await tickets.claim(bot.database, bot.config.guild_id, tid, target,
                                            transfer=action == "transfer")
         if not success:
             return web.json_response({"error": "Обращение уже взято или закрывается."}, status=409)
@@ -285,7 +280,7 @@ async def ticket_action(request: web.Request) -> web.Response:
     if action == "close":
         if data.get("confirm") != "DELETE":
             raise web.HTTPUnprocessableEntity(text="Подтвердите безвозвратное удаление тикета.")
-        ok = await ticket_store.start_close(bot.database, bot.config.guild_id, tid,
+        ok = await tickets.start_close(bot.database, bot.config.guild_id, tid,
                                             actor, "Закрыто через сайт")
         if not ok:
             return web.json_response({"error": "Обращение уже закрывается."}, status=409)
@@ -332,18 +327,18 @@ async def server_stats(request: web.Request) -> web.Response:
     period = request.query.get("period", "7d")
     if period not in ("7d", "30d", "90d"):
         raise web.HTTPBadRequest(text="Недопустимый период.")
-    bound = stats.period_bounds(period, timezone=bot.config.timezone)
+    bound = statistics.period_bounds(period, timezone=bot.config.timezone)
     guild = guild_for(bot)
     if guild is None:
         raise web.HTTPServiceUnavailable()
     candidate_role_id = await bot.database.get_setting(bot.config.guild_id, "candidate_role_id")
     member_role_id = await bot.database.get_setting(bot.config.guild_id, "member_role_id")
-    totals = await stats.server_totals(
+    totals = await statistics.server_totals(
         bot.database, guild_id=bot.config.guild_id, period=bound,
         members=guild.members, member_count=guild.member_count or len(guild.members),
         member_role_id=member_role_id, candidate_role_id=candidate_role_id,
         tracking_started_at=0)
-    series = await stats.activity_series(bot.database, bot.config.guild_id, bound)
+    series = await statistics.activity_series(bot.database, bot.config.guild_id, bound)
     return web.json_response({"period": period, "totals": asdict(totals),
                               "series": [{"date": x[0], "messages": x[1],
                                           "voice": x[2], "joins": x[3], "leaves": x[4]}
@@ -360,10 +355,10 @@ async def tops(request: web.Request) -> web.Response:
     guild = guild_for(bot)
     if guild is None:
         raise web.HTTPServiceUnavailable()
-    bound = stats.period_bounds(period, timezone=bot.config.timezone)
+    bound = statistics.period_bounds(period, timezone=bot.config.timezone)
     candidate = await bot.database.get_setting(bot.config.guild_id, "candidate_role_id")
-    eligible = await stats.approved_ids(bot.database, bot.config.guild_id, guild.members, candidate)
-    rows = await stats.leaderboard(bot.database, guild_id=bot.config.guild_id, period=bound,
+    eligible = await statistics.approved_ids(bot.database, bot.config.guild_id, guild.members, candidate)
+    rows = await statistics.leaderboard(bot.database, guild_id=bot.config.guild_id, period=bound,
                                    metric=metric, active_user_ids=eligible, limit=20)
     return web.json_response({"metric": metric, "items": [
         {"user_id": str(uid), "name": guild.get_member(uid).display_name
