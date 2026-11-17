@@ -11,7 +11,7 @@ from app.services import economy as service
 
 
 def test_validation_and_version():
-    assert VERSION == "1.5.0"
+    assert VERSION == "1.6.0"
     assert service.local_day(1_700_000_000, "Europe/Tallinn").isoformat() == "2023-11-15"
     assert service.code_field(" Role_Bronze ") == "role_bronze"
     with pytest.raises(ValueError):
