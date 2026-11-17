@@ -9,6 +9,8 @@
     "Мероприятия": "Игровые встречи, заявки, очереди ожидания и награды за участие.",
     "Розыгрыши": "Открытые розыгрыши, повторная проверка допуска и история победителей.",
     "Предложения": "Идеи сообщества, категории, решения и уведомления авторов.",
+    "Голосовые комнаты": "Мониторинг временных голосовых комнат, доступ, владельцы и лимиты.",
+    "Поиск команды": "Активные объявления поиска команды и очистка связанных ресурсов.",
   };
   const $ = (tag, cls = "", txt) => {
     const el = document.createElement(tag);
@@ -536,11 +538,104 @@
     category.addEventListener("change",()=>{void refreshResults();});
     await refreshResults();wrap.append(results);return wrap;
   }
+  async function voiceRooms() {
+    const data = await api("/api/portal/voice-rooms");
+    const wrap=$("div","portal-stack");
+    if(!data.items.length)wrap.append(small("Нет временных комнат",
+      "После создания комнат участниками записи появятся здесь."));
+    for(const room of data.items){
+      const box=card("#"+room.id+" · "+room.name,
+        "Discord канал "+room.channel_id+" · владелец "+room.owner_id+
+        " · участников: "+room.members.length+" / "+(room.limit||"∞"));
+      box.append(add($("div","manager-chips"),
+        tag(room.locked?"Закрыта":"Открыта",room.locked?"warning":"success"),
+        tag(room.hidden?"Скрыта":"Видна"),
+        tag(room.available?"Канал доступен":"Канал удалён",room.available?"success":"warning")));
+      if(room.members.length){
+        const present=$("div","manager-stack");
+        for(const member of room.members)present.append(row(member.name,member.id));
+        box.append(present);
+      }
+      if(!room.available){wrap.append(box);continue;}
+      const path="/api/portal/voice-rooms/"+room.channel_id+"/action";
+      async function apply(body,confirmation){
+        if(await run(path,body,"Настройки комнаты изменены.",confirmation))refresh();
+      }
+      const buttons=$("div","portal-actions");
+      buttons.append(button("Переименовать",async()=>{
+        const name=await promptText("Название комнаты","Название",room.name);
+        if(name)await apply({action:"rename",name});
+      }));
+      buttons.append(button("Лимит",async()=>{
+        const raw=await promptText("Лимит участников","0 — без лимита",String(room.limit));
+        if(raw!==null && /^\d+$/.test(raw))await apply({action:"limit",limit:Number(raw)});
+      }));
+      buttons.append(button(room.locked?"Открыть":"Закрыть вход",()=>{
+        void apply({action:"lock",enabled:!room.locked});
+      },room.locked?"success":"secondary"));
+      buttons.append(button(room.hidden?"Показать":"Скрыть",()=>{
+        void apply({action:"hide",enabled:!room.hidden});
+      }));
+      buttons.append(button("Передать владельца",async()=>{
+        const options=room.members.filter(u=>u.id!==room.owner_id).map(u=>[u.id,u.name]);
+        if(!options.length){error(new Error("Выберите участника, находящегося в комнате."));return;}
+        const [label,selectEl]=select("Новый владелец",options);
+        const layer=$("div","portal-modal-overlay"),dialog=$("div","portal-modal");
+        function done(){layer.remove();}
+        dialog.append($("h3","","Передача комнаты"),label,
+          add($("div","portal-actions"),
+            button("Отмена",done),
+            button("Передать",async()=>{
+              const uid=selectEl.value;done();
+              await apply({action:"transfer",user_id:uid},"Передать управление комнатой?");
+            },"primary")));
+        layer.append(dialog);document.body.append(layer);
+      }));
+      buttons.append(button("Удалить комнату",()=>{
+        void apply({action:"delete",confirm:"DELETE"},
+          "Комната будет удалена без возможности восстановления. Убедитесь, что она пуста.");
+      },"danger"));
+      box.append(buttons);
+      const access=$("div","manager-access");
+      const [targetL,target]=textInput("Discord ID участника","1440528...",20);
+      const [modeL,mode]=select("Доступ",[["allow","Разрешить"],["deny","Запретить"],["clear","Сбросить"]]);
+      const submit=button("Применить к пользователю",()=>{
+        void apply({action:"access",user_id:target.value.trim(),mode:mode.value},
+          mode.value==="deny"?"Запретить доступ к комнате?":null);
+      },"primary");
+      access.append(targetL,modeL,submit);box.append(access);
+      wrap.append(box);
+    }
+    return wrap;
+  }
+  async function parties() {
+    const data=await api("/api/portal/parties");
+    const wrap=$("div","portal-stack");
+    if(!data.items.length)wrap.append(small("Нет открытых объявлений",
+      "Список обновится после создания новых объявлений поиска команды."));
+    for(const item of data.items){
+      const box=card("#"+item.id+" · "+item.game,
+        "Владелец: "+item.owner_id+" · "+item.members+"/"+item.capacity+
+        " участников · Закрывается: "+fmtTime(item.expires_at));
+      box.append($("p","manager-preview",item.description));
+      box.append(add($("div","portal-actions"),
+        tag(item.status==="open"?"Идёт набор":"Нет мест",item.status==="open"?"success":"warning"),
+        item.voice_channel_id?tag("Голосовой канал: "+item.voice_channel_id):tag("Без голосового канала"),
+        button("Закрыть объявление",async()=>{
+          if(await run("/api/portal/parties/"+item.id+"/action",{
+            action:"close",confirm:"CLOSE"},
+            "Объявление закрыто и связь с комнатой очищена.",
+            "Закрыть объявление и удалить временную голосовую комнату группы?"))refresh();
+        },"danger")));
+      wrap.append(box);
+    }
+    return wrap;
+  }
   const loaders={
     "Магазин NS Coins":shop,"Панели ролей":rolePanels,"Правила ролей":roleRules,
     "Категории тикетов":ticketCategories,
     "Объявления":announcements,"Мероприятия":eventsPage,"Розыгрыши":giveaways,
-    "Предложения":suggestions,
+    "Предложения":suggestions,"Голосовые комнаты":voiceRooms,"Поиск команды":parties,
   };
   window.Management={loaders,descriptions};
 })();
