@@ -209,3 +209,67 @@ def test_frontend_dashboard_and_notification_views_present():
     assert "setInterval" in js and "20000" in js and "30000" in js
     html = (root / "index.html").read_text(encoding="utf-8")
     assert 'id="notification-count"' in html and 'id="overview-live"' in html
+
+
+@pytest.mark.asyncio
+async def test_notifications_follow_assignment_and_one_hour_event_and_erase_on_close(tmp_path):
+    from app.services import events
+
+    url = database_url(tmp_path)
+    migrate(url)
+    db = Database(url)
+    now = int(time.time())
+    try:
+        await tickets.seed_categories(db, 777)
+        category = (await tickets.categories(db, 777))[0]
+        record = await tickets.reserve(db, 777, 200, category.id, "Вопрос",
+                                       "Не хранить содержимое после закрытия",
+                                       support_role_id=TICKET_ROLE)
+        assert await tickets.created(db, 777, record.id, 11111)
+        assert await tickets.claim(db, 777, record.id, 14)
+        await events.create_event(
+            db, guild_id=777, creator_id=11, host_id=11,
+            channel_id=1234, title="Общая игра", description="Игровая встреча",
+            starts_at=now + 1800, timezone_name="Europe/Tallinn")
+        await web_notifications.sync_sources(db, 777, now=now)
+        assignee = await web_notifications.inbox(db, 777, 14, "support")
+        admin = await web_notifications.inbox(db, 777, 12, "admin")
+        assert any(item["kind"] == "ticket_assigned" for item in assignee["items"])
+        assert not any(item["kind"] == "ticket_assigned" for item in admin["items"])
+        assert any(item["kind"] == "event_upcoming" for item in admin["items"])
+        assert not any(item["kind"] == "event_upcoming" for item in assignee["items"])
+        assert await tickets.start_close(db, 777, record.id, 14, "Закрыто")
+        assert await tickets.erase_ticket(db, 777, record.id)
+        after = await web_notifications.inbox(db, 777, 14, "support")
+        assert not any(item["kind"] == "ticket_assigned" for item in after["items"])
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_persistent_survey_view_and_expired_invites(tmp_path):
+    from app.modules.tickets import SupportSurveyView
+
+    view = SupportSurveyView(SimpleNamespace(), survey_id=999, owner_id=222)
+    assert view.is_persistent()
+    assert {button.custom_id for button in view.children} == {
+        f"newsqad:support:rate:999:{score}" for score in range(1, 6)}
+    url = database_url(tmp_path)
+    migrate(url)
+    db = Database(url)
+    now = int(time.time())
+    try:
+        async with db.session() as session:
+            session.add(SupportSurvey(
+                guild_id=777, requester_id=222, staff_id=14, created_at=now - 8 * 86400,
+                expires_at=now - 1, response_seconds=20))
+        survey = (await support_quality.pending(db, 777, now=now))
+        assert not survey
+        async with db.sessions() as session:
+            row = await session.scalar(select(SupportSurvey))
+        assert not await support_quality.rate(db, 777, row.id, 222, 5, now=now)
+        await support_quality.purge(db, 777, now=now)
+        async with db.sessions() as session:
+            assert await session.scalar(select(func.count(SupportSurvey.id))) == 0
+    finally:
+        await db.close()
