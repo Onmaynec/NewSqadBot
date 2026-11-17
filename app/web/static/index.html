@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f7f7f7">
+  <meta name="theme-color" content="#0a0a0b">
   <title>NewSqadBot — Консоль управления</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
@@ -15,7 +15,7 @@
         <div class="brand-mark" aria-hidden="true">N<span>·</span></div>
         <div class="brand-copy"><strong>NEW SQUAD</strong><small>Панель управления</small></div>
       </div>
-      <div class="workspace"><span class="workspace-avatar">NS</span><span class="workspace-copy"><strong id="workspace-name">NewSquad</strong><small>Discord · Один сервер</small></span><span class="workspace-chevron">⌄</span></div>
+      <div class="workspace"><span class="workspace-avatar"><img id="workspace-icon" class="guild-icon" alt="Иконка сервера" hidden><span id="workspace-initials">NS</span></span><span class="workspace-copy"><strong id="workspace-name">NewSquad</strong><small>Discord · Один сервер</small></span><span class="workspace-chevron">⌄</span></div>
       <div class="sidebar-heading">РАЗДЕЛЫ</div>
       <nav class="navigation" id="navigation" aria-label="Навигация панели"></nav>
       <div class="sidebar-bottom">
@@ -28,7 +28,7 @@
       <header class="topbar">
         <button type="button" id="menu-toggle" class="menu-toggle" aria-label="Открыть меню">☰</button>
         <div class="breadcrumbs">NEW SQUAD <span>/</span> <strong id="breadcrumb">Обзор</strong></div>
-        <div class="top-actions"><span class="connection" id="connection"><i></i> Проверка...</span><span class="top-divider"></span><span class="avatar" title="Локальный администратор">AD</span></div>
+        <div class="top-actions"><span class="connection" id="connection"><i></i> Проверка...</span><span class="top-divider"></span><span class="avatar" title="Сервер Discord"><img id="top-guild-icon" class="guild-icon" alt="Иконка сервера" hidden><span id="top-guild-initials">NS</span></span></div>
       </header>
 
       <div class="page">
@@ -39,6 +39,13 @@
         </div>
 
         <section id="overview" class="section">
+          <div class="guild-overview panel">
+            <div id="guild-banner" class="guild-banner"></div>
+            <div class="guild-overview-content">
+              <span class="guild-avatar-large"><img id="overview-guild-icon" class="guild-icon" alt="Аватар Discord-сервера" hidden><span id="overview-guild-initials">NS</span></span>
+              <div class="guild-overview-copy"><span class="panel-kicker">ПОДКЛЮЧЁННЫЙ DISCORD-СЕРВЕР</span><h2 id="overview-guild-name">NewSquad</h2><p id="guild-meta">Загрузка данных сервера...</p></div>
+            </div>
+          </div>
           <div class="metrics">
             <div class="metric"><div class="metric-label">ПОДКЛЮЧЕНИЕ DISCORD <span class="metric-arrow">↗</span></div><div id="metric-discord" class="metric-value">—</div><div class="metric-detail">Состояние основного шлюза</div></div>
             <div class="metric"><div class="metric-label">НАСТРОЙКИ <span class="metric-arrow">↗</span></div><div id="metric-config" class="metric-value">—</div><div class="metric-detail">Заполнено в SQLite</div></div>
@@ -55,8 +62,15 @@
         <section id="settings-section" class="section" hidden>
           <div class="settings-toolbar"><label class="search" for="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Поиск по названию или ключу..." autocomplete="off"><kbd>/</kbd></label><span id="item-count" class="item-count">0 параметров</span></div>
           <div class="settings-grid" id="settings-grid"></div>
+          <div id="bulk-save" class="bulk-save" hidden>
+            <div class="bulk-save-info"><strong id="pending-count">0 изменений</strong><span>Настройки будут записаны одновременно</span></div>
+            <div class="bulk-save-buttons">
+              <button type="button" class="button secondary" id="discard-changes">Сбросить</button>
+              <button type="button" class="button primary" id="save-all">Сохранить изменения</button>
+            </div>
+          </div>
           <div id="empty" class="empty" hidden>Нет параметров по этому запросу.</div>
-          <p class="section-hint" id="settings-hint">Изменения сохраняются по одному параметру, сразу в SQLite. Модули перечитываются при перезапуске бота.</p>
+          <p class="section-hint" id="settings-hint">Выбери все необходимые значения и нажми «Сохранить изменения» один раз. При переходе без сохранения появится предупреждение. Для включения и отключения модулей требуется перезапуск бота.</p>
         </section>
 
         <section id="diagnostics-section" class="section" hidden>
@@ -84,6 +98,17 @@
         <div class="login-security">Доступ ограничен локальным компьютером. Сеанс автоматически истекает через 4 часа.</div>
       </div>
       <div class="login-corner">SECURE LOCAL ACCESS · v1.6.0</div>
+    </div>
+  </div>
+  <div id="leave-dialog" class="dialog-backdrop" hidden>
+    <div class="dialog-card" role="alertdialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-description">
+      <span class="dialog-symbol" aria-hidden="true">!</span>
+      <h2 id="dialog-title">Несохранённые изменения</h2>
+      <p id="dialog-description">На этой странице есть изменения, которые ещё не сохранены. Если продолжить, они будут потеряны.</p>
+      <div class="dialog-buttons">
+        <button type="button" class="button secondary" id="stay-here">Остаться</button>
+        <button type="button" class="button primary" id="leave-anyway">Перейти без сохранения</button>
+      </div>
     </div>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
