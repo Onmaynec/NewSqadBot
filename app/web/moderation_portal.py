@@ -65,6 +65,8 @@ async def case_detail(request: web.Request) -> web.Response:
 async def case_create(request: web.Request) -> web.Response:
     _, actor = await require_role(request, "moder")
     require_csrf(request)
+    if actor is None:
+        raise web.HTTPForbidden(text="Для модерации нужен вход через Discord OAuth.")
     payload = await json_payload(request)
     kind, uid = payload.get("kind"), payload.get("user_id")
     reason, duration = payload.get("reason"), payload.get("duration", "")
@@ -86,6 +88,8 @@ async def case_create(request: web.Request) -> web.Response:
 async def case_action(request: web.Request) -> web.Response:
     role, actor = await require_role(request, "moder")
     require_csrf(request)
+    if actor is None:
+        raise web.HTTPForbidden(text="Для модерации нужен вход через Discord OAuth.")
     payload = await json_payload(request)
     action, value = payload.get("action"), payload.get("value")
     if action not in ("reason", "duration", "revoke") or not isinstance(value, str) or len(value) > 400:
