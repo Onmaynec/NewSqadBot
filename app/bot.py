@@ -29,6 +29,7 @@ class NewSqadBot(commands.Bot):
         intents.voice_states = True
         intents.guild_messages = True
         intents.message_content = config.message_content_intent
+        intents.presences = config.presence_intent
         super().__init__(command_prefix=commands.when_mentioned, intents=intents,
                          tree_cls=GuildCommandTree, allowed_mentions=discord.AllowedMentions.none())
         self.config = config
