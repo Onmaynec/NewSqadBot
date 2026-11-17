@@ -18,6 +18,11 @@ async def admin(request: web.Request):
     return state(request).bot, actor
 
 
+def require_actor(actor) -> None:
+    if actor is None:
+        raise web.HTTPForbidden(text="Для действий с Discord нужен вход через Discord OAuth.")
+
+
 def choice(payload, key, values):
     value = payload.get(key)
     if value not in values:
@@ -92,6 +97,7 @@ async def events_list(request: web.Request) -> web.Response:
 async def event_create(request: web.Request) -> web.Response:
     bot, actor = await admin(request)
     require_csrf(request)
+    require_actor(actor)
     data = await json_payload(request)
     if not await bot.database.get_setting(bot.config.guild_id, "events_enabled", True):
         raise web.HTTPConflict(text="Мероприятия отключены в настройках бота.")
@@ -128,6 +134,7 @@ async def event_create(request: web.Request) -> web.Response:
 async def event_action(request: web.Request) -> web.Response:
     bot, actor = await admin(request)
     require_csrf(request)
+    require_actor(actor)
     eid = number(request.match_info["id"])
     data = await json_payload(request)
     action = choice(data, "action", ("cancel", "attendance"))
@@ -181,6 +188,7 @@ async def giveaways_list(request: web.Request) -> web.Response:
 async def giveaway_create(request: web.Request) -> web.Response:
     bot, actor = await admin(request)
     require_csrf(request)
+    require_actor(actor)
     data = await json_payload(request)
     if not await bot.database.get_setting(bot.config.guild_id, "giveaways_enabled", True):
         raise web.HTTPConflict(text="Розыгрыши отключены.")
@@ -213,6 +221,7 @@ async def giveaway_create(request: web.Request) -> web.Response:
 async def giveaway_action(request: web.Request) -> web.Response:
     bot, actor = await admin(request)
     require_csrf(request)
+    require_actor(actor)
     gid = number(request.match_info["id"])
     data = await json_payload(request)
     action = choice(data, "action", ("draw", "reroll"))
@@ -258,6 +267,7 @@ async def suggestions_list(request: web.Request) -> web.Response:
 async def suggestion_action(request: web.Request) -> web.Response:
     bot, actor = await admin(request)
     require_csrf(request)
+    require_actor(actor)
     sid = number(request.match_info["id"])
     data = await json_payload(request)
     status = choice(data, "status", ("new", "under_review", "accepted", "rejected", "implemented"))
