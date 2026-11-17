@@ -2,17 +2,18 @@
 from __future__ import annotations
 
 import asyncio
-import time
 import sqlite3
+import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
-from types import SimpleNamespace
 
 import discord
 import pytest
+from sqlalchemy import func, select
 
 from app.config import GUILD_ID, VERSION
+from app.models import ScheduledJob
 from app.core.database import Database, migrate
 from app.core.scheduler import Scheduler
 from app.modules.announcements import AnnouncementModal, build_announcement
@@ -272,9 +273,6 @@ async def test_scheduler_restart_recovers_only_pending_and_ignores_cancel(tmp_pa
         bot.scheduler = Scheduler(db)
         manager = AnnouncementManager(bot)
         await manager.cog_load()
-        from sqlalchemy import func, select
-        from app.models import ScheduledJob
-
         async with db.sessions() as session:
             count = await session.scalar(select(func.count()).select_from(ScheduledJob))
         assert count == 1
