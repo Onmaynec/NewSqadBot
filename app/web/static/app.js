@@ -1,0 +1,329 @@
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const ui = {csrf: "", data: null, group: "Обзор", query: "", saving: new Set(), toastTimer: null};
+const icons = {
+  "Обзор": "◈", "Роли": "◇", "Каналы": "▤", "Участники": "♙",
+  "Поддержка": "□", "Голосовые": "◉", "Прогрессия": "↗",
+  "Экономика": "◌", "Задания": "◎", "Сообщество": "▦",
+  "Статистика": "▥", "Модули": "◫", "Диагностика": "⊕",
+};
+const blurbs = {
+  "Обзор": "Состояние и настройки Discord-сервера.",
+  "Роли": "Управление ролями NewSquad. Настройки применяются через действующий бот.",
+  "Каналы": "Выбирайте настоящие Discord-каналы. Неподходящие типы недоступны.",
+  "Участники": "Вступление, приветствия и оформление новых участников.",
+  "Поддержка": "Управление обращениями без хранения переписки закрытых тикетов.",
+  "Голосовые": "Параметры временных комнат и голосовой активности.",
+  "Прогрессия": "Правила начисления XP, уровней и исключённые каналы.",
+  "Экономика": "Настройки NS Coins и наград за активность.",
+  "Задания": "Ежедневные задания, достижения и связанные функции.",
+  "Сообщество": "Предложения, мероприятия, розыгрыши и поиск команды.",
+  "Статистика": "Сбор серверной статистики и настройки приватности рейтингов.",
+  "Модули": "Управление загружаемыми модулями. Для применения нужен перезапуск.",
+  "Диагностика": "Фактические проверки SQLite, Discord, ролей и фоновых процессов.",
+};
+function element(tag, className = "", text = null) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== null) node.textContent = String(text);
+  return node;
+}
+function toast(message, error = false) {
+  const box = $("toast");
+  box.textContent = String(message);
+  box.classList.toggle("error", error);
+  box.hidden = false;
+  if (ui.toastTimer) clearTimeout(ui.toastTimer);
+  ui.toastTimer = setTimeout(() => { box.hidden = true; }, 4200);
+}
+async function api(path, options = {}) {
+  const headers = {"Accept": "application/json"};
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (options.method && options.method !== "GET" && ui.csrf) headers["X-CSRF-Token"] = ui.csrf;
+  const response = await fetch(path, {
+    method: options.method || "GET", credentials: "same-origin", headers,
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+  let value;
+  try { value = await response.json(); } catch { value = {}; }
+  if (!response.ok) {
+    const error = new Error(value.error || ("Ошибка сервера, код " + response.status));
+    error.status = response.status;
+    throw error;
+  }
+  return value;
+}
+function loginScreen(visible) {
+  $("login-screen").hidden = !visible;
+  $("shell").hidden = visible;
+  if (visible) { ui.data = null; ui.csrf = ""; }
+}
+async function initialize() {
+  try {
+    const session = await api("/api/session");
+    if (session.authenticated) {
+      ui.csrf = session.csrf;
+      loginScreen(false);
+      await refresh();
+    } else {
+      loginScreen(true);
+    }
+  } catch (error) {
+    loginScreen(true);
+    $("login-error").textContent = error.message;
+  }
+}
+async function refresh() {
+  try {
+    ui.data = await api("/api/bootstrap");
+    $("workspace-name").textContent = ui.data.guild_name;
+    $("metric-version").textContent = ui.data.version;
+    $("footer-version").textContent = ui.data.version;
+    $("metric-discord").textContent = ui.data.discord_ready ? "Online" : "Offline";
+    $("metric-config").textContent = ui.data.total_configured + " / " + ui.data.settings.length;
+    const active = Object.values(ui.data.modules).filter((item) => item === "active").length;
+    $("metric-modules").textContent = active + " / " + Object.keys(ui.data.modules).length;
+    $("connection").classList.toggle("offline", !ui.data.discord_ready);
+    $("connection").lastChild.textContent = ui.data.discord_ready ? " Discord подключён" : " Discord не готов";
+    $("service-discord").textContent = ui.data.discord_ready ? "Доступен" : "Недоступен";
+    renderNav();
+    renderPage();
+    if (ui.group === "Обзор" || ui.group === "Диагностика") await refreshDiagnostics();
+  } catch (error) {
+    if (error.status === 401) loginScreen(true);
+    toast(error.message, true);
+  }
+}
+function navigate(group) {
+  ui.group = group;
+  ui.query = "";
+  $("search").value = "";
+  $("sidebar").classList.remove("open");
+  renderNav();
+  renderPage();
+  if (group === "Диагностика" || group === "Обзор") void refreshDiagnostics();
+  $("main").scrollTo({top: 0, behavior: "smooth"});
+  window.scrollTo({top: 0, behavior: "smooth"});
+}
+function renderNav() {
+  const nav = $("navigation");
+  nav.replaceChildren();
+  if (!ui.data) return;
+  for (const group of ["Обзор", ...ui.data.groups, "Диагностика"]) {
+    const button = element("button", "nav-item" + (ui.group === group ? " active" : ""));
+    button.type = "button";
+    button.append(element("span", "nav-icon", icons[group] || "○"));
+    button.append(element("span", "nav-text", group));
+    button.append(element("span", "nav-indicator"));
+    button.addEventListener("click", () => navigate(group));
+    nav.append(button);
+  }
+}
+function renderPage() {
+  if (!ui.data) return;
+  const isOverview = ui.group === "Обзор";
+  const isDiagnostic = ui.group === "Диагностика";
+  $("overview").hidden = !isOverview;
+  $("settings-section").hidden = isOverview || isDiagnostic;
+  $("diagnostics-section").hidden = !isDiagnostic;
+  $("breadcrumb").textContent = ui.group;
+  $("eyebrow").textContent = isOverview ? "РАБОЧЕЕ ПРОСТРАНСТВО" : isDiagnostic ? "МОНИТОРИНГ" : "КОНФИГУРАЦИЯ / NEW SQUAD";
+  $("page-title").textContent = isOverview ? "Обзор системы" : isDiagnostic ? "Диагностика" : ui.group;
+  $("page-subtitle").textContent = blurbs[ui.group] || "Настройки Discord.";
+  if (!isOverview && !isDiagnostic) renderSettings();
+}
+function labelFor(spec) {
+  const map = {"role": "Роль Discord", "channel": "Канал Discord",
+               "bool": "Переключатель", "int": "Число", "choice": "Выбор",
+               "timezone": "IANA", "channel_list": "Список каналов"};
+  return spec.restart_required ? "После перезапуска" : (map[spec.kind] || "Параметр");
+}
+function option(value, text, selected = false, disabled = false) {
+  const item = element("option", "", text);
+  item.value = String(value);
+  item.selected = selected;
+  item.disabled = disabled;
+  return item;
+}
+function createControl(spec) {
+  const current = spec.value;
+  let field;
+  if (spec.kind === "bool") {
+    const toggle = element("label", "toggle-wrap");
+    field = element("input");
+    field.type = "checkbox";
+    field.checked = current === true;
+    const status = element("span", "toggle-state", field.checked ? "Включено" : "Выключено");
+    field.addEventListener("change", () => { status.textContent = field.checked ? "Включено" : "Выключено"; });
+    toggle.append(field, status);
+    return [toggle, field];
+  }
+  if (["role", "channel", "choice", "channel_list"].includes(spec.kind)) {
+    field = element("select");
+    if (spec.kind === "role" || spec.kind === "channel") {
+      field.append(option("", "— Не выбрано —", current === null || current === undefined));
+      const pool = spec.kind === "role" ? ui.data.roles : ui.data.channels.filter((item) => item.type === spec.channel_kind);
+      const values = new Set();
+      for (const item of pool) {
+        values.add(String(item.id));
+        field.append(option(item.id, item.name + " · " + item.id, current === item.id,
+                            item.managed === true));
+      }
+      if (current !== null && current !== undefined && !values.has(String(current)))
+        field.append(option(current, "Удалённый объект · " + current, true, true));
+    } else if (spec.kind === "choice") {
+      for (const [value, text] of spec.choices)
+        field.append(option(value, text, current === value));
+    } else {
+      field.multiple = true;
+      field.size = 5;
+      const selected = Array.isArray(current) ? current : [];
+      const pool = ui.data.channels.filter((item) => item.type === "text");
+      const values = new Set();
+      for (const item of pool) {
+        values.add(item.id);
+        field.append(option(item.id, item.name, selected.includes(item.id)));
+      }
+      for (const id of selected) if (!values.has(id)) field.append(option(id, "Удалённый канал · " + id, true, true));
+    }
+    return [field, field];
+  }
+  field = element("input");
+  field.type = spec.kind === "int" ? "number" : "text";
+  if (spec.kind === "int") {
+    field.min = String(spec.minimum);
+    field.max = String(spec.maximum);
+    field.step = "1";
+  } else {
+    field.maxLength = 64;
+    field.spellcheck = false;
+  }
+  field.value = current === undefined || current === null ? "" : String(current);
+  return [field, field];
+}
+function readValue(spec, field) {
+  if (spec.kind === "bool") return field.checked;
+  if (spec.kind === "int") {
+    if (field.value.trim() === "" || !/^-?\d+$/.test(field.value.trim())) throw new Error("Укажите целое число.");
+    return Number(field.value);
+  }
+  if (spec.kind === "role" || spec.kind === "channel") return field.value ? Number(field.value) : null;
+  if (spec.kind === "channel_list") return [...field.selectedOptions].map((item) => Number(item.value));
+  return field.value.trim();
+}
+function renderSettings() {
+  const grid = $("settings-grid");
+  grid.replaceChildren();
+  const found = ui.data.settings.filter((spec) => spec.group === ui.group
+    && (spec.label + " " + spec.key + " " + spec.description).toLocaleLowerCase("ru")
+      .includes(ui.query.toLocaleLowerCase("ru")));
+  $("item-count").textContent = found.length + " параметров";
+  $("empty").hidden = found.length !== 0;
+  for (const spec of found) {
+    const card = element("article", "setting");
+    const head = element("div", "setting-top");
+    const names = element("div");
+    names.append(element("div", "setting-name", spec.label), element("div", "setting-key", spec.key));
+    head.append(names, element("span", "setting-tag", labelFor(spec)));
+    card.append(head);
+    if (spec.description) card.append(element("p", "setting-description", spec.description));
+    else card.append(element("p", "setting-description", "Сохраняется в настройках сервера NewSquad."));
+    if (spec.warning) card.append(element("div", "setting-warning", spec.warning));
+    const controls = element("div", "setting-controls");
+    const [widget, field] = createControl(spec);
+    field.setAttribute("aria-label", spec.label);
+    const save = element("button", "", "Сохранить");
+    save.type = "button";
+    save.disabled = true;
+    field.addEventListener("change", () => { save.disabled = false; });
+    field.addEventListener("input", () => { save.disabled = false; });
+    save.addEventListener("click", async () => {
+      if (ui.saving.has(spec.key)) return;
+      let value;
+      try { value = readValue(spec, field); } catch (error) { toast(error.message, true); return; }
+      ui.saving.add(spec.key);
+      save.disabled = true;
+      save.textContent = "Сохраняю...";
+      try {
+        const result = await api("/api/settings/" + encodeURIComponent(spec.key), {
+          method: "POST", body: {value},
+        });
+        spec.value = result.value;
+        spec.configured = true;
+        spec.warning = "";
+        toast(result.restart_required ? "Сохранено. Перезапустите контейнер, чтобы применить изменение." : "Настройка сохранена.");
+        save.textContent = "Сохранено ✓";
+        window.setTimeout(() => { save.textContent = "Сохранить"; }, 1800);
+      } catch (error) {
+        save.textContent = "Сохранить";
+        save.disabled = false;
+        if (error.status === 401) loginScreen(true);
+        toast(error.message, true);
+      } finally { ui.saving.delete(spec.key); }
+    });
+    controls.append(widget, save);
+    card.append(controls);
+    grid.append(card);
+  }
+}
+async function refreshDiagnostics() {
+  if (!ui.data) return;
+  try {
+    const result = await api("/api/diagnostics");
+    $("service-db").textContent = result.ready ? "Проверяется" : "Ожидание";
+    $("service-scheduler").textContent = "—";
+    $("service-events").textContent = "—";
+    const list = $("diagnostics-list");
+    list.replaceChildren();
+    for (const item of result.items || []) {
+      const row = element("div", "diag-item");
+      row.append(element("span", "diag-dot " + item.level));
+      const content = element("div", "diag-content");
+      content.append(element("strong", "", item.name), element("p", "", item.description));
+      row.append(content);
+      list.append(row);
+      if (item.name === "SQLite") $("service-db").textContent = item.level === "ok" ? "Доступна" : "Ошибка";
+      if (item.name === "Scheduler") $("service-scheduler").textContent = item.level === "ok" ? "Работает" : "Внимание";
+      if (item.name === "EventBus") $("service-events").textContent = item.level === "ok" ? "Работает" : "Внимание";
+    }
+    if (!result.items || !result.items.length) list.append(element("div", "empty", "Нет данных диагностики."));
+  } catch (error) {
+    if (ui.group === "Диагностика") toast(error.message, true);
+  }
+}
+$("login-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = $("login-submit");
+  const password = $("password").value;
+  submit.disabled = true;
+  $("login-error").textContent = "";
+  try {
+    const result = await api("/api/login", {method: "POST", body: {password}});
+    ui.csrf = result.csrf;
+    $("password").value = "";
+    loginScreen(false);
+    await refresh();
+  } catch (error) {
+    $("login-error").textContent = error.message;
+  } finally { submit.disabled = false; }
+});
+$("logout").addEventListener("click", async () => {
+  try { await api("/api/logout", {method: "POST", body: {}}); }
+  catch (error) { toast(error.message, true); }
+  loginScreen(true);
+});
+$("refresh").addEventListener("click", refresh);
+$("refresh-diagnostics").addEventListener("click", refreshDiagnostics);
+$("open-diagnostics").addEventListener("click", () => navigate("Диагностика"));
+$("quick-roles").addEventListener("click", () => navigate("Роли"));
+$("search").addEventListener("input", (event) => { ui.query = event.target.value; renderSettings(); });
+$("menu-toggle").addEventListener("click", () => $("sidebar").classList.toggle("open"));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)
+      && ui.group !== "Обзор" && ui.group !== "Диагностика") {
+    event.preventDefault(); $("search").focus();
+  }
+  if (event.key === "Escape") $("sidebar").classList.remove("open");
+});
+void initialize();
