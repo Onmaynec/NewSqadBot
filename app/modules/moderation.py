@@ -424,15 +424,24 @@ class Moderation(commands.Cog):
                            action: str, value: str) -> str:
         if not await self.can_moderate(interaction):
             return "Недостаточно прав модератора."
+        return await self.change_case(interaction.guild, interaction.user, number,
+                                      action=action, value=value,
+                                      privileged=can_manage_settings(interaction, self.bot.config.owner_ids))
+
+    async def change_case(self, guild: discord.Guild, actor: discord.Member, number: int, *,
+                          action: str, value: str, privileged: bool = False) -> str:
+        """Shared website / Discord operation; per-case mutex and role hierarchy check."""
+        if guild.id != self.bot.config.guild_id:
+            return "Это не разрешённый сервер NewSqad."
         lock = self._case_locks.setdefault(number, asyncio.Lock())
         async with lock:
-            found = await cases_store.find(self.bot.database, interaction.guild_id, number=number)
+            found = await cases_store.find(self.bot.database, guild.id, number=number)
             if not found:
                 return "Дело не найдено."
             case = found[0]
             if case.status != "active":
                 return "Изменять можно только активные дела бота."
-            guild = interaction.guild
+            guild = guild
             member = guild.get_member(case.user_id)
             if member is None and case.kind == "mute":
                 try:
@@ -442,24 +451,24 @@ class Moderation(commands.Cog):
                 except discord.HTTPException:
                     return "Не удалось проверить участника в Discord."
             if member is not None and (
-                member.id == interaction.user.id or member.id == guild.owner_id
+                member.id == actor.id or member.id == guild.owner_id
                 or member.guild_permissions.administrator
-                or (not can_manage_settings(interaction, self.bot.config.owner_ids)
-                    and member.top_role >= interaction.user.top_role)
+                or (not privileged
+                    and member.top_role >= actor.top_role)
             ):
                 return "Недостаточно прав относительно роли участника."
             if action == "reason":
                 reason = value.strip()
                 if not 3 <= len(reason) <= 400:
                     return "Новая причина должна содержать 3–400 символов."
-                changed = await cases_store.apply(self.bot.database, interaction.guild_id, number,
-                    actor_id=interaction.user.id, action="reason_changed",
+                changed = await cases_store.apply(self.bot.database, guild.id, number,
+                    actor_id=actor.id, action="reason_changed",
                     details=f"Старая причина: {case.reason[:175]}; новая: {reason[:175]}",
                     changes={"reason": reason})
                 if not changed:
                     return "Дело уже изменено другим модератором."
-                updated = (await cases_store.find(self.bot.database, interaction.guild_id, number=number))[0]
-                await self.report(updated, "Причина дела изменена", actor_id=interaction.user.id,
+                updated = (await cases_store.find(self.bot.database, guild.id, number=number))[0]
+                await self.report(updated, "Причина дела изменена", actor_id=actor.id,
                     note="Изменение в базе бота; существующая запись в аудите Discord остаётся прежней.",
                     operation="moderation.reason_changed")
                 return f"Причина дела #{number:05d} изменена."
@@ -481,9 +490,9 @@ class Moderation(commands.Cog):
                     except discord.HTTPException:
                         logger.exception("Не удалось обновить тайм-аут #%s", number)
                         return "Discord отклонил изменение срока."
-                changed = await cases_store.apply(self.bot.database, interaction.guild_id, number,
-                    actor_id=interaction.user.id, action="duration_changed",
-                    details=f"Срок: {case.expires_at} -> {expires}; модератор: {interaction.user.id}",
+                changed = await cases_store.apply(self.bot.database, guild.id, number,
+                    actor_id=actor.id, action="duration_changed",
+                    details=f"Срок: {case.expires_at} -> {expires}; модератор: {actor.id}",
                     changes={"expires_at": expires})
                 if not changed:
                     return "Дело было изменено параллельно; проверьте Discord."
@@ -498,8 +507,8 @@ class Moderation(commands.Cog):
                     if expires is not None and not existing:
                         await self.bot.scheduler.schedule(job_key=job_key, handler="moderation.unban",
                             due_at=expires, payload={"case_id": number})
-                updated = (await cases_store.find(self.bot.database, interaction.guild_id, number=number))[0]
-                await self.report(updated, "Срок наказания изменён", actor_id=interaction.user.id,
+                updated = (await cases_store.find(self.bot.database, guild.id, number=number))[0]
+                await self.report(updated, "Срок наказания изменён", actor_id=actor.id,
                     note=f"Старый срок: {case.expires_at or 'per'}. Новый: {expires or 'per'}.",
                     operation="moderation.duration_changed")
                 return f"Срок дела #{number:05d} обновлён."
@@ -524,14 +533,14 @@ class Moderation(commands.Cog):
                 except discord.HTTPException:
                     logger.exception("Discord отклонил отмену дела #%s", number)
                     return "Discord не подтвердил отмену. Статус дела не изменён."
-                changed = await cases_store.apply(self.bot.database, interaction.guild_id, number,
-                    actor_id=interaction.user.id, action="revoked", details=reason,
-                    changes={"status": "revoked", "closed_by": interaction.user.id,
+                changed = await cases_store.apply(self.bot.database, guild.id, number,
+                    actor_id=actor.id, action="revoked", details=reason,
+                    changes={"status": "revoked", "closed_by": actor.id,
                              "completed_at": int(time.time())})
                 if not changed:
                     return "Действие Discord выполнено, но дело уже изменено; проверьте журнал."
-                updated = (await cases_store.find(self.bot.database, interaction.guild_id, number=number))[0]
-                await self.report(updated, "Наказание отменено", actor_id=interaction.user.id,
+                updated = (await cases_store.find(self.bot.database, guild.id, number=number))[0]
+                await self.report(updated, "Наказание отменено", actor_id=actor.id,
                     note=f"Причина отмены: {reason}. Результат Discord: подтверждён.",
                     operation="moderation.revoked")
                 return f"Дело #{number:05d} отменено. Причина записана."
