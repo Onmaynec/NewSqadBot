@@ -131,5 +131,7 @@ def test_new_cogs_exposed():
     class Stub:
         config = type("Config", (), {"owner_ids": frozenset()})()
     view = HomeView(Stub(), 1)
-    names = {b.label for b in view.children if isinstance(b, discord.ui.Button)}
+    names = ({b.label for b in view.children if isinstance(b, discord.ui.Button)}
+             | {option.label for item in view.children if isinstance(item, discord.ui.Select)
+                for option in item.options})
     assert {"Уровни и XP", "Профили", "Все настройки"} <= names
