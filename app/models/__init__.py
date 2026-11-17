@@ -1,4 +1,5 @@
 from app.models.base import Base
+from app.models.announcements import Announcement, AnnouncementTemplate
 from app.models.core import AuditEntry, EventReceipt, GuildSetting, OutboxEvent, ScheduledJob
 from app.models.economy import CurrencyEntry, InventoryItem, ShopItem, Wallet
 from app.models.engagement import AchievementUnlock, QuestClaim
@@ -20,7 +21,7 @@ from app.models.tickets import Ticket, TicketCategory, TicketEvent, TicketPanel,
 from app.models.voice import VoiceRoom, VoiceRoomAccess
 
 __all__ = (
-    "Base", "AuditEntry", "EventReceipt", "GuildSetting", "OutboxEvent", "ScheduledJob",
+    "Base", "Announcement", "AnnouncementTemplate", "AuditEntry", "EventReceipt", "GuildSetting", "OutboxEvent", "ScheduledJob",
     "Application", "ApplicationEvent", "PartyListing", "PartyMember",
     "CommunityEvent", "EventSignup", "EventReminder", "Giveaway", "GiveawayEntry", "GiveawayDraw", "ModerationCase", "ModerationAction",
     "MemberProgress", "MemberProfile", "ExperienceAward",
