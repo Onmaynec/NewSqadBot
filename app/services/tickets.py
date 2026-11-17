@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
-from app.models import SupportSurvey, Ticket, TicketCategory, TicketEvent, TicketPanel, TicketParticipant
+from app.models import SupportSurvey, Ticket, TicketCategory, TicketEvent, TicketPanel, TicketParticipant, WebNotice
 
 DEFAULT_CATEGORIES = (
     ("support", "Поддержка", "Вопросы, ошибки и проблемы", 0),
@@ -56,6 +56,10 @@ async def erase_ticket(db, guild_id: int, ticket_id: int, *, closing_only: bool 
             ))
         await session.execute(delete(TicketEvent).where(TicketEvent.ticket_id == ticket_id))
         await session.execute(delete(TicketParticipant).where(TicketParticipant.ticket_id == ticket_id))
+        # Уведомления о назначении удалённого приватного тикета также удаляем.
+        await session.execute(delete(WebNotice).where(
+            WebNotice.guild_id == guild_id, WebNotice.kind == "ticket_assigned",
+            WebNotice.object_id == ticket_id))
         await session.execute(delete(Ticket).where(*condition))
         return True
 
