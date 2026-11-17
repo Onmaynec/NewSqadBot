@@ -26,13 +26,13 @@ async def collect(bot) -> list[Diagnostic]:
         ready = False
     result.append(Diagnostic("ok" if ready else "error", "SQLite",
                              "База отвечает." if ready else "База недоступна."))
-    if ready:
+    if ready and hasattr(bot.database, "check_integrity"):
         try:
             await bot.database.check_integrity()
             result.append(Diagnostic("ok", "Целостность SQLite", "quick_check и foreign_key_check пройдены."))
         except Exception:
             result.append(Diagnostic("error", "Целостность SQLite", "Обнаружена ошибка; проверьте резервную копию."))
-    for name, process in (("Scheduler", bot.scheduler), ("EventBus", bot.events)):
+    for name, process in (("Scheduler", getattr(bot, "scheduler", None)), ("EventBus", getattr(bot, "events", None))):
         if process is None or not process.running:
             result.append(Diagnostic("error", name, "Фоновый процесс не запущен."))
             continue
@@ -56,7 +56,7 @@ async def collect(bot) -> list[Diagnostic]:
             details += f" Ошибок с момента запуска: {process.failures}; последняя: {process.last_error}."
             level = "warning"
         result.append(Diagnostic(level, name, details))
-    failed = [name for name, status in bot.module_states.items() if status == "error"]
+    failed = [name for name, status in getattr(bot, "module_states", {}).items() if status == "error"]
     if failed:
         result.append(Diagnostic("warning", "Модули", "Ошибки загрузки: " + ", ".join(failed)))
     candidate_id = await bot.database.get_setting(guild.id, "candidate_role_id")
