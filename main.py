@@ -18,14 +18,15 @@ async def serve(config: Config) -> None:
     bot = NewSqadBot(config)
     loop = asyncio.get_running_loop()
     shutting_down = False
+    shutdown_task: asyncio.Task[None] | None = None
 
     def request_shutdown(signame: str) -> None:
-        nonlocal shutting_down
+        nonlocal shutting_down, shutdown_task
         if shutting_down:
             return
         shutting_down = True
         log.info("Остановка NewSqadBot: сигнал %s", signame)
-        asyncio.create_task(bot.close(), name="newsqad-shutdown")
+        shutdown_task = asyncio.create_task(bot.close(), name="newsqad-shutdown")
 
     for signame in (signal.SIGTERM, signal.SIGINT):
         try:
@@ -34,7 +35,11 @@ async def serve(config: Config) -> None:
             # Windows: CTRL+C обрабатывается asyncio.run.
             pass
     async with bot:
-        await bot.start(config.token)
+        try:
+            await bot.start(config.token)
+        finally:
+            if shutdown_task is not None:
+                await shutdown_task
 
 
 def main() -> None:
