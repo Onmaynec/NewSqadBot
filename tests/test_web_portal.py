@@ -285,3 +285,70 @@ async def test_oauth_callback_issues_secure_cookie_and_has_no_access_token(tmp_p
 
 def test_presence_unavailable_is_not_falsely_offline():
     assert Guild().members_by_id[14].status == "online"
+
+
+@pytest.mark.asyncio
+async def test_complete_staff_and_owner_editor_permissions(tmp_path):
+    """Pages, REST actions and configuration cannot be accessed beyond user's live guild role."""
+    url = f"sqlite+aiosqlite:///{tmp_path / 'complete.db'}"
+    migrate(url)
+    db = Database(url)
+    bot = FakeBot(db)
+    app = create_app(bot, "", discord_client_id="12345678",
+                     discord_client_secret="mock_not_used_secret",
+                     public_url="https://portal.test.ts.net")
+    owner_paths = ("/api/owner/shop", "/api/owner/role-panels",
+                   "/api/owner/ticket-categories", "/api/owner/announcements")
+    admin_paths = ("/api/portal/events", "/api/portal/giveaways",
+                   "/api/portal/suggestions", "/api/portal/activity", "/api/portal/audit",
+                   "/api/portal/voice-rooms", "/api/portal/parties")
+    moder_paths = ("/api/portal/moderation", "/api/portal/members")
+    support_paths = ("/api/portal/tickets", "/api/portal/applications",
+                     "/api/portal/tickets/staff")
+    try:
+        async with TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True)) as client:
+            origin = str(client.make_url("/")).rstrip("/")
+            for uid in (11, 12, 13, 14):
+                token, session = app[STATE].sessions.create(user_id=uid)
+                client.session.cookie_jar.update_cookies(
+                    {"nsb_session": token}, response_url=client.make_url("/"))
+                for path in owner_paths + admin_paths + moder_paths + support_paths:
+                    response = await client.get(path)
+                    expected = (200 if path in support_paths or
+                                uid in (11, 12, 13) and path in moder_paths or
+                                uid in (11, 12) and path in admin_paths or
+                                uid == 11 and path in owner_paths else 403)
+                    assert response.status == expected, (uid, path, response.status, await response.text())
+                payload = {"code": "staff_test", "title": "Staff title",
+                           "kind": "title", "price": 45, "description": "", "stock": None,
+                           "role_id": None}
+                # No CSRF = deny even Owner.
+                no_csrf = await client.post("/api/owner/shop", json=payload, headers={"Origin": origin})
+                assert no_csrf.status == 403
+                with_csrf = await client.post("/api/owner/shop", json=payload, headers={
+                    "Origin": origin, "X-CSRF-Token": session.csrf})
+                assert with_csrf.status == (200 if uid == 11 else 403)
+                denied_moderation = await client.post("/api/portal/moderation", json={
+                    "user_id": "1440528514318073999", "kind": "warn",
+                    "reason": "Test warning", "duration": ""},
+                    headers={"Origin": origin, "X-CSRF-Token": session.csrf})
+                assert denied_moderation.status == (503 if uid in (11, 12, 13) else 403)
+    finally:
+        await db.close()
+
+
+def test_management_ui_permissions_are_not_only_client_side():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "app/web/static"
+    management = (root / "manage.js").read_text(encoding="utf-8")
+    portal = (root / "portal.js").read_text(encoding="utf-8")
+    assert '"/api/owner/shop"' in management
+    assert '"/api/owner/role-panels"' in management
+    assert '"/api/portal/events"' in management
+    assert '"/api/portal/voice-rooms"' in management
+    assert '"/api/portal/parties"' in management
+    assert '"/api/portal/suggestions?' in management
+    assert '"/api/portal/moderation"' in portal
+    assert "roleLabels" in portal
+    assert "beforeunload" in (root / "app.js").read_text(encoding="utf-8")

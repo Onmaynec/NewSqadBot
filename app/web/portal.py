@@ -142,7 +142,10 @@ async def application_action(request: web.Request) -> web.Response:
             return web.json_response({"error": "Другое решение уже выполняется."}, status=409)
         result = await cog.execute(aid)
         await cog.refresh(aid)
-        return web.json_response({"ok": True, "message": result})
+        current = await applications.get_application(bot.database, aid)
+        confirmed = bool(current and current.status == ("approved" if action == "approve" else "rejected"))
+        return web.json_response({"ok": confirmed, "message" if confirmed else "error": result},
+                                 status=200 if confirmed else 503)
     if action == "retry":
         if row.status not in ("action_failed", "approving", "rejecting"):
             return web.json_response({"error": "Повторять сейчас нечего."}, status=409)
@@ -154,6 +157,28 @@ async def application_action(request: web.Request) -> web.Response:
         if ok:
             await cog.refresh(aid)
         return web.json_response({"ok": ok, "message": "Ответственный назначен." if ok else "Заявка уже закрыта."},
+                                 status=200 if ok else 409)
+    if action == "transfer":
+        new_id = data.get("user_id")
+        if not isinstance(new_id, str):
+            raise web.HTTPBadRequest(text="Выберите сотрудника.")
+        target_id = snowflake(new_id)
+        guild = guild_for(bot)
+        if guild is None:
+            raise web.HTTPServiceUnavailable(text="Discord недоступен.")
+        try:
+            target = await guild.fetch_member(target_id)
+        except discord.NotFound as exc:
+            raise web.HTTPBadRequest(text="Сотрудник покинул сервер.") from exc
+        except discord.HTTPException as exc:
+            raise web.HTTPServiceUnavailable(text="Discord не подтвердил статус сотрудника.") from exc
+        if site_role(target, guild) is None:
+            raise web.HTTPForbidden(text="Получатель не входит в состав сотрудников.")
+        ok = await applications.assign_reviewer(bot.database, bot.config.guild_id, aid, actor, target_id)
+        if ok:
+            await cog.refresh(aid)
+        return web.json_response({"ok": ok, "message" if ok else "error":
+                                  "Ответственный обновлён." if ok else "Заявка уже недоступна."},
                                  status=200 if ok else 409)
     if action == "request_info":
         reason = str(data.get("reason", "")).strip()
@@ -217,6 +242,7 @@ async def ticket_detail(request: web.Request) -> web.Response:
         raise web.HTTPServiceUnavailable(text="Не удалось прочитать переписку.") from exc
     return web.json_response({
         "ticket": public_ticket(row),
+        "participants": [str(uid) for uid in await tickets.participants(bot.database, tid)],
         "messages": [
             {"id": str(m.id), "author": m.author.display_name,
              "avatar_url": str(m.author.display_avatar.url),
@@ -256,8 +282,11 @@ async def ticket_action(request: web.Request) -> web.Response:
             raise web.HTTPServiceUnavailable(text="Discord не подтвердил отправку.") from exc
         # Mark the first staff reply and activity timestamp, without persisting text.
         # The Discord on_message listener can also touch the ticket; this is idempotent.
-        await tickets.touch(bot.database, bot.config.guild_id, tid, actor, staff_reply=True)
-        return web.json_response({"ok": True, "message": "Ответ отправлен."})
+        try:
+            await tickets.touch(bot.database, bot.config.guild_id, tid, actor, staff_reply=True)
+        except Exception:
+            log.exception("Ответ в Discord отправлен, но время ответа тикета #%s не обновлено", tid)
+        return web.json_response({"ok": True, "message": "Ответ отправлен в Discord."})
     if action in ("claim", "transfer"):
         target = actor
         if action == "transfer":
@@ -280,6 +309,52 @@ async def ticket_action(request: web.Request) -> web.Response:
         if cog is not None:
             await cog.refresh(tid)
         return web.json_response({"ok": True, "message": "Ответственный обновлён."})
+    if action in ("add_member", "remove_member"):
+        raw = data.get("user_id")
+        if not isinstance(raw, str):
+            raise web.HTTPBadRequest(text="Не указан участник.")
+        new_id = snowflake(raw)
+        if new_id == row.user_id:
+            raise web.HTTPForbidden(text="Автора обращения нельзя удалить из участников.")
+        guild = guild_for(bot)
+        if guild is None:
+            raise web.HTTPServiceUnavailable(text="Discord недоступен.")
+        try:
+            target = await guild.fetch_member(new_id)
+        except discord.NotFound as exc:
+            raise web.HTTPBadRequest(text="Участник отсутствует на сервере.") from exc
+        except discord.HTTPException as exc:
+            raise web.HTTPServiceUnavailable(text="Не удалось проверить участника.") from exc
+        remove = action == "remove_member"
+        if not remove:
+            from app.services.role_rules import is_approved
+
+            candidate = await bot.database.get_setting(bot.config.guild_id, "candidate_role_id")
+            if not is_approved(target, candidate):
+                raise web.HTTPForbidden(text="Приглашать можно только одобренных участников.")
+        channel = await _ticket_channel(bot, row)
+        before = channel.overwrites_for(target)
+        try:
+            changed = await tickets.participant(bot.database, bot.config.guild_id, tid,
+                                                new_id, actor, remove=remove)
+            if not changed:
+                return web.json_response({"error": "Участник уже добавлен или удалён."}, status=409)
+            await channel.set_permissions(
+                target,
+                overwrite=None if remove else discord.PermissionOverwrite(
+                    view_channel=True, send_messages=True, read_message_history=True),
+                reason=f"[NSB-TICKET-{tid}] Изменение состава из web")
+        except (discord.HTTPException, ValueError):
+            try:
+                if "changed" in locals() and changed:
+                    await tickets.participant(bot.database, bot.config.guild_id, tid,
+                                              new_id, actor, remove=not remove)
+                await channel.set_permissions(target, overwrite=before,
+                                              reason=f"[NSB-TICKET-{tid}] Откат")
+            except Exception:
+                log.exception("Не удалось восстановить права тикета #%s", tid)
+            return web.json_response({"error": "Не удалось обновить права в Discord."}, status=503)
+        return web.json_response({"ok": True, "message": "Состав обращения обновлён."})
     if action == "close":
         if data.get("confirm") != "DELETE":
             raise web.HTTPUnprocessableEntity(text="Подтвердите безвозвратное удаление тикета.")
@@ -461,5 +536,15 @@ def register(app: web.Application) -> None:
     app.router.add_get("/api/portal/stats", server_stats)
     app.router.add_get("/api/portal/tops", tops)
     app.router.add_get("/api/portal/audit", audit)
-    app.router.add_get("/api/portal/moderation", moderation_list)
+    from app.web.moderation_portal import register as register_moderation
+
+    register_moderation(app)
+    from app.web.community_portal import register as register_community
+    from app.web.owner_portal import register as register_owner
+
+    register_owner(app)
+    register_community(app)
+    from app.web.live_ops import register as register_live_ops
+
+    register_live_ops(app)
     app.router.add_get("/api/portal/activity", admin_activity)

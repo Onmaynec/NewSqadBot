@@ -34,6 +34,7 @@ class Moderation(commands.Cog):
         self.bot = bot
         self.bot.scheduler.register("moderation.unban", self._expire_ban)
         self._case_locks: dict[int, asyncio.Lock] = {}
+        self._target_locks: dict[int, asyncio.Lock] = {}
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -424,15 +425,24 @@ class Moderation(commands.Cog):
                            action: str, value: str) -> str:
         if not await self.can_moderate(interaction):
             return "Недостаточно прав модератора."
+        return await self.change_case(interaction.guild, interaction.user, number,
+                                      action=action, value=value,
+                                      privileged=can_manage_settings(interaction, self.bot.config.owner_ids))
+
+    async def change_case(self, guild: discord.Guild, actor: discord.Member, number: int, *,
+                          action: str, value: str, privileged: bool = False) -> str:
+        """Shared website / Discord operation; per-case mutex and role hierarchy check."""
+        if guild.id != self.bot.config.guild_id:
+            return "Это не разрешённый сервер NewSqad."
         lock = self._case_locks.setdefault(number, asyncio.Lock())
         async with lock:
-            found = await cases_store.find(self.bot.database, interaction.guild_id, number=number)
+            found = await cases_store.find(self.bot.database, guild.id, number=number)
             if not found:
                 return "Дело не найдено."
             case = found[0]
             if case.status != "active":
                 return "Изменять можно только активные дела бота."
-            guild = interaction.guild
+            guild = guild
             member = guild.get_member(case.user_id)
             if member is None and case.kind == "mute":
                 try:
@@ -442,24 +452,24 @@ class Moderation(commands.Cog):
                 except discord.HTTPException:
                     return "Не удалось проверить участника в Discord."
             if member is not None and (
-                member.id == interaction.user.id or member.id == guild.owner_id
+                member.id == actor.id or member.id == guild.owner_id
                 or member.guild_permissions.administrator
-                or (not can_manage_settings(interaction, self.bot.config.owner_ids)
-                    and member.top_role >= interaction.user.top_role)
+                or (not privileged
+                    and member.top_role >= actor.top_role)
             ):
                 return "Недостаточно прав относительно роли участника."
             if action == "reason":
                 reason = value.strip()
                 if not 3 <= len(reason) <= 400:
                     return "Новая причина должна содержать 3–400 символов."
-                changed = await cases_store.apply(self.bot.database, interaction.guild_id, number,
-                    actor_id=interaction.user.id, action="reason_changed",
+                changed = await cases_store.apply(self.bot.database, guild.id, number,
+                    actor_id=actor.id, action="reason_changed",
                     details=f"Старая причина: {case.reason[:175]}; новая: {reason[:175]}",
                     changes={"reason": reason})
                 if not changed:
                     return "Дело уже изменено другим модератором."
-                updated = (await cases_store.find(self.bot.database, interaction.guild_id, number=number))[0]
-                await self.report(updated, "Причина дела изменена", actor_id=interaction.user.id,
+                updated = (await cases_store.find(self.bot.database, guild.id, number=number))[0]
+                await self.report(updated, "Причина дела изменена", actor_id=actor.id,
                     note="Изменение в базе бота; существующая запись в аудите Discord остаётся прежней.",
                     operation="moderation.reason_changed")
                 return f"Причина дела #{number:05d} изменена."
@@ -481,9 +491,9 @@ class Moderation(commands.Cog):
                     except discord.HTTPException:
                         logger.exception("Не удалось обновить тайм-аут #%s", number)
                         return "Discord отклонил изменение срока."
-                changed = await cases_store.apply(self.bot.database, interaction.guild_id, number,
-                    actor_id=interaction.user.id, action="duration_changed",
-                    details=f"Срок: {case.expires_at} -> {expires}; модератор: {interaction.user.id}",
+                changed = await cases_store.apply(self.bot.database, guild.id, number,
+                    actor_id=actor.id, action="duration_changed",
+                    details=f"Срок: {case.expires_at} -> {expires}; модератор: {actor.id}",
                     changes={"expires_at": expires})
                 if not changed:
                     return "Дело было изменено параллельно; проверьте Discord."
@@ -498,8 +508,8 @@ class Moderation(commands.Cog):
                     if expires is not None and not existing:
                         await self.bot.scheduler.schedule(job_key=job_key, handler="moderation.unban",
                             due_at=expires, payload={"case_id": number})
-                updated = (await cases_store.find(self.bot.database, interaction.guild_id, number=number))[0]
-                await self.report(updated, "Срок наказания изменён", actor_id=interaction.user.id,
+                updated = (await cases_store.find(self.bot.database, guild.id, number=number))[0]
+                await self.report(updated, "Срок наказания изменён", actor_id=actor.id,
                     note=f"Старый срок: {case.expires_at or 'per'}. Новый: {expires or 'per'}.",
                     operation="moderation.duration_changed")
                 return f"Срок дела #{number:05d} обновлён."
@@ -524,18 +534,98 @@ class Moderation(commands.Cog):
                 except discord.HTTPException:
                     logger.exception("Discord отклонил отмену дела #%s", number)
                     return "Discord не подтвердил отмену. Статус дела не изменён."
-                changed = await cases_store.apply(self.bot.database, interaction.guild_id, number,
-                    actor_id=interaction.user.id, action="revoked", details=reason,
-                    changes={"status": "revoked", "closed_by": interaction.user.id,
+                changed = await cases_store.apply(self.bot.database, guild.id, number,
+                    actor_id=actor.id, action="revoked", details=reason,
+                    changes={"status": "revoked", "closed_by": actor.id,
                              "completed_at": int(time.time())})
                 if not changed:
                     return "Действие Discord выполнено, но дело уже изменено; проверьте журнал."
-                updated = (await cases_store.find(self.bot.database, interaction.guild_id, number=number))[0]
-                await self.report(updated, "Наказание отменено", actor_id=interaction.user.id,
+                updated = (await cases_store.find(self.bot.database, guild.id, number=number))[0]
+                await self.report(updated, "Наказание отменено", actor_id=actor.id,
                     note=f"Причина отмены: {reason}. Результат Discord: подтверждён.",
                     operation="moderation.revoked")
                 return f"Дело #{number:05d} отменено. Причина записана."
             return "Неизвестное действие."
+
+    async def create_from_web(self, guild: discord.Guild, actor: discord.Member,
+                              target_id: int, kind: str, reason: str,
+                              duration: str = "") -> str:
+        """Manually issued sanctions from site; same case, DM and audit flow as /m.
+
+        Refuse self-mod, owner/admin/higher-ranked members, and roles above the bot.
+        A per-target lock protects parallel sanctions across Discord buttons and web.
+        """
+        if guild.id != self.bot.config.guild_id or kind not in ("ban", "mute", "kick", "warn"):
+            return "Недопустимая операция модерации."
+        reason = reason.strip()
+        if not 3 <= len(reason) <= 400:
+            return "Причина наказания должна содержать от 3 до 400 символов."
+        if target_id in (guild.owner_id, actor.id):
+            return "Нельзя наказать себя или владельца сервера."
+        lock = self._target_locks.setdefault(target_id, asyncio.Lock())
+        async with lock:
+            try:
+                target = await guild.fetch_member(target_id)
+            except discord.NotFound:
+                target = None
+            except discord.HTTPException:
+                return "Discord не разрешил проверить участника."
+            if target is None and kind != "ban":
+                return "Участник должен находиться на сервере."
+            me = guild.me
+            if me is None:
+                return "Discord не вернул права бота."
+            if target is not None:
+                if (target.guild_permissions.administrator or
+                    target.top_role >= me.top_role or
+                    (actor.id != guild.owner_id and target.top_role >= actor.top_role)):
+                    return "Недостаточно прав по иерархии ролей участника."
+            if kind == "ban" and not me.guild_permissions.ban_members:
+                return "У бота нет разрешения Ban Members."
+            if kind == "kick" and not me.guild_permissions.kick_members:
+                return "У бота нет разрешения Kick Members."
+            if kind == "mute" and not me.guild_permissions.moderate_members:
+                return "У бота нет разрешения Moderate Members."
+            seconds = None
+            if kind in ("ban", "mute"):
+                try:
+                    seconds = parse_duration(duration, allow_permanent=kind == "ban",
+                        max_seconds=28 * 86400 if kind == "mute" else None)
+                except ValueError as exc:
+                    return str(exc)
+            expires = int(time.time()) + seconds if seconds is not None else None
+            try:
+                case = await self.new_case(target_id, actor.id, kind, reason, expires)
+            except ValueError as exc:
+                return str(exc)
+            if target is not None:
+                await self.notify(target,
+                    f"Дело #{case.id:05d}: {kind}. Причина: {reason}. Срок: {duration or 'per'}.",
+                    case.id)
+            try:
+                if kind == "ban":
+                    await guild.ban(target if target is not None else discord.Object(id=target_id),
+                                    reason=audit_reason(case.id, reason))
+                elif kind == "mute":
+                    await target.timeout(dt.timedelta(seconds=seconds),
+                                         reason=audit_reason(case.id, reason))
+                elif kind == "kick":
+                    await target.kick(reason=audit_reason(case.id, reason))
+            except discord.HTTPException as exc:
+                logger.warning("Discord отказал в web-модерации: дело %s (%s)", case.id, kind)
+                await self.update_case(case.id, status="failed", error=str(exc))
+                return f"Discord отклонил операцию. Дело #{case.id:05d} отмечено как failed."
+            await self.update_case(case.id, status="completed" if kind == "kick" else "active")
+            if kind == "ban" and expires is not None:
+                await self.bot.scheduler.schedule(
+                    job_key=f"moderation:unban:{case.id}", handler="moderation.unban",
+                    due_at=expires, payload={"case_id": case.id})
+            try:
+                await self.report(await self.get_case(case.id), "Ручная модерация через сайт",
+                                  actor_id=actor.id, operation=f"moderation.web.{kind}")
+            except Exception:
+                logger.exception("Журнал модерации не отправлен: дело #%s", case.id)
+            return f"Операция {kind} выполнена. Создано дело #{case.id:05d}."
 
     @m.command(name="case", description="Карточка дела и доступные действия")
     async def case(self, interaction: discord.Interaction, number: int) -> None:

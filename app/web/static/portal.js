@@ -17,9 +17,11 @@
     support: ["Обзор", "Заявки", "Тикеты"],
     moder: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация"],
     admin: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация",
-            "Аналитика", "Рейтинги", "Активность", "Аудит"],
+            "Аналитика", "Рейтинги", "Активность", "Аудит", "Мероприятия", "Розыгрыши", "Предложения", "Голосовые комнаты", "Поиск команды"],
     owner: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация",
-            "Аналитика", "Рейтинги", "Активность", "Аудит"],
+            "Аналитика", "Рейтинги", "Активность", "Аудит", "Мероприятия", "Розыгрыши",
+            "Предложения", "Голосовые комнаты", "Поиск команды",
+            "Магазин NS Coins", "Панели ролей", "Правила ролей", "Категории тикетов", "Объявления"],
   };
   const roleLabels = {owner: "OWNER", admin: "ADMIN", moder: "MODERATOR", support: "TICKET STAFF"};
   const glyphs = {
@@ -43,6 +45,16 @@
     "Рейтинги": '<path d="M8 21V9H3v12m10 0V3H8v18m10 0v-9h-5v9M2 21h20"/>',
     "Активность": '<path d="M3 12h4l3-6 4 12 3-6h4"/>',
     "Аудит": '<path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/>',
+    "Магазин NS Coins": '<path d="M3 7h18l-2 6H5L3 7zM5 13v8h14v-8M10 21v-5h4v5M4 7l2-4h12l2 4"/>',
+    "Панели ролей": '<path d="M4 4h16v16H4zM8 9h8M8 14h8M9 18h6"/>',
+    "Правила ролей": '<path d="M9 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4M8 9h8M8 13h5m2 5 2 2 4-4"/>',
+    "Категории тикетов": '<path d="M3 6h18v5a2 2 0 0 0 0 4v4H3v-4a2 2 0 0 0 0-4V6z"/>',
+    "Объявления": '<path d="M4 10v4h4l11 5V5L8 10H4zM8 14l2 6"/>',
+    "Мероприятия": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>',
+    "Розыгрыши": '<rect x="3" y="9" width="18" height="13" rx="2"/><path d="M2 9h20V6H2zM5 13v8h14v-8M12 9v13"/>',
+    "Предложения": '<path d="M9 18h6M10 22h4M8 14a7 7 0 1 1 8 0c-2 2-1 3-4 3s-2-1-4-3z"/>',
+    "Голосовые комнаты": '<path d="M4 9v6M8 6v12m4-15v18m4-15v12m4-9v6"/>',
+    "Поиск команды": '<circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m2-8h5m-2-2v5"/>',
   };
   function icon(name) {
     const node = document.createElement("span");
@@ -243,6 +255,17 @@
       actions.append(button("Назад", () => { void render("Заявки"); }));
       if (["pending", "in_review", "needs_info"].includes(item.status)) {
         actions.append(button("Взять в работу", () => { void submit("claim"); }));
+        actions.append(button("Передать сотруднику", async () => {
+          const userId = await chooseStaff();
+          if (userId) {
+            try {
+              const result = await api("/api/portal/applications/" + id + "/action",
+                {method: "POST", body: {action: "transfer", user_id: userId}});
+              window.portalToast(result.message);
+              await applicationDetails(id);
+            } catch (error) {window.portalToast(error.message, true);}
+          }
+        }));
         actions.append(button("Одобрить", async () => {
           if (await confirmAction("Одобрить заявку?", "Кандидат получит роль участника и доступ к серверу.", "Одобрить")) {
             await submit("approve");
@@ -311,14 +334,17 @@
     const send = button("Отправить в Discord", () => {}, "primary");
     send.type = "submit";
     form.append(textarea, send);
+    const participants = e("div", "portal-participants");
     const foot = e("div", "portal-muted", "Сообщения отправляются от имени бота с подписью сотрудника. Переписка не хранится в SQLite.");
-    wrap.append(header, actions, messages, form, foot);
+    wrap.append(header, actions, participants, messages, form, foot);
     let lastMessages = "";
     async function refreshMessages() {
       if (window.portalGroup() !== "Тикеты" || !messages.isConnected) return;
       try {
         const data = await api("/api/portal/tickets/" + id);
         const ticket = data.ticket;
+        participants.replaceChildren(e("span", "portal-muted", "Дополнительные участники: "));
+        for (const uid of data.participants || []) participants.append(pill(uid));
         header.querySelector("p").textContent = ticket.subject + " · " + ticket.status
           + " · ответственный: " + (ticket.assignee_id || "не назначен");
         const signature = data.messages.map((m) => m.id).join("|");
@@ -361,6 +387,20 @@
       const staffId = await chooseStaff();
       if (staffId) await action("transfer", {user_id: staffId});
     }));
+    actions.append(button("Пригласить участника", async () => {
+      const userId = await inputDialog("Добавить участника",
+        "Укажи Discord ID одобренного участника. Канал станет доступен ему в Discord.",
+        "Discord ID (цифры)", 15);
+      if (userId) await action("add_member", {user_id: userId});
+    }));
+    actions.append(button("Удалить участника", async () => {
+      const userId = await inputDialog("Убрать участника из тикета",
+        "Можно удалить только приглашённого участника, но не автора обращения.",
+        "Discord ID (цифры)", 15);
+      if (userId && await confirmAction("Закрыть доступ участнику?",
+          "Права на просмотр приватного канала будут сняты.", "Убрать"))
+        await action("remove_member", {user_id: userId});
+    }, "danger"));
     actions.append(button("Закрыть и удалить", async () => {
       if (await confirmAction("Удалить тикет безвозвратно?",
         "Discord-канал и вся переписка будут безвозвратно удалены. Транскрипт не создаётся.",
@@ -407,6 +447,10 @@
         const row = e("div", "portal-list-row");
         const avatar = e("img", "portal-person-avatar");avatar.src=item.avatar_url;avatar.alt="";
         row.append(avatar, rowTitle(item.name, item.id), e("span", "portal-meta", "На сервере: " + format(item.joined_at)));
+        row.append(button("Модерация", () => {
+          chosenModerTarget = item.id;
+          void window.portalNavigate("Модерация");
+        }));
         return row;
       }, "Участники не найдены."));
       body.prepend(e("p", "portal-muted", "В кэше: " + data.cached_members + ", участников сервера: " + (data.server_member_count || "—")));
@@ -416,16 +460,161 @@
     box.append(form, body);
     return box;
   }
+  let chosenModerTarget = "";
+  function picker(options, className = "portal-select") {
+    const select = e("select", className);
+    for (const [value, label] of options) {
+      const item = e("option", "", label);item.value = value;select.append(item);
+    }
+    return select;
+  }
   async function moderation() {
-    const data = await api("/api/portal/moderation");
-    return cardList(data.items, (item) => {
-      const row = e("div", "portal-list-row");
-      row.append(rowTitle("Дело #" + item.id + " · " + item.kind,
-        "Участник " + item.user_id + " · " + format(item.created_at)));
-      row.append(pill(item.status, item.status === "active" ? "warning" : "neutral"));
-      row.append(e("span", "portal-ellipsis", item.reason));
-      return row;
-    }, "Дел не найдено.");
+    const wrapper = e("div", "portal-stack");
+    const create = e("div", "portal-panel");
+    create.append(e("h3", "", "Новое модерационное дело"));
+    const form = e("form", "portal-action-form");
+    const user = e("input", "portal-input");
+    user.placeholder = "Discord ID участника";user.value = chosenModerTarget;
+    user.maxLength = 20;user.required = true;user.inputMode = "numeric";
+    chosenModerTarget = "";
+    const kind = picker([["warn", "Предупреждение"], ["mute", "Тайм-аут"],
+      ["kick", "Исключение"], ["ban", "Блокировка"]]);
+    const reason = e("textarea", "portal-textarea");
+    reason.placeholder = "Причина (не менее 3 символов)";reason.maxLength = 400;
+    reason.required = true;reason.rows = 2;
+    const duration = e("input", "portal-input");
+    duration.placeholder = "Срок: 10m, 2h, 7d, 2w или per";
+    duration.maxLength = 25;duration.hidden = true;
+    kind.addEventListener("change", () => {
+      duration.hidden = !["ban", "mute"].includes(kind.value);
+      duration.required = !duration.hidden;
+      duration.value = "";
+      if (kind.value === "ban") duration.placeholder = "Срок: 1d, 2w или per";
+      if (kind.value === "mute") duration.placeholder = "Срок: 10m, 2h, 7d (максимум 28d)";
+    });
+    form.append(user, kind, duration, reason);
+    const issue = button("Выдать наказание", () => {}, "danger");
+    issue.type = "submit";form.append(issue);
+    form.addEventListener("submit", async (evt) => {
+      evt.preventDefault();
+      if (!/^[0-9]{15,20}$/.test(user.value.trim()) || reason.value.trim().length < 3) {
+        window.portalToast("Укажи полный Discord ID и причину.", true);return;
+      }
+      const question = "Вид: " + kind.options[kind.selectedIndex].text + " · участник: "
+        + user.value + (duration.hidden ? "" : " · срок: " + duration.value);
+      if (!await confirmAction("Подтвердить наказание?", question, "Выполнить")) return;
+      issue.disabled = true;
+      try {
+        const data = await api("/api/portal/moderation",
+          {method: "POST", body: {kind: kind.value, user_id: user.value.trim(),
+                                 reason: reason.value, duration: duration.value}});
+        window.portalToast(data.message);
+        reason.value = "";
+        await update();
+      } catch (error) {window.portalToast(error.message, true);}
+      finally {issue.disabled = false;}
+    });
+    create.append(form);
+    wrapper.append(create);
+    const filters = e("div", "portal-toolbar");
+    const filterKind = picker([["all", "Все типы"], ["ban", "Баны"],
+      ["mute", "Тайм-ауты"], ["warn", "Предупреждения"], ["kick", "Исключения"]]);
+    const status = picker([["all", "Любой статус"], ["active", "Активные"], ["closed", "Завершённые"]]);
+    const searchUser = e("input", "portal-input");searchUser.placeholder="Discord ID участника";
+    searchUser.inputMode="numeric";searchUser.maxLength=20;
+    const number = e("input", "portal-input");number.placeholder="Номер дела";
+    number.inputMode="numeric";number.maxLength=10;
+    const find = button("Найти дела", () => {void update();},"primary");
+    filters.append(filterKind,status,searchUser,number,find);
+    const results = e("div");
+    async function update() {
+      const query = new URLSearchParams({kind:filterKind.value,status:status.value,
+        user:searchUser.value.trim(),number:number.value.trim()});
+      try {
+        const data = await api("/api/portal/moderation?" + query);
+        results.replaceChildren(cardList(data.items, (item) => {
+          const row = e("div","portal-list-row");
+          row.append(rowTitle("Дело #" + item.id + " · " + item.kind,
+            "Участник " + item.user_id + " · " + format(item.created_at)));
+          row.append(pill(item.status, item.status === "active" ? "warning" : "neutral"));
+          row.append(e("span","portal-ellipsis",item.reason));
+          row.append(button("Открыть",() => {void moderationDetail(item.id);}));
+          return row;
+        }, "Нет дел по выбранным фильтрам."));
+      } catch (error) {results.replaceChildren(info("Ошибка поиска",error.message));}
+    }
+    for (const control of [filterKind,status]) control.addEventListener("change",() => {void update();});
+    for (const control of [searchUser,number]) control.addEventListener("keydown",evt => {
+      if (evt.key === "Enter") {evt.preventDefault();void update();}
+    });
+    wrapper.append(section("История модерации", "Фильтры по участнику, номеру дела, типу и статусу."),
+                   filters,results);
+    await update();return wrapper;
+  }
+  async function moderationDetail(id) {
+    root().replaceChildren(info("Дело #" + id, "Загружаем историю и состояние Discord..."));
+    try {
+      const data = await api("/api/portal/moderation/" + id);
+      const row = data.case;
+      const wrap = e("div","portal-stack");
+      wrap.append(section("Дело #" + id, "Карточка модерационного решения и действия."));
+      const fields = e("div","portal-detail");
+      for (const [key,val] of [
+        ["Участник",row.user_id],["Модератор",row.moderator_id],
+        ["Тип",row.kind],["Статус",row.status],["Причина",row.reason],
+        ["Создано",format(row.created_at)],["До",row.expires_at ? format(row.expires_at):"Бессрочно"],
+        ["Закрыто",format(row.completed_at)],["Закрыл",row.closed_by || "—"],
+        ["ЛС",row.dm_status],["Ошибка",row.error || "—"],
+      ]) fields.append(append(e("div","portal-detail-field"),
+                              e("span","",key),e("strong","",val)));
+      wrap.append(fields);
+      const actions = e("div","portal-actions");
+      actions.append(button("← Все дела",() => {void render("Модерация");}));
+      async function mutate(action,value,confirm) {
+        try {
+          const result = await api("/api/portal/moderation/" + id + "/action",
+            {method:"POST",body:{action,value,confirm}});
+          window.portalToast(result.message);
+          await moderationDetail(id);
+        } catch(error){window.portalToast(error.message,true);}
+      }
+      if(row.status==="active"){
+        actions.append(button("Изменить причину",async () => {
+          const text = await inputDialog("Изменение причины",
+            "Изменение будет записано в историю дела и журнал модерации.",
+            row.reason,3);
+          if(text) await mutate("reason",text,"");
+        }));
+        if(["ban","mute"].includes(row.kind)){
+          actions.append(button("Изменить срок",async () => {
+            const value=await inputDialog("Новый срок",
+              "Используй 10m, 2h, 7d, 2w. Для бана доступно per.",
+              "Например: 7d",2);
+            if(value) await mutate("duration",value,"");
+          }));
+        }
+        if(row.kind !== "kick") actions.append(button("Отменить наказание",async()=>{
+          const reason=await inputDialog("Причина отмены",
+            "Отмена действующего наказания требует обязательной причины.","Причина...",3);
+          if(reason && await confirmAction("Точно отменить наказание?",
+            "Будет выполнена операция в Discord и сохранена история.","Отменить наказание")){
+            await mutate("revoke",reason,"REVOKE");
+          }
+        },"danger"));
+      }
+      wrap.append(actions);
+      wrap.append(e("h3","portal-subheading","История изменений"));
+      wrap.append(cardList(data.history,(step)=>{
+        const entry=e("div","portal-history-row");
+        entry.append(rowTitle(step.action,format(step.at)));
+        entry.append(e("p","","Сотрудник: "+step.actor_id+" · "+(step.details||"Без примечаний")));
+        return entry;
+      },"Пока нет событий."));
+      root().replaceChildren(wrap);
+    } catch(error) {
+      root().replaceChildren(info("Не удалось открыть дело",error.message),
+        button("Назад",()=>{void render("Модерация");}));
+    }
   }
   async function statsPage() {
     const box = e("div", "portal-stack");
@@ -511,7 +700,10 @@
     "Рейтинги":rankings,"Активность":activity,"Аудит":audit};
   async function render(group) {
     if (group !== "Тикеты") stopTicketRefresh();
-    if (loaders[group]) await load(group, loaders[group]);
+    if (window.Management?.loaders[group]) {
+      descriptions[group] = window.Management.descriptions[group];
+      await load(group, window.Management.loaders[group]);
+    } else if (loaders[group]) await load(group, loaders[group]);
   }
   window.Portal={menu,roleLabels,icon,descriptions,render,stopTicketRefresh};
 })();
