@@ -35,6 +35,7 @@ class Suggestion(Base):
     message_id: Mapped[int | None] = mapped_column(BigInteger)
     thread_id: Mapped[int | None] = mapped_column(BigInteger)
     topic: Mapped[str] = mapped_column(String(100), nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False, default="general")
     description: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="new")
     status_reason: Mapped[str] = mapped_column(String(500), nullable=False, default="")
