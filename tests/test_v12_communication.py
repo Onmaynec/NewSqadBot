@@ -41,7 +41,7 @@ def test_schema_migration_and_components(tmp_path):
     migrate(url(tmp_path))
     assert VERSION == "1.5.0"
     with sqlite3.connect(tmp_path / "ann.db") as conn:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0013_announcements"
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0014_community_categories"
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"announcements", "announcement_templates", "scheduled_jobs"} <= tables
     cog = SimpleNamespace(bot=SimpleNamespace(config=SimpleNamespace(timezone="UTC", owner_ids=frozenset())))
