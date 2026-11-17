@@ -544,4 +544,7 @@ def register(app: web.Application) -> None:
 
     register_owner(app)
     register_community(app)
+    from app.web.live_ops import register as register_live_ops
+
+    register_live_ops(app)
     app.router.add_get("/api/portal/activity", admin_activity)
