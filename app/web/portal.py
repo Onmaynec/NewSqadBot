@@ -344,7 +344,7 @@ async def ticket_action(request: web.Request) -> web.Response:
                 overwrite=None if remove else discord.PermissionOverwrite(
                     view_channel=True, send_messages=True, read_message_history=True),
                 reason=f"[NSB-TICKET-{tid}] Изменение состава из web")
-        except (discord.HTTPException, ValueError) as exc:
+        except (discord.HTTPException, ValueError):
             try:
                 if "changed" in locals() and changed:
                     await tickets.participant(bot.database, bot.config.guild_id, tid,
