@@ -336,9 +336,14 @@ async def touch(db, guild_id: int, ticket_id: int, actor_id: int, *, staff_reply
         if record is None:
             return None
         record.updated_at = now
-        if staff_reply and record.first_response_at is None:
-            record.first_response_at = now
-            event(session, ticket_id, actor_id, "first_response")
+        if staff_reply:
+            # Даже без нажатия «Взять в работу» первый ответ определяет,
+            # какому сотруднику доступна добровольная оценка поддержки.
+            if record.assignee_id is None:
+                record.assignee_id = actor_id
+            if record.first_response_at is None:
+                record.first_response_at = now
+                event(session, ticket_id, actor_id, "first_response")
         return now
 
 
