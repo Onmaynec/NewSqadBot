@@ -150,6 +150,15 @@ async def static_file(request: web.Request) -> web.FileResponse:
     return web.FileResponse(ROOT / name)
 
 
+async def site_info(request: web.Request) -> web.Response:
+    """Public branding only. No guild members, settings, secrets or role IDs."""
+    guild = guild_for(state(request).bot)
+    return web.json_response({
+        "name": guild.name if guild else "NewSqad",
+        "icon_url": str(guild.icon.url) if guild and getattr(guild, "icon", None) else None,
+    })
+
+
 async def session_info(request: web.Request) -> web.Response:
     panel = state(request)
     session = panel.sessions.get(request.cookies.get(COOKIE))
@@ -518,6 +527,7 @@ def create_app(bot, password_hash: str, *, discord_client_id: str = "",
                             discord_client_secret=discord_client_secret, public_url=public_url)
     app.router.add_get("/", index)
     app.router.add_get("/static/{name}", static_file)
+    app.router.add_get("/api/site", site_info)
     app.router.add_get("/api/session", session_info)
     app.router.add_post("/api/login", login)
     app.router.add_get("/auth/discord", oauth_start)
