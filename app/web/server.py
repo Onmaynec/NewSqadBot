@@ -65,12 +65,12 @@ async def security_headers(request: web.Request, handler):
             try:
                 response = await handler(request)
             except web.HTTPException as exc:
-                response = exc
+                response = web.Response(status=exc.status, text=exc.text, content_type=exc.content_type)
     else:
         try:
             response = await handler(request)
         except web.HTTPException as exc:
-            response = exc
+            response = web.Response(status=exc.status, text=exc.text, content_type=exc.content_type)
     response.headers.update({
         "Content-Security-Policy": (
             "default-src 'none'; script-src 'self'; style-src 'self'; "
