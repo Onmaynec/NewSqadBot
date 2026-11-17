@@ -46,6 +46,7 @@ def verify_password(password: str, stored: str) -> bool:
 class Session:
     csrf: str
     expires_at: float
+    user_id: int | None = None
 
 
 class SessionStore:
@@ -75,14 +76,16 @@ class SessionStore:
         self._prune(now)
         self.failures.setdefault(address, []).append(now)
 
-    def create(self, *, now: float | None = None) -> tuple[str, Session]:
+    def create(self, *, now: float | None = None,
+               user_id: int | None = None) -> tuple[str, Session]:
         now = time.time() if now is None else now
         self._prune(now)
         if len(self.sessions) >= MAX_SESSIONS:
             oldest = min(self.sessions, key=lambda key: self.sessions[key].expires_at)
             self.sessions.pop(oldest, None)
         token = secrets.token_urlsafe(32)
-        session = Session(csrf=secrets.token_urlsafe(32), expires_at=now + SESSION_SECONDS)
+        session = Session(csrf=secrets.token_urlsafe(32), expires_at=now + SESSION_SECONDS,
+                          user_id=user_id)
         self.sessions[self._key(token)] = session
         return token, session
 
