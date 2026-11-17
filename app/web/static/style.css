@@ -237,3 +237,50 @@ html,body,.main,.login-screen{background:#0b0b0d;color:#f5f5f6}
 }
 
 .portal-field-error{font-size:11px;color:#ffadb0;margin:9px 0 12px;min-height:14px}.portal-select.portal-full{width:100%;max-width:none;margin:12px 0 22px}.portal-modal .portal-actions{margin-top:18px}
+
+
+/* Operational consoles — calibrated contrast, clean dense forms and action rhythm */
+.manager-card{padding:24px;border:1px solid #34363d;border-radius:14px;background:linear-gradient(148deg,#202126,#161719);display:flex;flex-direction:column;gap:15px;animation:manager-enter .26s ease both}
+.manager-card h3{color:#f7f7f8;letter-spacing:-.4px;font-weight:730;font-size:16px;margin:0}
+.manager-card>p{font-size:11px;color:#a2a6b1;line-height:1.7;margin:0}
+.manager-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.manager-field{display:flex;flex-direction:column;gap:7px;min-width:0}
+.manager-field>span{font-size:10px;color:#a6a9b1;font-weight:650;letter-spacing:.015em}
+.manager-field .portal-input,.manager-field .portal-select,.manager-field .portal-textarea{min-width:0;width:100%;max-width:none}
+.manager-field .portal-textarea{min-height:92px}
+.manager-form>.manager-field:has(textarea){grid-column:1/-1}
+.manager-form>.button{align-self:end;min-height:42px}
+.manager-stack{display:flex;flex-direction:column;gap:10px}
+.manager-row{border:1px solid #373940;background:#17191d;display:flex;align-items:center;gap:12px;padding:15px;border-radius:10px;transition:border-color .2s,background .2s}
+.manager-row:hover{background:#212329;border-color:#52555e}
+.manager-row-main{display:flex;flex-direction:column;gap:7px;min-width:0;flex:1}
+.manager-row-main strong{color:#f4f5f8;font-size:12px;overflow-wrap:anywhere}
+.manager-row-main span{font-size:10px;color:#a1a5ae;overflow-wrap:anywhere}
+.manager-chips{display:flex;flex-wrap:wrap;gap:8px}
+.manager-chip{display:inline-flex;align-items:center;gap:5px}
+.manager-chip .button{font-size:12px;min-width:30px;padding:5px 9px}
+.manager-empty{border:1px dashed #43464d;padding:25px;border-radius:12px}
+.manager-empty h3{font-size:14px;color:#fff;margin:0 0 8px}
+.manager-empty p{font-size:11px;color:#a2a6b0;line-height:1.7;margin:0}
+.manager-check{display:flex;gap:10px;align-items:center;cursor:pointer;font-size:11px;color:#f5f5f5}
+.manager-check input{accent-color:#e3e6ee;width:17px;height:17px}
+.manager-preview{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.75;border-radius:8px;border-left:4px solid #9ca3af;padding:15px;background:#101216;color:#d4d7dd;font-size:12px;max-height:220px;overflow:auto}
+.manager-wide{max-width:720px;max-height:90vh;overflow:auto}
+.manager-card>.portal-actions{margin-top:8px}
+.manager-card .portal-pill{font-size:10px}
+.portal-participants{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:2px 3px 8px}
+.portal-participants .portal-muted{margin-right:7px}
+.portal-action-form{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.portal-action-form>.portal-input{flex:1 1 190px;min-width:120px}
+.portal-action-form>.portal-select{flex:0 1 180px}
+.portal-action-form>.portal-textarea{flex:1 1 100%;min-height:70px}
+.portal-action-form>.button{width:max-content;margin-left:auto}
+@keyframes manager-enter{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:750px){
+.manager-form{grid-template-columns:1fr}
+.manager-form>.manager-field:has(textarea){grid-column:auto}
+.manager-row{flex-wrap:wrap}
+.manager-card{padding:17px}
+.portal-action-form>.button{margin-left:0;width:100%}
+}
+@media(prefers-reduced-motion:reduce){.manager-card{animation:none}}
