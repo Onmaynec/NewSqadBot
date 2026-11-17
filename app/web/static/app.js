@@ -382,8 +382,6 @@ $("login-form").addEventListener("submit", async (event) => {
   } finally { submit.disabled = false; }
 });
 $("logout").addEventListener("click", async () => {
-  try { await api("/api/logout", {method: "POST", body: {}}); }
-  catch (error) { toast(error.message, true); }
   if (!await confirmDiscard()) return;
   try { await api("/api/logout", {method: "POST", body: {}}); }
   catch (error) { toast(error.message, true); return; }
@@ -391,6 +389,18 @@ $("logout").addEventListener("click", async () => {
 });
 $("refresh").addEventListener("click", async () => {
   if (await confirmDiscard()) await refresh();
+});
+$("save-all").addEventListener("click", () => { void saveAll(); });
+$("discard-changes").addEventListener("click", () => {
+  ui.dirty.clear();
+  renderSettings();
+  toast("Изменения сброшены.");
+});
+window.addEventListener("beforeunload", (event) => {
+  if (ui.dirty.size || ui.saving) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
 });
 $("refresh-diagnostics").addEventListener("click", refreshDiagnostics);
 $("open-diagnostics").addEventListener("click", () => navigate("Диагностика"));
