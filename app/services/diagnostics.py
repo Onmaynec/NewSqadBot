@@ -82,6 +82,7 @@ async def collect(bot) -> list[Diagnostic]:
             ))
     channels = [
         ("audit_channel_id", "Журнал событий", discord.TextChannel, False),
+        ("moderation_audit_channel_id", "Журнал модерации", discord.TextChannel, False),
         ("application_channel_id", "Канал заявок", discord.TextChannel, False),
         ("review_channel_id", "Рассмотрение заявок", discord.TextChannel, False),
         ("voice_lobby_channel_id", "Канал генерации", discord.VoiceChannel, False),

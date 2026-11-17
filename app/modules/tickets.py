@@ -238,6 +238,7 @@ class Tickets(commands.Cog):
         self._last_message: dict[int, int] = {}
         bot.scheduler.register("tickets.inactive_warn", self._warn_inactive)
         bot.scheduler.register("tickets.inactive_close", self._close_inactive)
+        bot.scheduler.register("tickets.first_reply_alert", self._alert_unanswered)
 
     async def cog_load(self) -> None:
         await store.seed_categories(self.bot.database, self.bot.config.guild_id)
@@ -336,6 +337,7 @@ class Tickets(commands.Cog):
                     raise RuntimeError("Тикет уже был обработан параллельно")
                 try:
                     await self._schedule_inactivity(entry.id)
+                    await self._schedule_first_reply_alert(entry.id)
                     self.bot.add_view(TicketActions(self, entry.id), message_id=message.id)
                 except Exception:
                     log.exception("Кнопки тикета #%s восстановятся при следующем запуске", entry.id)
@@ -403,6 +405,39 @@ class Tickets(commands.Cog):
         except Exception:
             log.exception("Ошибка полного удаления тикета ticket_id=%s", ticket_id)
             return "Удаление не завершено. Бот повторит операцию при следующем запуске."
+
+
+    async def _schedule_first_reply_alert(self, ticket_id: int) -> None:
+        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        if ticket is None or ticket.status != "open" or ticket.first_response_at is not None:
+            return
+        hours = int(await self.bot.database.get_setting(
+            ticket.guild_id, "tickets_reply_alert_hours", 6))
+        if hours <= 0:
+            return
+        await self.bot.scheduler.schedule(
+            job_key=f"tickets:reply-alert:{ticket.id}", handler="tickets.first_reply_alert",
+            due_at=ticket.opened_at + hours * 3600, payload={"ticket_id": ticket.id})
+
+    async def _alert_unanswered(self, payload: dict) -> None:
+        """Не храним сообщения и не раскрываем данные тикета в публичных каналах."""
+        ticket = await store.get(self.bot.database, self.bot.config.guild_id, int(payload["ticket_id"]))
+        if ticket is None or ticket.status != "open" or ticket.first_response_at is not None:
+            return
+        channel = await self.get_channel(ticket)
+        if channel is None:
+            return
+        await channel.send(embed=notice(
+            f"Обращение #{ticket.id:05d} ожидает первого ответа сотрудника.", kind="warning"),
+            allowed_mentions=discord.AllowedMentions.none())
+        if ticket.assignee_id:
+            try:
+                user = self.bot.get_user(ticket.assignee_id) or await self.bot.fetch_user(ticket.assignee_id)
+                await user.send(embed=notice(
+                    f"Обращение #{ticket.id:05d} ожидает ответа: {channel.jump_url}", kind="warning"),
+                    allowed_mentions=discord.AllowedMentions.none())
+            except discord.HTTPException:
+                log.warning("Не удалось уведомить ответственного за тикет #%s", ticket.id)
 
     async def _schedule_inactivity(self, ticket_id: int) -> None:
         days = int(await self.bot.database.get_setting(self.bot.config.guild_id, "tickets_inactivity_days", 0))
@@ -481,6 +516,7 @@ class Tickets(commands.Cog):
                     await channel.set_permissions(channel.guild.default_role, view_channel=False,
                         reason=f"[NSB-TICKET-{ticket.id}] Проверка приватности после запуска")
                     await self._schedule_inactivity(ticket.id)
+                    await self._schedule_first_reply_alert(ticket.id)
                 except discord.HTTPException:
                     log.exception("Не удалось проверить приватность тикета #%s", ticket.id)
 
@@ -595,6 +631,50 @@ class Tickets(commands.Cog):
                  + (f"<#{t.channel_id}>" if t.channel_id else "канал создаётся") for t in tickets]
         await interaction.response.send_message("\n".join(lines)[:1900] or "Открытых обращений нет.", ephemeral=True,
                                                 allowed_mentions=discord.AllowedMentions.none())
+
+
+    @tickets.command(name="mine", description="Мои обращения и тикеты, назначенные мне")
+    async def mine(self, interaction: discord.Interaction) -> None:
+        rows = await store.list_tickets(self.bot.database, interaction.guild_id, limit=100)
+        staff = await self.staff(interaction)
+        mine = [t for t in rows if t.user_id == interaction.user.id or (
+            staff and t.assignee_id == interaction.user.id)]
+        lines = [f"**#{t.id:05d}** · {t.status} · "
+                 f"{discord.utils.escape_mentions(t.subject[:65])} · "
+                 f"{f'<#{t.channel_id}>' if t.channel_id else 'создаётся'}"
+                 for t in mine[:25]]
+        await interaction.response.send_message(embed=panel_card(
+            "NewSquad / Мои обращения", "\n".join(lines)[:3650] if lines
+            else "Открытых обращений нет."), ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+
+    @tickets.command(name="unanswered", description="Обращения без ответа сотрудника")
+    async def unanswered(self, interaction: discord.Interaction,
+                         older_hours: app_commands.Range[int, 1, 168] = 6) -> None:
+        if not await self.staff(interaction):
+            await interaction.response.send_message("Нужна роль поддержки.", ephemeral=True)
+            return
+        rows = await store.list_tickets(self.bot.database, interaction.guild_id, limit=500)
+        cutoff = int(time.time()) - older_hours * 3600
+        entries = [t for t in rows if t.status == "open" and t.opened_at <= cutoff
+                   and t.first_response_at is None]
+        lines = [f"**#{t.id:05d}** · <#{t.channel_id}> · <t:{t.opened_at}:R> · "
+                 f"{'<@'+str(t.assignee_id)+'>' if t.assignee_id else 'не назначен'}"
+                 for t in entries[:20] if await self.staff(interaction, t)]
+        await interaction.response.send_message(embed=panel_card(
+            "NewSquad / Ожидают ответа", "\n".join(lines) if lines
+            else "Просроченных обращений нет."), ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+
+    @tickets.command(name="reply-alert", description="Порог первого ответа в часах; 0 отключает")
+    async def reply_alert(self, interaction: discord.Interaction,
+                          hours: app_commands.Range[int, 0, 168]) -> None:
+        if not await self.require_admin(interaction):
+            return
+        await self.bot.database.set_setting(interaction.guild_id,
+            "tickets_reply_alert_hours", hours, actor_id=interaction.user.id)
+        await interaction.response.send_message(
+            "Порог уведомления сохранён. Применяется к новым тикетам.", ephemeral=True)
 
     @tickets.command(name="claim", description="Принять обращение в работу")
     async def claim_command(self, interaction: discord.Interaction, ticket_id: int) -> None:

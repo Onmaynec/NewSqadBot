@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from app.models import ExperienceAward, QuestClaim
+from app.models import CommunityEvent, EventSignup, ExperienceAward, QuestClaim
 from app.services import economy, progression
 
 
@@ -34,6 +34,10 @@ CATALOG: tuple[Quest, ...] = (
     Quest("weekly_talk", "Активный участник", "25 сообщений с начисленным XP", "weekly", "messages", 25, 180, 150),
     Quest("weekly_voice", "Собираем команду", "60 минут совместного голосового общения", "weekly", "voice", 60, 230, 200),
     Quest("weekly_daily", "Привычка общаться", "Получить 4 ежедневные награды за задания", "weekly", "daily_claims", 4, 250, 175),
+    Quest("weekly_event", "Вместе веселее", "Принять участие в одном мероприятии за неделю",
+          "weekly", "events", 1, 160, 140),
+    Quest("weekly_events_three", "Актив сообщества", "Посетить 3 мероприятия за неделю",
+          "weekly", "events", 3, 320, 300),
 )
 BY_CODE = {item.code: item for item in CATALOG}
 
@@ -91,9 +95,15 @@ async def _counts(session, *, guild_id: int, user_id: int, start: int, end: int)
             QuestClaim.claimed_at >= start, QuestClaim.claimed_at < end,
         )
     )
+    attended = await session.scalar(
+        select(func.count(EventSignup.id)).join(
+            CommunityEvent, CommunityEvent.id == EventSignup.event_id).where(
+            CommunityEvent.guild_id == guild_id, EventSignup.user_id == user_id,
+            EventSignup.attended_at.is_not(None),
+            EventSignup.attended_at >= start, EventSignup.attended_at < end))
     return {"messages": int(by_source.get("message", 0)),
             "voice": int(by_source.get("voice", 0)) * progression.VOICE_REWARD_INTERVAL,
-            "daily_claims": int(claimed_daily or 0)}
+            "daily_claims": int(claimed_daily or 0), "events": int(attended or 0)}
 
 
 async def list_quests(db, guild_id: int, user_id: int, timezone: str, frequency: str,

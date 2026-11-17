@@ -39,6 +39,7 @@ def suggestion_embed(item) -> discord.Embed:
     e.add_field(name="За", value=str(item.votes_for), inline=True)
     e.add_field(name="Против", value=str(item.votes_against), inline=True)
     e.add_field(name="Статус", value=STATES[item.status], inline=True)
+    e.add_field(name="Категория", value=getattr(item, "category", "general"), inline=True)
     if item.status_reason:
         e.add_field(name="Решение администрации", value=safe(item.status_reason[:500]), inline=False)
     if item.thread_id:
@@ -49,6 +50,13 @@ def suggestion_embed(item) -> discord.Embed:
 
 class CreateSuggestionModal(LoggedModal, title="Предложение для NewSquad"):
     topic = discord.ui.TextInput(label="Тема", min_length=4, max_length=100)
+    category = discord.ui.Label(text="Категория идеи", component=discord.ui.Select(options=[
+        discord.SelectOption(label="Общее", value="general"),
+        discord.SelectOption(label="Игры", value="games"),
+        discord.SelectOption(label="Мероприятия", value="events"),
+        discord.SelectOption(label="Сервер", value="server"),
+        discord.SelectOption(label="Другое", value="other"),
+    ]))
     details = discord.ui.TextInput(
         label="Описание идеи", style=discord.TextStyle.paragraph,
         min_length=12, max_length=1200,
@@ -59,7 +67,8 @@ class CreateSuggestionModal(LoggedModal, title="Предложение для Ne
         self.cog = cog
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        await self.cog.create_idea(interaction, str(self.topic.value), str(self.details.value))
+        await self.cog.create_idea(interaction, str(self.topic.value),
+            str(self.details.value), category=self.category.component.values[0])
 
 
 class CreateButton(discord.ui.Button):
@@ -264,6 +273,18 @@ class Suggestions(commands.Cog):
             target_id=payload["suggestion_id"],
         )
 
+
+        item = await store.get(self.bot.database, self.bot.config.guild_id,
+                               int(payload["suggestion_id"]))
+        if item and item.status in ("accepted", "rejected", "implemented"):
+            try:
+                user = self.bot.get_user(item.author_id) or await self.bot.fetch_user(item.author_id)
+                await user.send(embed=card("NewSquad / Решение по идее",
+                    f"Идея #{item.id:04d}: **{STATES[item.status]}**\n"
+                    f"{safe(item.status_reason[:500])}"), allowed_mentions=NO_MENTIONS)
+            except discord.HTTPException:
+                log.warning("Не удалось уведомить автора идеи #%s", item.id)
+
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent) -> None:
         if payload.guild_id != self.bot.config.guild_id:
@@ -278,7 +299,7 @@ class Suggestions(commands.Cog):
             log.exception("Не удалось отметить удаление панели message_id=%s", payload.message_id)
 
     async def create_idea(self, interaction: discord.Interaction,
-                          topic: str, description: str) -> None:
+                          topic: str, description: str, *, category: str = "general") -> None:
         if not await self.enabled() or not await self.allowed(interaction):
             await interaction.response.send_message(
                 embed=notice("Только для одобренных участников.", kind="warning"),
@@ -304,7 +325,7 @@ class Suggestions(commands.Cog):
         try:
             item = await store.create(
                 self.bot.database, guild_id=guild.id, author_id=interaction.user.id,
-                channel_id=channel.id, topic=topic, description=description,
+                channel_id=channel.id, topic=topic, description=description, category=category,
                 cooldown=0 if self.is_staff(interaction.user) else cooldown,
             )
         except ValueError as exc:
@@ -409,14 +430,17 @@ class Suggestions(commands.Cog):
     @suggest.command(name="list", description="Последние предложения и их статусы")
     async def list_command(self, interaction: discord.Interaction,
                            status: Literal["new", "under_review", "accepted",
-                                           "rejected", "implemented"] | None = None) -> None:
+                                           "rejected", "implemented"] | None = None,
+                           category: Literal["general", "games", "events", "server", "other"] | None = None,
+                           author: discord.User | None = None) -> None:
         if not await self.allowed(interaction):
             await interaction.response.send_message(
                 embed=notice("Только для участников.", kind="warning"), ephemeral=True)
             return
-        rows = await store.list_items(self.bot.database, interaction.guild_id, status=status)
+        rows = await store.list_items(self.bot.database, interaction.guild_id,
+            status=status, category=category, author_id=author.id if author else None)
         lines = [
-            f"**#{item.id:04d}** · {safe(item.topic[:75])} · "
+            f"**#{item.id:04d}** · [{item.category}] {safe(item.topic[:60])} · "
             f"{item.votes_for} за / {item.votes_against} против · {STATES[item.status]}"
             for item in rows
         ]

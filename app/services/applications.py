@@ -129,3 +129,62 @@ async def fail(db, app_id: int, actor_id: int, reason: str) -> None:
     if row:
         await transition(db, app_id, expected=(row.status,), target="action_failed",
                          actor_id=actor_id, reason=reason)
+
+
+async def timeline(db, guild_id: int, app_id: int, *, limit: int = 15) -> list[ApplicationEvent]:
+    """Список действий конкретной заявки (не объединяем историю разных кандидатов)."""
+    async with db.sessions() as session:
+        app = await session.scalar(select(Application.id).where(
+            Application.id == app_id, Application.guild_id == guild_id))
+        if app is None:
+            return []
+        rows = await session.scalars(select(ApplicationEvent).where(
+            ApplicationEvent.application_id == app_id).order_by(ApplicationEvent.id.desc()).limit(limit))
+        return list(rows.all())
+
+
+async def assign_reviewer(db, guild_id: int, app_id: int, actor_id: int, reviewer_id: int) -> bool:
+    """Передача без сброса решения; CAS защищает обработку от одновременного одобрения."""
+    if reviewer_id <= 0:
+        raise ValueError("Некорректный ID ответственного")
+    async with db.session() as session:
+        row = await session.scalar(select(Application).where(
+            Application.id == app_id, Application.guild_id == guild_id))
+        if row is None or row.status not in REVIEWABLE:
+            return False
+        previous = row.reviewer_id
+        old_status = row.status
+        changed = await session.execute(update(Application).where(
+            Application.id == app_id, Application.guild_id == guild_id,
+            Application.status == row.status, Application.reviewer_id == previous
+            if previous is not None else Application.reviewer_id.is_(None),
+        ).values(reviewer_id=reviewer_id, status="in_review"))
+        if changed.rowcount != 1:
+            return False
+        session.add(ApplicationEvent(application_id=app_id, actor_id=actor_id,
+            old_status=old_status, new_status="in_review",
+            reason=f"Ответственный изменён: {previous or 'не назначен'} -> {reviewer_id}",
+            created_at=int(time.time())))
+        return True
+
+
+async def submit_answer(db, guild_id: int, app_id: int, user_id: int, answer: str) -> bool:
+    """Ответ на уточнение остаётся в приватной истории заявки."""
+    answer = answer.strip()
+    if not 2 <= len(answer) <= 900:
+        raise ValueError("Ответ должен содержать 2–900 символов.")
+    async with db.session() as session:
+        row = await session.scalar(select(Application).where(
+            Application.id == app_id, Application.guild_id == guild_id,
+            Application.user_id == user_id, Application.status == "needs_info"))
+        if row is None:
+            return False
+        changed = await session.execute(update(Application).where(
+            Application.id == app_id, Application.status == "needs_info",
+        ).values(status="in_review"))
+        if changed.rowcount != 1:
+            return False
+        session.add(ApplicationEvent(application_id=app_id, actor_id=user_id,
+            old_status="needs_info", new_status="in_review",
+            reason="Ответ кандидата: " + answer, created_at=int(time.time())))
+        return True

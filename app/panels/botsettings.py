@@ -32,6 +32,7 @@ CHANNEL_SLOTS = (
     ("review_channel_id", "Канал рассмотрения заявок"),
     ("membership_audit_channel_id", "Журнал заявок"),
     ("audit_channel_id", "Основной журнал событий"),
+    ("moderation_audit_channel_id", "Журнал модерации"),
     ("welcome_channel_id", "Приветственный канал"),
     ("farewell_channel_id", "Канал прощаний"),
     ("rules_channel_id", "Канал правил"),

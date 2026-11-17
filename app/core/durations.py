@@ -26,3 +26,32 @@ def nickname(username: str, chosen_name: str) -> str:
     if available < 1:
         raise ValueError("Имя слишком длинное для серверного ника.")
     return f"{username[:available]} | {name}"
+
+
+NICKNAME_TEMPLATES = {
+    "default": "{username} | {name}",
+    "name_first": "{name} | {username}",
+    "name_only": "{name}",
+    "username_only": "{username}",
+}
+
+
+def membership_nickname(username: str, chosen_name: str, template: str = "default") -> str:
+    """Ограниченные шаблоны исключают произвольные упоминания и форматирование."""
+    if template not in NICKNAME_TEMPLATES:
+        raise ValueError("Неизвестный шаблон ника.")
+    if template == "default":
+        return nickname(username, chosen_name)
+    name = chosen_name.strip()
+    if not name or any(char in name for char in ("\r", "\n", "@", chr(96), "|")):
+        raise ValueError("Некорректное имя.")
+    if len(name) > 32:
+        raise ValueError("Имя слишком длинное.")
+    if template == "name_only":
+        return name
+    if template == "username_only":
+        return username[:32]
+    available = 32 - len(name) - 3
+    if available < 1:
+        raise ValueError("Имя не помещается в ник.")
+    return f"{name} | {username[:available]}"

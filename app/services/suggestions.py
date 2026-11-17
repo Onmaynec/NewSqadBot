@@ -36,8 +36,10 @@ def clean(raw: str, *, minimum: int = 1, maximum: int = 500, multiline: bool = F
 
 async def create(db, *, guild_id: int, author_id: int, channel_id: int,
                  topic: str, description: str, cooldown: int = 1800,
-                 now: int | None = None) -> Suggestion:
+                 now: int | None = None, category: str = "general") -> Suggestion:
     now = int(time.time()) if now is None else now
+    if category not in ("general", "games", "events", "server", "other"):
+        raise ValueError("Неизвестная категория идеи.")
     topic = clean(topic, minimum=4, maximum=100)
     description = clean(description, minimum=12, maximum=1200, multiline=True)
     if not 0 <= cooldown <= 86400:
@@ -57,7 +59,8 @@ async def create(db, *, guild_id: int, author_id: int, channel_id: int,
             raise ValueError("Новая идея пока недоступна: действует задержка между публикациями.")
         row = Suggestion(
             guild_id=guild_id, author_id=author_id, channel_id=channel_id,
-            topic=topic, description=description, status="new", status_reason="",
+            topic=topic, description=description, category=category,
+            status="new", status_reason="",
             votes_for=0, votes_against=0, panel_missing=False,
             created_at=now, updated_at=now,
         )
@@ -79,13 +82,20 @@ async def get(db, guild_id: int, suggestion_id: int) -> Suggestion | None:
 
 
 async def list_items(db, guild_id: int, *, status: str | None = None,
-                     limit: int = 20) -> list[Suggestion]:
+                     limit: int = 20, category: str | None = None,
+                     author_id: int | None = None) -> list[Suggestion]:
     if status is not None and status not in STATES:
         raise ValueError("Неизвестный статус предложения.")
+    if category is not None and category not in ("general", "games", "events", "server", "other"):
+        raise ValueError("Неизвестная категория идеи.")
     async with db.sessions() as session:
         query = select(Suggestion).where(Suggestion.guild_id == guild_id)
         if status is not None:
             query = query.where(Suggestion.status == status)
+        if category is not None:
+            query = query.where(Suggestion.category == category)
+        if author_id is not None:
+            query = query.where(Suggestion.author_id == author_id)
         rows = await session.scalars(query.order_by(Suggestion.id.desc()).limit(limit))
         return list(rows.all())
 
