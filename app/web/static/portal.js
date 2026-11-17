@@ -187,7 +187,7 @@
     });
   }
   async function chooseStaff() {
-    const data = await api("/api/portal/staff");
+    const data = await api("/api/portal/tickets/staff");
     if (!data.items.length) {
       window.portalToast("Сотрудники не найдены.", true);
       return null;
