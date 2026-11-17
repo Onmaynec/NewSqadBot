@@ -153,6 +153,7 @@ async def assign_reviewer(db, guild_id: int, app_id: int, actor_id: int, reviewe
         if row is None or row.status not in REVIEWABLE:
             return False
         previous = row.reviewer_id
+        old_status = row.status
         changed = await session.execute(update(Application).where(
             Application.id == app_id, Application.guild_id == guild_id,
             Application.status == row.status, Application.reviewer_id == previous
@@ -161,7 +162,7 @@ async def assign_reviewer(db, guild_id: int, app_id: int, actor_id: int, reviewe
         if changed.rowcount != 1:
             return False
         session.add(ApplicationEvent(application_id=app_id, actor_id=actor_id,
-            old_status=row.status, new_status="in_review",
+            old_status=old_status, new_status="in_review",
             reason=f"Ответственный изменён: {previous or 'не назначен'} -> {reviewer_id}",
             created_at=int(time.time())))
         return True
