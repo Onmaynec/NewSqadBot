@@ -25,7 +25,7 @@ MAX_ITEMS = 50
 KINDS = {
     "application": ("Новая заявка", "Заявка ожидает рассмотрения", "Заявки"),
     "ticket_assigned": ("Назначен тикет", "На вас назначено обращение", "Тикеты"),
-    "role_failure": ("Ошибка выдачи роли", "Проверьте неудачную операцию с ролью", "Диагностика"),
+    "role_failure": ("Ошибка выдачи роли", "Проверьте неудачную операцию с ролью", "Аудит"),
     "event_upcoming": ("Скоро мероприятие", "Проверьте предстоящее мероприятие", "Мероприятия"),
 }
 
@@ -46,7 +46,9 @@ async def sync_sources(db, guild_id: int, *, now: int | None = None) -> int:
     async with db.sessions() as session:
         apps = (await session.scalars(select(Application).where(
             Application.guild_id == guild_id,
-            Application.created_at >= start).order_by(
+            Application.created_at >= now - 7 * 86400,
+            Application.status.in_(("pending", "in_review", "needs_info", "action_failed",
+                                    "approving", "rejecting"))).order_by(
             Application.created_at.desc()).limit(100))).all()
         for row in apps:
             enqueue(f"application:{row.id}", "application", None, row.id, row.created_at)
@@ -152,7 +154,7 @@ async def mark_read(db, guild_id: int, user_id: int, role: str,
             or_(WebNotice.recipient_id.is_(None), WebNotice.recipient_id == user_id))
         if notice_id is not None:
             query = query.where(WebNotice.id == notice_id)
-        ids = (await session.scalars(query.limit(100))).all()
+        ids = (await session.scalars(query)).all()
         for key in ids:
             statement = sqlite_insert(WebNoticeRead).values(
                 notice_id=key, user_id=user_id, read_at=now)
