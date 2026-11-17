@@ -147,9 +147,8 @@ class Suggestions(commands.Cog):
     async def before_republish(self) -> None:
         await self.bot.wait_until_ready()
 
-    @commands.Cog.listener()
-    async def on_ready(self) -> None:
-        await self.republish()
+    # Републикация запускается фоновым Loop после wait_until_ready.
+    # Дополнительный on_ready при reconnect не должен параллельно запускать её снова.
 
     async def enabled(self) -> bool:
         return bool(await self.bot.database.get_setting(
