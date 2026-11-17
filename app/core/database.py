@@ -12,8 +12,8 @@ from typing import Any, AsyncIterator
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import event, select, text
-from sqlalchemy.engine import make_url
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models import AuditEntry, GuildSetting
