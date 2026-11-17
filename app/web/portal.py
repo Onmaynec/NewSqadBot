@@ -461,5 +461,7 @@ def register(app: web.Application) -> None:
     app.router.add_get("/api/portal/stats", server_stats)
     app.router.add_get("/api/portal/tops", tops)
     app.router.add_get("/api/portal/audit", audit)
-    app.router.add_get("/api/portal/moderation", moderation_list)
+    from app.web.moderation_portal import register as register_moderation
+
+    register_moderation(app)
     app.router.add_get("/api/portal/activity", admin_activity)
