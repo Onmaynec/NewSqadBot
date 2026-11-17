@@ -306,7 +306,7 @@ async def members_list(request: web.Request) -> web.Response:
 
 
 async def staff_list(request: web.Request) -> web.Response:
-    await require_role(request)
+    await require_role(request, "moder")
     guild = guild_for(state(request).bot)
     if guild is None:
         raise web.HTTPServiceUnavailable()
@@ -319,6 +319,19 @@ async def staff_list(request: web.Request) -> web.Response:
             status = str(member.status) if available else "unknown"
             people.append({**user_card(member), "role": role, "status": status})
     return web.json_response({"items": people, "presence_available": available})
+
+
+
+async def ticket_staff_list(request: web.Request) -> web.Response:
+    """Minimal support-role picker; not the staff analytics or presence dashboard."""
+    await require_role(request)
+    guild = guild_for(state(request).bot)
+    if guild is None:
+        raise web.HTTPServiceUnavailable()
+    return web.json_response({"items": [
+        {"id": str(member.id), "name": member.display_name, "role": role}
+        for member in guild.members if (role := site_role(member, guild))
+    ]})
 
 
 async def server_stats(request: web.Request) -> web.Response:
@@ -434,6 +447,7 @@ def register(app: web.Application) -> None:
     app.router.add_get("/api/portal/applications/{id}", application_detail)
     app.router.add_post("/api/portal/applications/{id}/action", application_action)
     app.router.add_get("/api/portal/tickets", ticket_list)
+    app.router.add_get("/api/portal/tickets/staff", ticket_staff_list)
     app.router.add_get("/api/portal/tickets/{id}", ticket_detail)
     app.router.add_post("/api/portal/tickets/{id}/action", ticket_action)
     app.router.add_get("/api/portal/members", members_list)
