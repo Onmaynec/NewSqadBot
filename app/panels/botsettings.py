@@ -138,7 +138,7 @@ class HomeView(PrivateSettingsView):
                 "`/profile status` — отметить поиск компании.\n"
                 "`/profile privacy` — закрыть профиль.\n\n"
                 "Профиль не раскрывает имя, возраст или ответы из анкеты Membership. "
-                "Он доступен только после одобрения заявки."),
+                "Доступ определяется отсутствием роли кандидата."),
             view=BackView(self.client, self.owner_id),
         )
 
@@ -154,6 +154,20 @@ class HomeView(PrivateSettingsView):
     async def achievements(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await show_engagement_settings(interaction, self.client, self.owner_id, "achievements")
 
+    @discord.ui.button(label="Объявления", emoji="📢", style=discord.ButtonStyle.secondary, row=1)
+    async def announcements(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await show_announcement_settings(interaction, self.client, self.owner_id)
+
+    @discord.ui.button(label="Диагностика", emoji="🩺", style=discord.ButtonStyle.secondary, row=0)
+    async def diagnose(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        from app.services.diagnostics import collect, diagnostic_embed
+
+        await interaction.response.defer()
+        result = await collect(self.client)
+        await interaction.edit_original_response(
+            embed=diagnostic_embed(result), view=BackView(self.client, self.owner_id),
+        )
+
     @discord.ui.button(label="Все настройки", emoji="🗂️", style=discord.ButtonStyle.primary, row=4)
     async def settings_overview(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         from app.panels.settings_overview import SettingsOverviewView, overview_embed
@@ -163,6 +177,73 @@ class HomeView(PrivateSettingsView):
         view.max_pages = pages
         view._buttons()
         await interaction.edit_original_response(embed=embed, view=view)
+
+
+class AnnouncementSettingsView(PrivateSettingsView):
+    @discord.ui.button(label="Черновики", style=discord.ButtonStyle.primary)
+    async def drafts(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        from app.services import announcements as store
+
+        items = await store.list_items(
+            self.client.database, self.client.config.guild_id, statuses=("draft", "failed"),
+        )
+        text = "\n".join(
+            f"**#{item.id}** {discord.utils.escape_mentions(item.title[:80])}"
+            for item in items
+        ) or "Нет сохранённых черновиков."
+        await interaction.response.edit_message(
+            embed=embed_card("NewSquad / Черновики", text),
+            view=BackView(self.client, self.owner_id),
+        )
+
+    @discord.ui.button(label="Расписание", style=discord.ButtonStyle.secondary)
+    async def scheduled(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        from app.services import announcements as store
+
+        items = await store.list_items(
+            self.client.database, self.client.config.guild_id, statuses=("scheduled",),
+        )
+        text = "\n".join(
+            f"**#{item.id}** {discord.utils.escape_mentions(item.title[:60])}"
+            f" · <t:{item.due_at}:F>" for item in items
+        ) or "Нет запланированных публикаций."
+        await interaction.response.edit_message(
+            embed=embed_card("NewSquad / Расписание объявлений", text),
+            view=BackView(self.client, self.owner_id),
+        )
+
+    @discord.ui.button(label="Главная", style=discord.ButtonStyle.secondary)
+    async def home(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=home_embed(), view=HomeView(self.client, self.owner_id),
+        )
+
+
+async def show_announcement_settings(
+    interaction: discord.Interaction, client: "NewSqadBot", owner_id: int,
+) -> None:
+    from app.services import announcements as store
+
+    gid = client.config.guild_id
+    drafts = await store.list_items(client.database, gid, statuses=("draft", "failed"))
+    planned = await store.list_items(client.database, gid, statuses=("scheduled",))
+    templates = await store.templates(client.database, gid)
+    body = (
+        f"**Черновики:** {len(drafts)} (последние 15)\n"
+        f"**Запланировано:** {len(planned)} (последние 15)\n"
+        f"**Шаблонов:** {len(templates)}\n"
+        f"**Время сервера:** {client.config.timezone}\n\n"
+        "**Создать:** /ann\n"
+        "**Управление:** /announcements drafts, scheduled, history\n"
+        "**Шаблоны:** /announcements templates, preset\n"
+        "**Отмена:** /announcements cancel\n\n"
+        "После /ann сначала показывается предпросмотр. "
+        "Отправка происходит только после подтверждения.",
+    )
+    await interaction.response.edit_message(
+        embed=embed_card("NewSquad / Центр объявлений", body),
+        view=AnnouncementSettingsView(client, owner_id),
+    )
 
 
 class StatisticsSettingsView(PrivateSettingsView):

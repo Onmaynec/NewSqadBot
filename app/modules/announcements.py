@@ -80,7 +80,12 @@ class AnnouncementModal(LoggedModal):
         self.add_item(discord.ui.Label(text="Текст объявления", component=self.body))
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        await self.cog.publish(
+        manager = interaction.client.get_cog("AnnouncementManager")
+        if manager is None:
+            await interaction.response.send_message(
+                embed=notice("Центр объявлений недоступен.", kind="warning"), ephemeral=True)
+            return
+        await manager.preview_draft(
             interaction, channel_id=self.channel_id, kind=self.kind,
             color=self.color, title=self.headline.value, body=self.body.value,
         )

@@ -33,7 +33,7 @@ def main() -> int:
         asyncio.run(_check_database(url))
         for module in MODULES:
             importlib.import_module(f"app.modules.{module.key}")
-        for extension in ("announcements", "help_center"):
+        for extension in ("announcements", "announcements_manager", "help_center"):
             importlib.import_module(f"app.modules.{extension}")
     print(f"Smoke пройден: SQLite + Alembic + {len(MODULES)} модулей + /ann + /help")
     return 0
