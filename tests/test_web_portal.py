@@ -345,7 +345,7 @@ def test_management_ui_permissions_are_not_only_client_side():
     assert '"/api/owner/shop"' in management
     assert '"/api/owner/role-panels"' in management
     assert '"/api/portal/events"' in management
-    assert '"/api/portal/suggestions"' in management
+    assert '"/api/portal/suggestions?' in management
     assert '"/api/portal/moderation"' in portal
     assert "roleLabels" in portal
     assert "beforeunload" in (root / "app.js").read_text(encoding="utf-8")
