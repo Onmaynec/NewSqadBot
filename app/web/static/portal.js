@@ -416,16 +416,161 @@
     box.append(form, body);
     return box;
   }
+  let chosenModerTarget = "";
+  function picker(options, className = "portal-select") {
+    const select = e("select", className);
+    for (const [value, label] of options) {
+      const item = e("option", "", label);item.value = value;select.append(item);
+    }
+    return select;
+  }
   async function moderation() {
-    const data = await api("/api/portal/moderation");
-    return cardList(data.items, (item) => {
-      const row = e("div", "portal-list-row");
-      row.append(rowTitle("Дело #" + item.id + " · " + item.kind,
-        "Участник " + item.user_id + " · " + format(item.created_at)));
-      row.append(pill(item.status, item.status === "active" ? "warning" : "neutral"));
-      row.append(e("span", "portal-ellipsis", item.reason));
-      return row;
-    }, "Дел не найдено.");
+    const wrapper = e("div", "portal-stack");
+    const create = e("div", "portal-panel");
+    create.append(e("h3", "", "Новое модерационное дело"));
+    const form = e("form", "portal-action-form");
+    const user = e("input", "portal-input");
+    user.placeholder = "Discord ID участника";user.value = chosenModerTarget;
+    user.maxLength = 20;user.required = true;user.inputMode = "numeric";
+    chosenModerTarget = "";
+    const kind = picker([["warn", "Предупреждение"], ["mute", "Тайм-аут"],
+      ["kick", "Исключение"], ["ban", "Блокировка"]]);
+    const reason = e("textarea", "portal-textarea");
+    reason.placeholder = "Причина (не менее 3 символов)";reason.maxLength = 400;
+    reason.required = true;reason.rows = 2;
+    const duration = e("input", "portal-input");
+    duration.placeholder = "Срок: 10m, 2h, 7d, 2w или per";
+    duration.maxLength = 25;duration.hidden = true;
+    kind.addEventListener("change", () => {
+      duration.hidden = !["ban", "mute"].includes(kind.value);
+      duration.required = !duration.hidden;
+      duration.value = "";
+      if (kind.value === "ban") duration.placeholder = "Срок: 1d, 2w или per";
+      if (kind.value === "mute") duration.placeholder = "Срок: 10m, 2h, 7d (максимум 28d)";
+    });
+    form.append(user, kind, duration, reason);
+    const issue = button("Выдать наказание", () => {}, "danger");
+    issue.type = "submit";form.append(issue);
+    form.addEventListener("submit", async (evt) => {
+      evt.preventDefault();
+      if (!/^[0-9]{15,20}$/.test(user.value.trim()) || reason.value.trim().length < 3) {
+        window.portalToast("Укажи полный Discord ID и причину.", true);return;
+      }
+      const question = "Вид: " + kind.options[kind.selectedIndex].text + " · участник: "
+        + user.value + (duration.hidden ? "" : " · срок: " + duration.value);
+      if (!await confirmAction("Подтвердить наказание?", question, "Выполнить")) return;
+      issue.disabled = true;
+      try {
+        const data = await api("/api/portal/moderation",
+          {method: "POST", body: {kind: kind.value, user_id: user.value.trim(),
+                                 reason: reason.value, duration: duration.value}});
+        window.portalToast(data.message);
+        reason.value = "";
+        await update();
+      } catch (error) {window.portalToast(error.message, true);}
+      finally {issue.disabled = false;}
+    });
+    create.append(form);
+    wrapper.append(create);
+    const filters = e("div", "portal-toolbar");
+    const filterKind = picker([["all", "Все типы"], ["ban", "Баны"],
+      ["mute", "Тайм-ауты"], ["warn", "Предупреждения"], ["kick", "Исключения"]]);
+    const status = picker([["all", "Любой статус"], ["active", "Активные"], ["closed", "Завершённые"]]);
+    const searchUser = e("input", "portal-input");searchUser.placeholder="Discord ID участника";
+    searchUser.inputMode="numeric";searchUser.maxLength=20;
+    const number = e("input", "portal-input");number.placeholder="Номер дела";
+    number.inputMode="numeric";number.maxLength=10;
+    const find = button("Найти дела", () => {void update();},"primary");
+    filters.append(filterKind,status,searchUser,number,find);
+    const results = e("div");
+    async function update() {
+      const query = new URLSearchParams({kind:filterKind.value,status:status.value,
+        user:searchUser.value.trim(),number:number.value.trim()});
+      try {
+        const data = await api("/api/portal/moderation?" + query);
+        results.replaceChildren(cardList(data.items, (item) => {
+          const row = e("div","portal-list-row");
+          row.append(rowTitle("Дело #" + item.id + " · " + item.kind,
+            "Участник " + item.user_id + " · " + format(item.created_at)));
+          row.append(pill(item.status, item.status === "active" ? "warning" : "neutral"));
+          row.append(e("span","portal-ellipsis",item.reason));
+          row.append(button("Открыть",() => {void moderationDetail(item.id);}));
+          return row;
+        }, "Нет дел по выбранным фильтрам."));
+      } catch (error) {results.replaceChildren(info("Ошибка поиска",error.message));}
+    }
+    for (const control of [filterKind,status]) control.addEventListener("change",() => {void update();});
+    for (const control of [searchUser,number]) control.addEventListener("keydown",evt => {
+      if (evt.key === "Enter") {evt.preventDefault();void update();}
+    });
+    wrapper.append(section("История модерации", "Фильтры по участнику, номеру дела, типу и статусу."),
+                   filters,results);
+    await update();return wrapper;
+  }
+  async function moderationDetail(id) {
+    root().replaceChildren(info("Дело #" + id, "Загружаем историю и состояние Discord..."));
+    try {
+      const data = await api("/api/portal/moderation/" + id);
+      const row = data.case;
+      const wrap = e("div","portal-stack");
+      wrap.append(section("Дело #" + id, "Карточка модерационного решения и действия."));
+      const fields = e("div","portal-detail");
+      for (const [key,val] of [
+        ["Участник",row.user_id],["Модератор",row.moderator_id],
+        ["Тип",row.kind],["Статус",row.status],["Причина",row.reason],
+        ["Создано",format(row.created_at)],["До",row.expires_at ? format(row.expires_at):"Бессрочно"],
+        ["Закрыто",format(row.completed_at)],["Закрыл",row.closed_by || "—"],
+        ["ЛС",row.dm_status],["Ошибка",row.error || "—"],
+      ]) fields.append(append(e("div","portal-detail-field"),
+                              e("span","",key),e("strong","",val)));
+      wrap.append(fields);
+      const actions = e("div","portal-actions");
+      actions.append(button("← Все дела",() => {void render("Модерация");}));
+      async function mutate(action,value,confirm) {
+        try {
+          const result = await api("/api/portal/moderation/" + id + "/action",
+            {method:"POST",body:{action,value,confirm}});
+          window.portalToast(result.message);
+          await moderationDetail(id);
+        } catch(error){window.portalToast(error.message,true);}
+      }
+      if(row.status==="active"){
+        actions.append(button("Изменить причину",async () => {
+          const text = await inputDialog("Изменение причины",
+            "Изменение будет записано в историю дела и журнал модерации.",
+            row.reason,3);
+          if(text) await mutate("reason",text,"");
+        }));
+        if(["ban","mute"].includes(row.kind)){
+          actions.append(button("Изменить срок",async () => {
+            const value=await inputDialog("Новый срок",
+              "Используй 10m, 2h, 7d, 2w. Для бана доступно per.",
+              "Например: 7d",2);
+            if(value) await mutate("duration",value,"");
+          }));
+        }
+        if(row.kind !== "kick") actions.append(button("Отменить наказание",async()=>{
+          const reason=await inputDialog("Причина отмены",
+            "Отмена действующего наказания требует обязательной причины.","Причина...",3);
+          if(reason && await confirmAction("Точно отменить наказание?",
+            "Будет выполнена операция в Discord и сохранена история.","Отменить наказание")){
+            await mutate("revoke",reason,"REVOKE");
+          }
+        },"danger"));
+      }
+      wrap.append(actions);
+      wrap.append(e("h3","portal-subheading","История изменений"));
+      wrap.append(cardList(data.history,(step)=>{
+        const entry=e("div","portal-history-row");
+        entry.append(rowTitle(step.action,format(step.at)));
+        entry.append(e("p","","Сотрудник: "+step.actor_id+" · "+(step.details||"Без примечаний")));
+        return entry;
+      },"Пока нет событий."));
+      root().replaceChildren(wrap);
+    } catch(error) {
+      root().replaceChildren(info("Не удалось открыть дело",error.message),
+        button("Назад",()=>{void render("Модерация");}));
+    }
   }
   async function statsPage() {
     const box = e("div", "portal-stack");
