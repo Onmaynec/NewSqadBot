@@ -1,4 +1,4 @@
-"""Устойчивый планировщик для будущих модулей (один экземпляр бота)."""
+"""Устойчивый планировщик: SQLite leases, ограниченные повторы и диагностика."""
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +8,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.core.database import Database
@@ -24,6 +24,14 @@ class Scheduler:
         self.interval = interval
         self.handlers: dict[str, Handler] = {}
         self._task: asyncio.Task[None] | None = None
+        self._run_lock = asyncio.Lock()
+        self.failures = 0
+        self.last_error: str | None = None
+        self._missing_logged: set[str] = set()
+
+    @property
+    def running(self) -> bool:
+        return self._task is not None and not self._task.done()
 
     def register(self, key: str, handler: Handler) -> None:
         if key in self.handlers:
@@ -39,12 +47,41 @@ class Scheduler:
                 payload_json=json.dumps(payload, ensure_ascii=False),
                 status="pending", attempts=0, locked_until=0,
             )
+            # Завершённые ключи не удаляем: это барьер против повторной отправки.
             await session.execute(stmt.on_conflict_do_nothing(index_elements=[ScheduledJob.job_key]))
 
-    async def run_due(self) -> int:
+    async def status(self) -> dict[str, int]:
         now = int(time.time())
         async with self.db.sessions() as session:
-            # Не держим БД-транзакцию открытой во время внешнего обработчика.
+            rows = (await session.execute(
+                select(ScheduledJob.status, func.count()).group_by(ScheduledJob.status)
+            )).all()
+            overdue = await session.scalar(select(func.count()).select_from(ScheduledJob).where(
+                ScheduledJob.status == "pending", ScheduledJob.due_at <= now))
+            stale = await session.scalar(select(func.count()).select_from(ScheduledJob).where(
+                ScheduledJob.status == "running", ScheduledJob.locked_until <= now))
+            names = (await session.scalars(select(ScheduledJob.handler).where(
+                ScheduledJob.status.in_(("pending", "running"))).distinct())).all()
+        result = {"pending": 0, "running": 0, "failed": 0, "done": 0,
+                  "overdue": overdue or 0, "stale": stale or 0,
+                  "missing_handlers": len(set(names) - self.handlers.keys())}
+        result.update(dict(rows))
+        return result
+
+    async def run_due(self) -> int:
+        """Один проход в процессе; операции Discord обязаны быть идемпотентными.
+
+        Lease в БД обеспечивает возврат задачи после обрыва, но не exactly-once
+        для внешнего API: задача может завершиться в Discord до фиксации результата.
+        """
+        if self._run_lock.locked():
+            return 0
+        async with self._run_lock:
+            return await self._run_due_locked()
+
+    async def _run_due_locked(self) -> int:
+        now = int(time.time())
+        async with self.db.sessions() as session:
             due = (await session.scalars(select(ScheduledJob).where(
                 or_(
                     (ScheduledJob.status == "pending") & (ScheduledJob.due_at <= now),
@@ -55,8 +92,11 @@ class Scheduler:
         completed = 0
         for job_id, handler_name, payload_json in pending:
             if handler_name not in self.handlers:
-                log.warning("Обработчик задачи %s не загружен; задача сохранена", handler_name)
+                if handler_name not in self._missing_logged:
+                    log.error("Задачи %s остались без обработчика; сохранены для восстановления", handler_name)
+                    self._missing_logged.add(handler_name)
                 continue
+            self._missing_logged.discard(handler_name)
             async with self.db.session() as session:
                 result = await session.execute(update(ScheduledJob).where(
                     ScheduledJob.id == job_id,
@@ -70,14 +110,21 @@ class Scheduler:
                 continue
             try:
                 await self.handlers[handler_name](json.loads(payload_json))
-            except Exception:
-                log.exception("Ошибка выполнения отложенной задачи id=%s", job_id)
+            except asyncio.CancelledError:
+                # Lease сохраняется в SQLite и будет повторно захвачен после таймаута.
+                log.warning("Остановка во время задачи id=%s handler=%s", job_id, handler_name)
+                raise
+            except Exception as exc:
+                self.failures += 1
+                self.last_error = f"{handler_name} #{job_id}: {type(exc).__name__}"
+                log.exception("Ошибка выполнения задачи id=%s handler=%s", job_id, handler_name)
                 async with self.db.session() as session:
                     row = await session.get(ScheduledJob, job_id)
                     if row and row.status == "running":
                         row.status = "failed" if row.attempts >= 5 else "pending"
                         row.locked_until = 0
-                        row.due_at = int(time.time()) + min(3600, 30 * (2 ** (row.attempts - 1)))
+                        if row.status == "pending":
+                            row.due_at = int(time.time()) + min(3600, 30 * (2 ** (row.attempts - 1)))
             else:
                 async with self.db.session() as session:
                     row = await session.get(ScheduledJob, job_id)
@@ -93,19 +140,24 @@ class Scheduler:
                 await self.run_due()
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
+                self.failures += 1
+                self.last_error = f"loop: {type(exc).__name__}"
                 log.exception("Ошибка планировщика")
             await asyncio.sleep(self.interval)
 
     def start(self) -> None:
-        if self._task is None:
-            self._task = asyncio.create_task(self._loop(), name="newsqad-scheduler")
+        if self.running:
+            return
+        if self._task is not None:
+            log.error("Перезапуск остановившегося процесса планировщика")
+        self._task = asyncio.create_task(self._loop(), name="newsqad-scheduler")
 
     async def stop(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
+        task, self._task = self._task, None
+        if task is not None:
+            task.cancel()
             try:
-                await self._task
+                await task
             except asyncio.CancelledError:
                 pass
-            self._task = None

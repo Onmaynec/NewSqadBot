@@ -26,6 +26,39 @@ async def collect(bot) -> list[Diagnostic]:
         ready = False
     result.append(Diagnostic("ok" if ready else "error", "SQLite",
                              "База отвечает." if ready else "База недоступна."))
+    if ready and hasattr(bot.database, "check_integrity"):
+        try:
+            await bot.database.check_integrity()
+            result.append(Diagnostic("ok", "Целостность SQLite", "quick_check и foreign_key_check пройдены."))
+        except Exception:
+            result.append(Diagnostic("error", "Целостность SQLite", "Обнаружена ошибка; проверьте резервную копию."))
+    for name, process in (("Scheduler", getattr(bot, "scheduler", None)), ("EventBus", getattr(bot, "events", None))):
+        if process is None or not process.running:
+            result.append(Diagnostic("error", name, "Фоновый процесс не запущен."))
+            continue
+        try:
+            state = await process.status()
+        except Exception:
+            result.append(Diagnostic("error", name, "Не удалось получить состояние очереди."))
+            continue
+        if name == "Scheduler":
+            problems = state["failed"] + state["missing_handlers"]
+            pending = state["pending"] + state["running"]
+            details = (f"Ожидают: {pending}; просрочены: {state['overdue']}; "
+                       f"зависшие leases: {state['stale']}; ошибки: {state['failed']}; "
+                       f"без обработчика: {state['missing_handlers']}.")
+            level = "warning" if problems or state["overdue"] > 50 or state["stale"] else "ok"
+        else:
+            details = (f"В очереди: {state['queued']}; квитанций: {state['receipts']}; "
+                       f"типы без обработчика: {state['unhandled_kinds']}.")
+            level = "warning" if state["unhandled_kinds"] or state["queued"] > 500 else "ok"
+        if process.failures:
+            details += f" Ошибок с момента запуска: {process.failures}; последняя: {process.last_error}."
+            level = "warning"
+        result.append(Diagnostic(level, name, details))
+    failed = [name for name, status in getattr(bot, "module_states", {}).items() if status == "error"]
+    if failed:
+        result.append(Diagnostic("warning", "Модули", "Ошибки загрузки: " + ", ".join(failed)))
     candidate_id = await bot.database.get_setting(guild.id, "candidate_role_id")
     candidate_role = guild.get_role(candidate_id) if candidate_id else None
     result.append(Diagnostic(
