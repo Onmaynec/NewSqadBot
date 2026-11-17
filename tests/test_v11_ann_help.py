@@ -27,7 +27,7 @@ from app.ui.theme import BRAND_BLUE
 
 
 def test_version_and_command_registration():
-    assert VERSION == "1.3.0"
+    assert VERSION == "1.4.0"
     assert Announcements.ann.name == "ann"
     assert HelpCenter.help.name == "help"
     options = {p.name for p in Announcements.ann.parameters}
