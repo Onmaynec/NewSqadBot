@@ -11,7 +11,7 @@ from discord.ext import commands
 
 from app.core.permissions import can_manage_settings
 from app.models import Ticket, TicketCategory
-from app.services import tickets as store
+from app.services import support_quality, tickets as store
 from app.services.membership_access import approved_member
 from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, card, notice, panel_card
 
@@ -227,6 +227,37 @@ class TicketActions(LoggedView):
         )
 
 
+class SupportSurveyView(discord.ui.View):
+    """Persistent rating buttons, usable in DM even after bot restart."""
+
+    def __init__(self, bot, survey_id: int, owner_id: int):
+        super().__init__(timeout=None)
+        self.bot, self.survey_id, self.owner_id = bot, survey_id, owner_id
+        for rating in range(1, 6):
+            button = discord.ui.Button(
+                label=f"{rating} ★", custom_id=f"newsqad:support:rate:{survey_id}:{rating}",
+                style=discord.ButtonStyle.success if rating >= 4 else discord.ButtonStyle.secondary,
+            )
+
+            async def on_rating(interaction: discord.Interaction, *, score=rating) -> None:
+                if interaction.user.id != self.owner_id:
+                    await interaction.response.send_message("Оценка предназначена другому участнику.",
+                                                            ephemeral=True)
+                    return
+                ok = await support_quality.rate(
+                    self.bot.database, self.bot.config.guild_id, self.survey_id,
+                    interaction.user.id, score)
+                if not ok:
+                    await interaction.response.send_message(
+                        "Оценка уже получена или срок опроса истёк.", ephemeral=True)
+                    return
+                await interaction.response.edit_message(
+                    content=f"Спасибо за оценку: {score} из 5. Опрос завершён.", view=None)
+
+            button.callback = on_rating
+            self.add_item(button)
+
+
 class Tickets(commands.Cog):
     tickets = app_commands.Group(name="tickets", description="Обращения в поддержку NewSquad")
     categories_group = app_commands.Group(name="category", description="Категории обращений", parent=tickets)
@@ -247,6 +278,10 @@ class Tickets(commands.Cog):
         for ticket in active:
             if ticket.channel_id and ticket.status == "open" and ticket.control_message_id:
                 self.bot.add_view(TicketActions(self, ticket.id), message_id=ticket.control_message_id)
+        await support_quality.purge(self.bot.database, self.bot.config.guild_id)
+        for survey in await support_quality.pending(self.bot.database, self.bot.config.guild_id):
+            if survey.notified_at is not None:
+                self.bot.add_view(SupportSurveyView(self.bot, survey.id, survey.requester_id))
 
     async def staff(self, interaction: discord.Interaction, ticket: Ticket | None = None) -> bool:
         if interaction.guild_id != self.bot.config.guild_id or not isinstance(interaction.user, discord.Member):
@@ -372,6 +407,30 @@ class Tickets(commands.Cog):
         except discord.HTTPException:
             log.warning("Сообщение управления тикетом #%s недоступно", ticket_id)
 
+    async def _deliver_surveys(self, *, requester_id: int | None = None) -> None:
+        rows = await support_quality.pending(
+            self.bot.database, self.bot.config.guild_id,
+            requester_id=requester_id, unsent_only=True, limit=50)
+        for survey in rows:
+            try:
+                user = self.bot.get_user(survey.requester_id)
+                if user is None:
+                    user = await self.bot.fetch_user(survey.requester_id)
+                view = SupportSurveyView(self.bot, survey.id, survey.requester_id)
+                await user.send(
+                    "Ваше обращение в NewSqad закрыто. По желанию оцените работу поддержки "
+                    "от 1 до 5 звёзд. Опрос доступен 7 дней. "
+                    "Переписка и содержание тикета не сохраняются.",
+                    view=view, allowed_mentions=discord.AllowedMentions.none())
+                await support_quality.mark_sent(self.bot.database, self.bot.config.guild_id,
+                                                survey.id)
+            except discord.Forbidden:
+                log.info("Не удалось отправить опрос после закрытия тикета (закрытые ЛС)")
+            except discord.HTTPException:
+                log.warning("Discord временно не доставил опрос %s", survey.id)
+            except Exception:
+                log.exception("Не удалось отправить оценку поддержки %s", survey.id)
+
     async def _delete_ticket(self, ticket: Ticket) -> str:
         """Удалить канал, затем все данные обращения; не писать в аудит.
 
@@ -389,6 +448,9 @@ class Tickets(commands.Cog):
                               ticket.id, ticket.channel_id)
                 return "Discord не разрешил удалить канал. Проверьте Manage Channels и повторите закрытие."
         await store.erase_ticket(self.bot.database, ticket.guild_id, ticket.id)
+        # Отправка ЛС не влияет на факт успешного закрытия: снимок оценки
+        # создан той же транзакцией, что и удаление приватного тикета.
+        await self._deliver_surveys(requester_id=ticket.user_id)
         return "Обращение закрыто. Канал удалён, переписка и история не сохранены."
 
     async def close_ticket(self, interaction: discord.Interaction, ticket_id: int, reason: str = "") -> str:
@@ -496,6 +558,7 @@ class Tickets(commands.Cog):
         if self._loaded:
             return
         self._loaded = True
+        await self._deliver_surveys()
         for ticket_id in await store.stale_creating(self.bot.database, self.bot.config.guild_id, int(time.time()) - 600):
             await store.fail_create(self.bot.database, self.bot.config.guild_id, ticket_id, "Создание прервано при перезапуске")
         for ticket in await store.list_tickets(self.bot.database, self.bot.config.guild_id, limit=1000):
