@@ -50,13 +50,13 @@ def suggestion_embed(item) -> discord.Embed:
 
 class CreateSuggestionModal(LoggedModal, title="Предложение для NewSquad"):
     topic = discord.ui.TextInput(label="Тема", min_length=4, max_length=100)
-    category = discord.ui.Select(placeholder="Категория идеи", options=[
+    category = discord.ui.Label(text="Категория идеи", component=discord.ui.Select(options=[
         discord.SelectOption(label="Общее", value="general"),
         discord.SelectOption(label="Игры", value="games"),
         discord.SelectOption(label="Мероприятия", value="events"),
         discord.SelectOption(label="Сервер", value="server"),
         discord.SelectOption(label="Другое", value="other"),
-    ])
+    ]))
     details = discord.ui.TextInput(
         label="Описание идеи", style=discord.TextStyle.paragraph,
         min_length=12, max_length=1200,
@@ -68,7 +68,7 @@ class CreateSuggestionModal(LoggedModal, title="Предложение для Ne
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         await self.cog.create_idea(interaction, str(self.topic.value),
-            str(self.details.value), category=self.category.values[0])
+            str(self.details.value), category=self.category.component.values[0])
 
 
 class CreateButton(discord.ui.Button):
