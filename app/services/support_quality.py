@@ -63,31 +63,36 @@ async def summary(db, guild_id: int, *, days: int = 30, now: int | None = None):
     async with db.sessions() as session:
         aggregate = await session.execute(select(
             func.count(SupportSurvey.id),
+            func.count(SupportSurvey.rating),
             func.avg(SupportSurvey.rating),
+            func.count(SupportSurvey.response_seconds),
             func.avg(SupportSurvey.response_seconds),
             func.sum(case((SupportSurvey.rating >= 4, 1), else_=0)),
-        ).where(SupportSurvey.guild_id == guild_id, SupportSurvey.rated_at >= start,
-                SupportSurvey.rating.is_not(None)))
-        total, average, response, positive = aggregate.one()
+        ).where(SupportSurvey.guild_id == guild_id, SupportSurvey.created_at >= start))
+        closed, total, average, answered, response, positive = aggregate.one()
         by_staff = (await session.execute(select(
             SupportSurvey.staff_id,
             func.count(SupportSurvey.id),
+            func.count(SupportSurvey.rating),
             func.avg(SupportSurvey.rating),
+            func.count(SupportSurvey.response_seconds),
             func.avg(SupportSurvey.response_seconds),
-        ).where(SupportSurvey.guild_id == guild_id, SupportSurvey.rated_at >= start,
-                SupportSurvey.rating.is_not(None))
+        ).where(SupportSurvey.guild_id == guild_id, SupportSurvey.created_at >= start)
             .group_by(SupportSurvey.staff_id)
             .order_by(func.count(SupportSurvey.id).desc()).limit(40))).all()
     return {
         "period_days": days,
+        "closed_tickets": int(closed or 0),
         "ratings": int(total or 0),
+        "answered_tickets": int(answered or 0),
         "average_rating": round(float(average), 2) if average is not None else None,
         "positive_percent": round(100 * int(positive or 0) / int(total), 1) if total else None,
         "avg_first_response_seconds": round(float(response)) if response is not None else None,
-        "staff": [{"user_id": str(uid), "ratings": count,
-                   "average_rating": round(float(avg), 2),
+        "staff": [{"user_id": str(uid), "closed_tickets": closed_count, "ratings": rated,
+                   "answered_tickets": responses,
+                   "average_rating": round(float(avg), 2) if avg is not None else None,
                    "avg_first_response_seconds": round(float(delay)) if delay is not None else None}
-                  for uid, count, avg, delay in by_staff],
+                  for uid, closed_count, rated, avg, responses, delay in by_staff],
     }
 
 
