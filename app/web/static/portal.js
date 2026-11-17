@@ -6,34 +6,34 @@
     "Заявки": "Рассмотрение кандидатов, история решений и запросы уточнений.",
     "Тикеты": "Работа с приватными обращениями и перепиской Discord.",
     "Сотрудники": "Состав команды и доступность сотрудников.",
-    "Участники": "Участники сервера, роли и поиск по имени.",
+    "Список участников": "Участники сервера, роли и поиск по имени.",
     "Модерация": "Активные и завершённые дела модерации.",
-    "Статистика": "Аналитика NewSqad без хранения содержимого сообщений.",
+    "Аналитика": "Аналитика NewSqad без хранения содержимого сообщений.",
     "Рейтинги": "Рейтинг активности с учётом настроек приватности.",
     "Аудит": "Системный журнал действий и настроек.",
     "Активность": "Агрегированная активность администрации за 30 дней.",
   };
   const menu = {
     support: ["Обзор", "Заявки", "Тикеты"],
-    moder: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Участники", "Модерация"],
-    admin: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Участники", "Модерация",
-            "Статистика", "Рейтинги", "Активность", "Аудит"],
-    owner: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Участники", "Модерация",
-            "Статистика", "Рейтинги", "Активность", "Аудит"],
+    moder: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация"],
+    admin: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация",
+            "Аналитика", "Рейтинги", "Активность", "Аудит"],
+    owner: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация",
+            "Аналитика", "Рейтинги", "Активность", "Аудит"],
   };
   const roleLabels = {owner: "OWNER", admin: "ADMIN", moder: "MODERATOR", support: "TICKET STAFF"};
   const glyphs = {
     "Обзор": '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     "Роли": '<circle cx="9" cy="8" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2"/><path d="m16 11 2 2 4-4"/>',
     "Каналы": '<path d="M4 8h16M4 16h16M8 4v16M16 4v16"/>',
-    "Участники": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+    "Список участников": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
     "Поддержка": '<path d="M4 13v-3a8 8 0 0 1 16 0v3M4 13H2v5h5v-5H4zm16 0h2v5h-5v-5h3z"/><path d="M20 18a5 5 0 0 1-5 4h-3"/>',
     "Голосовые": '<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8"/>',
     "Прогрессия": '<path d="m3 17 6-6 4 4 8-8M15 7h6v6"/>',
     "Экономика": '<circle cx="12" cy="12" r="9"/><path d="M15.5 9c-.8-1.8-6.5-2-6.5.5 0 3 6.5 1.5 6.5 5 0 3-6.7 3.2-7.5 1M12 5v14"/>',
     "Задания": '<path d="m9 12 2 2 4-4"/><rect x="4" y="3" width="16" height="18" rx="2"/>',
     "Сообщество": '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
-    "Статистика": '<path d="M4 20V9m5 11V4m5 16v-7m5 7V7"/>',
+    "Аналитика": '<path d="M4 20V9m5 11V4m5 16v-7m5 7V7"/>',
     "Модули": '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
     "Диагностика": '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
     "Заявки": '<path d="M7 3h10l4 4v14H3V3zM17 3v5h5M7 12h10M7 16h7"/>',
@@ -160,6 +160,57 @@
       dialog.querySelector("button").focus();
     });
   }
+  async function inputDialog(title, description, placeholder, minimum = 3) {
+    return new Promise((resolve) => {
+      const overlay = e("div", "portal-modal-overlay");
+      const dialog = e("div", "portal-modal");
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-modal", "true");
+      const field = e("textarea", "portal-textarea");
+      field.placeholder = placeholder;
+      field.maxLength = 500;
+      field.rows = 4;
+      const errors = e("div", "portal-field-error");
+      const footer = e("div", "portal-actions");
+      function done(value) { overlay.remove(); resolve(value); }
+      footer.append(button("Отмена", () => done(null)));
+      footer.append(button("Подтвердить", () => {
+        const value = field.value.trim();
+        if (value.length < minimum) {
+          errors.textContent = "Нужно не менее " + minimum + " символов.";
+          return;
+        }
+        done(value);
+      }, "primary"));
+      dialog.append(e("h3", "", title), e("p", "", description), field, errors, footer);
+      overlay.append(dialog);document.body.append(overlay);field.focus();
+    });
+  }
+  async function chooseStaff() {
+    const data = await api("/api/portal/staff");
+    if (!data.items.length) {
+      window.portalToast("Сотрудники не найдены.", true);
+      return null;
+    }
+    return new Promise((resolve) => {
+      const overlay = e("div", "portal-modal-overlay");
+      const dialog = e("div", "portal-modal");
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-modal", "true");
+      const select = e("select", "portal-select portal-full");
+      for (const item of data.items) {
+        const choice = e("option", "", item.name + " · " + (roleLabels[item.role] || item.role));
+        choice.value = item.id;select.append(choice);
+      }
+      const footer = e("div", "portal-actions");
+      function done(result) {overlay.remove();resolve(result);}
+      footer.append(button("Отмена", () => done(null)));
+      footer.append(button("Передать", () => done(select.value), "primary"));
+      dialog.append(e("h3", "", "Передать обращение"),
+        e("p", "", "Выберите сотрудника с действующей ролью NewSqad."),select,footer);
+      overlay.append(dialog);document.body.append(overlay);select.focus();
+    });
+  }
   async function applicationDetails(id) {
     const box = root();
     box.replaceChildren(info("Заявка #" + id, "Загружаем карточку..."));
@@ -198,13 +249,13 @@
           }
         }, "success"));
         actions.append(button("Отклонить", async () => {
-          const reason = prompt("Укажи причину отказа (не менее 3 символов):");
+          const reason = await inputDialog("Причина отказа", "Кандидат получит уведомление о решении.", "Подробно укажите причину...", 3);
           if (reason && await confirmAction("Отклонить заявку?", "Кандидат будет исключён с сервера.", "Отклонить")) {
             await submit("reject", reason);
           }
         }, "danger"));
         actions.append(button("Уточнить", async () => {
-          const reason = prompt("Напиши уточняющий вопрос кандидату:");
+          const reason = await inputDialog("Уточнение для кандидата", "Ответ сохранится в приватной истории заявки.", "Какую информацию необходимо уточнить?", 5);
           if (reason) await submit("request_info", reason);
         }));
       }
@@ -259,7 +310,6 @@
     textarea.rows = 3;
     const send = button("Отправить в Discord", () => {}, "primary");
     send.type = "submit";
-    send.replaceWith(send);
     form.append(textarea, send);
     const foot = e("div", "portal-muted", "Сообщения отправляются от имени бота с подписью сотрудника. Переписка не хранится в SQLite.");
     wrap.append(header, actions, messages, form, foot);
@@ -300,15 +350,16 @@
         const data = await api("/api/portal/tickets/" + id + "/action",
           {method: "POST", body: {action: kind, ...additional}});
         window.portalToast(data.message);
-        if (kind === "close") { stopTicketRefresh(); await render("Тикеты"); return; }
+        if (kind === "close") { stopTicketRefresh(); await render("Тикеты"); return true; }
         await refreshMessages();
-      } catch (error) { window.portalToast(error.message, true); }
+        return true;
+      } catch (error) { window.portalToast(error.message, true); return false; }
     }
     actions.append(button("← Все обращения", () => { stopTicketRefresh(); void render("Тикеты"); }));
     actions.append(button("Взять в работу", () => { void action("claim"); }, "success"));
     actions.append(button("Передать", async () => {
-      const id = prompt("Discord ID сотрудника, которому передать тикет:");
-      if (id) await action("transfer", {user_id: id});
+      const staffId = await chooseStaff();
+      if (staffId) await action("transfer", {user_id: staffId});
     }));
     actions.append(button("Закрыть и удалить", async () => {
       if (await confirmAction("Удалить тикет безвозвратно?",
@@ -320,8 +371,8 @@
       const text = textarea.value.trim();
       if (!text) return;
       send.disabled = true;
-      await action("reply", {text});
-      textarea.value = "";
+      const delivered = await action("reply", {text});
+      if (delivered) textarea.value = "";
       send.disabled = false;
     });
     host.replaceChildren(wrap);
@@ -389,7 +440,7 @@
       const data=await api("/api/portal/stats?period="+periods.value);
       const grid=e("div","portal-metrics");
       for (const [name,value] of Object.entries(data.totals)) {
-        const labels={total:"Участники",approved:"Одобрены",candidates:"Кандидаты",
+        const labels={total:"Список участников",approved:"Одобрены",candidates:"Кандидаты",
           joins:"Вступления",leaves:"Выходы",approvals:"Принятые заявки",rejections:"Отказы",
           messages:"Сообщения",voice_minutes:"Голос, мин.",active_users:"Активные участники",
           events:"Мероприятия",parties:"Группы",tickets:"Обращения"};
@@ -456,7 +507,7 @@
     },"Пока нет активности администрации.");
   }
   const loaders={"Обзор":overview,"Заявки":applications,"Тикеты":tickets,
-    "Сотрудники":staff,"Участники":members,"Модерация":moderation,"Статистика":statsPage,
+    "Сотрудники":staff,"Список участников":members,"Модерация":moderation,"Аналитика":statsPage,
     "Рейтинги":rankings,"Активность":activity,"Аудит":audit};
   async function render(group) {
     if (group !== "Тикеты") stopTicketRefresh();
