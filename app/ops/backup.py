@@ -86,7 +86,7 @@ def _guard_running(target: Path, *, now: float | None = None) -> None:
         # Готовность Discord не равна жизни процесса: при деградации бот может
         # продолжать держать SQLite и WAL открытыми. Restore в этот момент опасен.
         if 0 <= elapsed <= 90 and state.get("phase") != "stopped":
-            raise BackupError("Процесс бота всё ещё активен: остановите контейнер перед восстановлением.")
+            raise BackupError("Бот ещё работает (в том числе в degraded): остановите контейнер перед восстановлением.")
     except (OSError, ValueError, TypeError, KeyError):
         return
 
