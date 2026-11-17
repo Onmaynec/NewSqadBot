@@ -708,10 +708,10 @@ class Tickets(commands.Cog):
     @tickets.command(name="list", description="Открытые обращения (или свои обращения)")
     async def list(self, interaction: discord.Interaction) -> None:
         staff = await self.staff(interaction)
-        tickets = await tickets.list_tickets(self.bot.database, self.bot.config.guild_id,
+        rows = await tickets.list_tickets(self.bot.database, self.bot.config.guild_id,
             user_id=None if staff else interaction.user.id)
         lines = [f"**#{t.id}** · {discord.utils.escape_mentions(t.subject)} · {t.status} · "
-                 + (f"<#{t.channel_id}>" if t.channel_id else "канал создаётся") for t in tickets]
+                 + (f"<#{t.channel_id}>" if t.channel_id else "канал создаётся") for t in rows]
         await interaction.response.send_message("\n".join(lines)[:1900] or "Открытых обращений нет.", ephemeral=True,
                                                 allowed_mentions=discord.AllowedMentions.none())
 
