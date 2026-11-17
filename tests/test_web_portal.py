@@ -44,6 +44,7 @@ class Guild:
         }
         self.members = list(self.members_by_id.values())
         self.roles = []
+        self.channels = []
 
     async def fetch_member(self, uid):
         return self.members_by_id[uid]
