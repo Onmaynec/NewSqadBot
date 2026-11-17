@@ -10,7 +10,7 @@ from typing import Any, AsyncIterator
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -31,6 +31,17 @@ def migrate(database_url: str) -> None:
 class Database:
     def __init__(self, url: str):
         self.engine = create_async_engine(url, pool_pre_ping=True, connect_args={"timeout": 15})
+        # sqlite+aiosqlite возвращает адаптированный DBAPI, события connect
+        # выполняются при создании каждого физического соединения.
+        @event.listens_for(self.engine.sync_engine, "connect")
+        def configure_connection(connection, _record) -> None:
+            cursor = connection.cursor()
+            try:
+                cursor.execute("PRAGMA foreign_keys = ON")
+                cursor.execute("PRAGMA busy_timeout = 15000")
+            finally:
+                cursor.close()
+
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
 
     @asynccontextmanager
