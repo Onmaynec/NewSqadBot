@@ -17,9 +17,10 @@
     support: ["Обзор", "Заявки", "Тикеты"],
     moder: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация"],
     admin: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация",
-            "Аналитика", "Рейтинги", "Активность", "Аудит"],
+            "Аналитика", "Рейтинги", "Активность", "Аудит", "Мероприятия", "Розыгрыши", "Предложения"],
     owner: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация",
-            "Аналитика", "Рейтинги", "Активность", "Аудит"],
+            "Аналитика", "Рейтинги", "Активность", "Аудит", "Мероприятия", "Розыгрыши",
+            "Предложения", "Магазин NS Coins", "Панели ролей", "Категории тикетов", "Объявления"],
   };
   const roleLabels = {owner: "OWNER", admin: "ADMIN", moder: "MODERATOR", support: "TICKET STAFF"};
   const glyphs = {
@@ -43,6 +44,13 @@
     "Рейтинги": '<path d="M8 21V9H3v12m10 0V3H8v18m10 0v-9h-5v9M2 21h20"/>',
     "Активность": '<path d="M3 12h4l3-6 4 12 3-6h4"/>',
     "Аудит": '<path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/>',
+    "Магазин NS Coins": '<path d="M3 7h18l-2 6H5L3 7zM5 13v8h14v-8M10 21v-5h4v5M4 7l2-4h12l2 4"/>',
+    "Панели ролей": '<path d="M4 4h16v16H4zM8 9h8M8 14h8M9 18h6"/>',
+    "Категории тикетов": '<path d="M3 6h18v5a2 2 0 0 0 0 4v4H3v-4a2 2 0 0 0 0-4V6z"/>',
+    "Объявления": '<path d="M4 10v4h4l11 5V5L8 10H4zM8 14l2 6"/>',
+    "Мероприятия": '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>',
+    "Розыгрыши": '<rect x="3" y="9" width="18" height="13" rx="2"/><path d="M2 9h20V6H2zM5 13v8h14v-8M12 9v13"/>',
+    "Предложения": '<path d="M9 18h6M10 22h4M8 14a7 7 0 1 1 8 0c-2 2-1 3-4 3s-2-1-4-3z"/>',
   };
   function icon(name) {
     const node = document.createElement("span");
@@ -684,7 +692,10 @@
     "Рейтинги":rankings,"Активность":activity,"Аудит":audit};
   async function render(group) {
     if (group !== "Тикеты") stopTicketRefresh();
-    if (loaders[group]) await load(group, loaders[group]);
+    if (window.Management?.loaders[group]) {
+      descriptions[group] = window.Management.descriptions[group];
+      await load(group, window.Management.loaders[group]);
+    } else if (loaders[group]) await load(group, loaders[group]);
   }
   window.Portal={menu,roleLabels,icon,descriptions,render,stopTicketRefresh};
 })();
