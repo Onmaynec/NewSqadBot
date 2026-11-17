@@ -202,7 +202,7 @@ async def oauth_start(request: web.Request) -> web.Response:
     # return to a distinct ts.net callback host.
     host = request.headers.get("Host", "")
     if host != urlsplit(panel.public_url).netloc:
-        return web.HTTPFound(location=panel.public_url + "/auth/discord")
+        return web.Response(status=302, headers={"Location": panel.public_url + "/auth/discord"})
     ticket = new_state(panel.pending_states)
     redirect = panel.public_url + "/auth/callback"
     location = authorize_url(panel.discord_client_id, redirect, ticket)
