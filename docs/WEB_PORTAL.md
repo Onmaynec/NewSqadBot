@@ -4,7 +4,7 @@
 
 Панель запускается внутри существующего контейнера NewSqadBot. Никакая отдельная база, перепубликация токена бота или внешний хостинг не нужны.
 
-- Discord OAuth2 с scope \`identify\` и повторной проверкой роли текущего пользователя через бота **при каждом API-запросе**.
+- Discord OAuth2 с scope `identify` и повторной проверкой роли текущего пользователя через бота **при каждом API-запросе**.
 - Роли сайта определяются на основании Discord Guild ID 1439347293076586638 (никакого ручного присвоения прав в браузере).
 - Заявки: просмотр и история, взять в работу, уточнить, одобрить, отклонить, повторить незавершённое решение.
 - Тикеты: список открытых обращений, приватная история последних 50 Discord-сообщений, ответы в Discord, назначение сотрудника, передача и безвозвратное закрытие.
@@ -37,39 +37,39 @@ Tailscale Funnel создаёт публичный стабильный HTTPS-а
 
 1. Установить Tailscale на ПК с Docker Desktop: https://tailscale.com/download
 2. Подключиться к Tailscale и включить Funnel для машины (может потребовать MagicDNS, HTTPS и изменение политики tailnet).
-3. Запустить бот как обычно: \`docker compose up -d --build\`.
+3. Запустить бот как обычно: `docker compose up -d --build`.
 4. На Windows открыть PowerShell (от администратора при необходимости), выполнить:
 
-   \`tailscale funnel --bg 8787\`
+   `tailscale funnel --bg 8787`
 
 5. Скопировать адрес https://...ts.net **из реального вывода** Tailscale. Не придумывать hostname.
 6. В Discord Developer Portal (https://discord.com/developers/applications) открыть приложение **этого бота**, раздел OAuth2. Получить Client ID и Client Secret. **Client Secret никому не отправлять.**
 7. Добавить в OAuth2 Redirects строго:
 
-   \`https://my-pc.my-tailnet.ts.net/auth/callback\`
+   `https://my-pc.my-tailnet.ts.net/auth/callback`
 
    Хост должен быть точно тем же, который выдал Funnel.
 8. В .env указать:
 
-   \`\`\`env
+   ```env
    WEB_DISCORD_CLIENT_ID=ВАШ_CLIENT_ID
    WEB_DISCORD_CLIENT_SECRET=ВАШ_CLIENT_SECRET
    WEB_PUBLIC_URL=https://my-pc.my-tailnet.ts.net
-   \`\`\`
+   ```
 
    URL без завершающего слэша и без /auth/callback. Client Secret остаётся только на сервере.
-9. Перезапустить: \`docker compose up -d --force-recreate\`. Пересборка не нужна, если код уже обновлён.
+9. Перезапустить: `docker compose up -d --force-recreate`. Пересборка не нужна, если код уже обновлён.
 10. В браузере открыть HTTPS-адрес Funnel и нажать **Войти через Discord**. Пользователь разрешит приложению видеть его Discord-профиль, после чего бот проверит текущие роли на NewSqad.
 
 **Примечание о локальном адресе.** В OAuth-режиме вход на http://127.0.0.1:8787 автоматически отправит браузер на HTTPS-адрес Tailscale перед авторизацией: Discord не может возвращать Secure cookie на другой HTTP-hostname. Пользуйтесь публичным HTTPS-адресом при входе.
 
-Пароль WEB_ADMIN_PASSWORD_HASH можно оставить в .env для возможного возвращения к локальному режиму, но пока включён Discord OAuth, вход по этому паролю отключён. Для отключения внешнего доступа выполните \`tailscale funnel 8787 off\` и удалите настройки WEB_DISCORD_CLIENT_ID/SECRET/URL. Не заменяйте порт в compose.yaml на 0.0.0.0.
+Пароль WEB_ADMIN_PASSWORD_HASH можно оставить в .env для возможного возвращения к локальному режиму, но пока включён Discord OAuth, вход по этому паролю отключён. Для отключения внешнего доступа выполните `tailscale funnel --bg 8787 off` и удалите настройки WEB_DISCORD_CLIENT_ID/SECRET/URL. Не заменяйте порт в compose.yaml на 0.0.0.0.
 
 ## Discord intents и приватность тикетов
 
-Для отображения текстов Discord-сообщений в тикетах нужно включить **Message Content Intent** в Discord Developer Portal → Bot → Privileged Gateway Intents, а в .env задать \`ENABLE_MESSAGE_CONTENT_INTENT=true\`. Боту также нужны View Channel, Read Message History и Send Messages в приватных тикетах. Без соответствующих разрешений и intent часть текста может быть недоступна — сайт не обходит ограничения Discord.
+Для отображения текстов Discord-сообщений в тикетах нужно включить **Message Content Intent** в Discord Developer Portal → Bot → Privileged Gateway Intents, а в .env задать `ENABLE_MESSAGE_CONTENT_INTENT=true`. Боту также нужны View Channel, Read Message History и Send Messages в приватных тикетах. Без соответствующих разрешений и intent часть текста может быть недоступна — сайт не обходит ограничения Discord.
 
-Для онлайн-статуса сотрудников нужно включить **Presence Intent** в Discord Developer Portal и \`ENABLE_PRESENCE_INTENT=true\` в .env, перезапустить бота. Если presence не доступен, отображается **Неизвестно**, а не «Офлайн». Список сотрудников зависит от участников, известных кэшу Gateway; он не гарантирует полный перечень до завершения загрузки участников Discord.
+Для онлайн-статуса сотрудников нужно включить **Presence Intent** в Discord Developer Portal и `ENABLE_PRESENCE_INTENT=true` в .env, перезапустить бота. Если presence не доступен, отображается **Неизвестно**, а не «Офлайн». Список сотрудников зависит от участников, известных кэшу Gateway; он не гарантирует полный перечень до завершения загрузки участников Discord.
 
 **Чат тикета:**
 - HTTP-ответ возвращает до 50 последних сообщений из текущего Discord-канала, а интерфейс обновляет их при открытом чате.
@@ -79,7 +79,7 @@ Tailscale Funnel создаёт публичный стабильный HTTPS-а
 
 ## Проверка безопасности и запуск
 
-- Проверить \`docker compose ps\` и \`docker compose logs --tail=150 bot\`.
+- Проверить `docker compose ps` и `docker compose logs --tail=150 bot`.
 - Убедиться, что /api/session без входа отвечает authenticated=false, а /api/bootstrap без сессии запрещён.
 - Проверить вход Owner и запрет настройки из Admin/Moder/Ticket Staff.
 - Удалить роль у тестового аккаунта в Discord и убедиться, что следующий запрос получает запрет.
