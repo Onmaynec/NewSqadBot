@@ -2,14 +2,19 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import sqlite3
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+from types import SimpleNamespace
 
+import discord
 import pytest
 
 from app.config import GUILD_ID, VERSION
 from app.core.database import Database, migrate
+from app.core.scheduler import Scheduler
 from app.modules.announcements import AnnouncementModal, build_announcement
 from app.modules.announcements_manager import AnnouncementManager
 from app.modules.help_center import (
@@ -206,3 +211,95 @@ def test_original_ann_compatibility_and_safe_mentions():
     payload = build_announcement("embed", "News", "@everyone changes")
     assert payload["allowed_mentions"].everyone is False
     assert "@everyone" not in payload["embed"].description
+
+
+@pytest.mark.asyncio
+async def test_discord_delivery_is_claimed_once(tmp_path, monkeypatch):
+    from app.modules import announcements_manager
+
+    migrate(url(tmp_path))
+    db = Database(url(tmp_path))
+    channel = MagicMock(spec=discord.TextChannel)
+    channel.permissions_for.return_value = SimpleNamespace(
+        view_channel=True, send_messages=True, embed_links=True,
+    )
+    channel.send = AsyncMock(return_value=SimpleNamespace(
+        id=4499, jump_url="https://discord.com/channels/1/2/4499",
+    ))
+    guild = SimpleNamespace(id=GUILD_ID, me=SimpleNamespace(id=5),
+                            get_channel=lambda _: channel)
+    bot = SimpleNamespace(
+        database=db, config=SimpleNamespace(guild_id=GUILD_ID, owner_ids=frozenset()),
+        get_guild=lambda _: guild,
+    )
+    monkeypatch.setattr(announcements_manager, "log_event", AsyncMock())
+    try:
+        row = await store.create(
+            db, guild_id=GUILD_ID, author_id=10, channel_id=20,
+            kind="embed", title="Новости", body="Новое обновление", color=BRAND_BLUE,
+        )
+        cog = AnnouncementManager(bot)
+        result = await cog._deliver(row, scheduled_only=False)
+        assert "опубликовано" in result
+        result = await cog._deliver(row, scheduled_only=False)
+        assert "уже" in result
+        channel.send.assert_awaited_once()
+        current = await store.get(db, GUILD_ID, row.id)
+        assert (current.status, current.message_id, current.attempts) == ("sent", 4499, 1)
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_restart_recovers_only_pending_and_ignores_cancel(tmp_path):
+    migrate(url(tmp_path))
+    db = Database(url(tmp_path))
+    now = int(time.time())
+    try:
+        row = await store.create(
+            db, guild_id=GUILD_ID, author_id=10, channel_id=20,
+            kind="text", title="Позже", body="Текст по расписанию", color=BRAND_BLUE,
+        )
+        await store.schedule(db, guild_id=GUILD_ID, number=row.id, due_at=now + 600)
+        bot = SimpleNamespace(
+            config=SimpleNamespace(guild_id=GUILD_ID),
+            database=db, scheduler=Scheduler(db),
+            wait_until_ready=AsyncMock(),
+        )
+        manager = AnnouncementManager(bot)
+        await manager.cog_load()
+        # Повторная загрузка после рестарта не создаёт дубли scheduled_jobs.
+        bot.scheduler = Scheduler(db)
+        manager = AnnouncementManager(bot)
+        await manager.cog_load()
+        from sqlalchemy import func, select
+        from app.models import ScheduledJob
+
+        async with db.sessions() as session:
+            count = await session.scalar(select(func.count()).select_from(ScheduledJob))
+        assert count == 1
+        await store.cancel(db, guild_id=GUILD_ID, number=row.id)
+        manager._deliver = AsyncMock()
+        await manager._scheduled({"guild_id": GUILD_ID, "id": row.id})
+        manager._deliver.assert_not_awaited()
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_detect_missing_candidate_role():
+    from app.services.diagnostics import collect, diagnostic_embed
+
+    guild = SimpleNamespace(id=GUILD_ID, me=None,
+                            get_role=lambda _: None, get_channel=lambda _: None)
+    bot = SimpleNamespace(
+        config=SimpleNamespace(guild_id=GUILD_ID),
+        get_guild=lambda _: guild,
+        database=SimpleNamespace(
+            ping=AsyncMock(return_value=True),
+            get_setting=AsyncMock(return_value=None),
+        ),
+    )
+    checks = await collect(bot)
+    assert any(c.name == "Роль кандидата" and c.level == "error" for c in checks)
+    assert diagnostic_embed(checks).color.value == BRAND_BLUE
