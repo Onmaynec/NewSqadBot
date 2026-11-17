@@ -24,6 +24,7 @@ jobs:
         run: |
           node --check app/web/static/app.js
           node --check app/web/static/portal.js
+          node --check app/web/static/manage.js
   docker:
     runs-on: ubuntu-latest
     steps:
