@@ -83,8 +83,10 @@ def _guard_running(target: Path, *, now: float | None = None) -> None:
     try:
         state = json.loads(path.read_text(encoding="utf-8"))
         elapsed = (time.time() if now is None else now) - float(state["timestamp"])
-        if state.get("ready") is True and 0 <= elapsed <= 90:
-            raise BackupError("Бот ещё работает: остановите контейнер перед восстановлением.")
+        # Готовность Discord не равна жизни процесса: при деградации бот может
+        # продолжать держать SQLite и WAL открытыми. Restore в этот момент опасен.
+        if 0 <= elapsed <= 90 and state.get("phase") != "stopped":
+            raise BackupError("Процесс бота всё ещё активен: остановите контейнер перед восстановлением.")
     except (OSError, ValueError, TypeError, KeyError):
         return
 
