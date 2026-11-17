@@ -232,7 +232,8 @@ def test_discord_views_and_commands_exist():
         config = type("Config", (), {"owner_ids": frozenset()})()
 
     view = HomeView(Stub(), 1)
-    assert "Мероприятия" in {item.label for item in view.children if isinstance(item, discord.ui.Button)}
+    assert "Мероприятия" in {option.label for item in view.children if isinstance(item, discord.ui.Select)
+                                for option in item.options}
 
 
 @pytest.mark.asyncio
