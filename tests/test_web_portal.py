@@ -123,6 +123,10 @@ async def test_oauth_roles_cannot_access_owner_settings_or_audit(tmp_path):
                 assert audit.status == (200 if uid in (11, 12) else 403)
                 members = await client.get("/api/portal/members")
                 assert members.status == (200 if uid in (11, 12, 13) else 403)
+                staff = await client.get("/api/portal/staff")
+                assert staff.status == (200 if uid in (11, 12, 13) else 403)
+                picker = await client.get("/api/portal/tickets/staff")
+                assert picker.status == 200
                 tickets_result = await client.get("/api/portal/tickets")
                 assert tickets_result.status == 200
                 applications_result = await client.get("/api/portal/applications")
