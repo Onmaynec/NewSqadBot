@@ -87,14 +87,14 @@ class SessionStore:
         return token, session
 
     def get(self, token: str | None, *, now: float | None = None) -> Session | None:
-        if not isinstance(token, str) or len(token) > 150:
+        if not isinstance(token, str) or not token.isascii() or len(token) > 150:
             return None
         now = time.time() if now is None else now
         self._prune(now)
         return self.sessions.get(self._key(token))
 
     def revoke(self, token: str | None) -> None:
-        if isinstance(token, str) and len(token) <= 150:
+        if isinstance(token, str) and token.isascii() and len(token) <= 150:
             self.sessions.pop(self._key(token), None)
 
 
