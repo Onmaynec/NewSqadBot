@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from app.models import AchievementUnlock, ExperienceAward, MemberProgress, QuestClaim
+from app.models import AchievementUnlock, CommunityEvent, EventSignup, ExperienceAward, MemberProgress, QuestClaim
 from app.services import economy, progression
 
 
@@ -33,6 +33,10 @@ CATALOG: tuple[Achievement, ...] = (
     Achievement("level_ten", "Ветеран NewSquad", "Достигнуть 10 уровня", "rare", "level", 10, 250, 250),
     Achievement("quests_five", "Исполнитель", "Получить 5 наград за задания", "rare", "quests", 5, 100, 120),
     Achievement("quests_twenty", "Надёжный человек", "Получить 20 наград за задания", "epic", "quests", 20, 300, 400, True),
+    Achievement("first_event", "В центре событий", "Посетить первое подтверждённое мероприятие",
+                "uncommon", "events", 1, 75, 90),
+    Achievement("events_ten", "Легенда событий", "Посетить 10 подтверждённых мероприятий",
+                "epic", "events", 10, 320, 360, True),
 )
 BY_CODE = {item.code: item for item in CATALOG}
 
@@ -59,10 +63,15 @@ async def _metrics(session, guild_id: int, user_id: int) -> dict[str, int]:
         MemberProgress.guild_id == guild_id, MemberProgress.user_id == user_id))
     claims = await session.scalar(select(func.count(QuestClaim.id)).where(
         QuestClaim.guild_id == guild_id, QuestClaim.user_id == user_id))
+    events = await session.scalar(
+        select(func.count(EventSignup.id)).join(
+            CommunityEvent, CommunityEvent.id == EventSignup.event_id).where(
+            CommunityEvent.guild_id == guild_id, EventSignup.user_id == user_id,
+            EventSignup.attended_at.is_not(None)))
     return {"messages": row.credited_messages if row else 0,
             "voice": row.active_voice_minutes if row else 0,
             "level": row.level if row else 1,
-            "quests": int(claims or 0)}
+            "quests": int(claims or 0), "events": int(events or 0)}
 
 
 async def sync(db, guild_id: int, user_id: int, *, now: int | None = None) -> list[str]:
