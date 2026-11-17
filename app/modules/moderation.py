@@ -18,7 +18,7 @@ from app.core.permissions import can_manage_settings
 from app.models import ModerationAction, ModerationCase, ScheduledJob
 from app.services import moderation_cases as cases_store
 from app.services.audit import log_event
-from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, panel_card, notice
+from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, notice, panel_card
 
 logger = logging.getLogger(__name__)
 
