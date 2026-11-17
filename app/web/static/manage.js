@@ -3,6 +3,7 @@
   const descriptions = {
     "Магазин NS Coins": "Титулы, декоративные роли, цены и наличие. Доступно только Owner.",
     "Панели ролей": "Создание, публикация и редактирование панелей самостоятельного выбора ролей.",
+    "Правила ролей": "Безопасные автоматические роли после вступления и награды за уровни.",
     "Категории тикетов": "Настройка категорий поддержки и доступа кандидатов.",
     "Объявления": "Черновики, шаблоны и отложенные публикации в Discord.",
     "Мероприятия": "Игровые встречи, заявки, очереди ожидания и награды за участие.",
@@ -182,6 +183,33 @@
         chips.append(wrapper);
       }
       box.append(chips);
+      if(item.enabled && item.options.length >= 2) {
+        const incompatible = $("div","manager-exclusions");
+        incompatible.append($("p","portal-muted","Несовместимые роли (нельзя выбрать одновременно):"));
+        for(const pair of item.exclusions || []){
+          const display=add($("div","manager-chip"),tag(pair.join(" / ")),
+            button("×",async()=>{
+              if(await run("/api/owner/role-panels/"+item.id+"/action",{
+                action:"exclude",first:pair[0],second:pair[1],enabled:false
+              },"Ограничение снято."))refresh();
+            }));
+          incompatible.append(display);
+        }
+        const formEx=$("form","manager-form");
+        const roleOpts=item.options.map(o=>[o.role_id,o.label]);
+        const [firstL,first]=select("Первая роль",roleOpts);
+        const [secondL,second]=select("Вторая роль",roleOpts);
+        const enable=button("Запретить сочетание",null,"secondary");enable.type="submit";
+        formEx.append(firstL,secondL,enable);
+        formEx.addEventListener("submit",async ev=>{
+          ev.preventDefault();
+          if(first.value===second.value){error(new Error("Выберите разные роли."));return;}
+          if(await run("/api/owner/role-panels/"+item.id+"/action",{
+            action:"exclude",first:first.value,second:second.value,enabled:true
+          },"Ограничение добавлено."))refresh();
+        });
+        incompatible.append(formEx);box.append(incompatible);
+      }
       if(item.enabled){
         const edit=$("form","manager-form");
         const [roleL,role]=select("Роль для добавления",optionsList("role"));
@@ -210,6 +238,56 @@
       }
       wrap.append(box);
     }
+    return wrap;
+  }
+  async function roleRules() {
+    const data=await api("/api/owner/role-rules");
+    const wrap=$("div","portal-stack");
+    const box=card("Автоматическая выдача после одобрения",
+      "Только безопасные роли ниже роли бота. Изменения применяются к будущим одобрениям.");
+    const form=$("form","manager-form");
+    const [roleL,role]=select("Выберите роль",optionsList("role"));
+    const addRole=button("Добавить автоматическую роль",null,"primary");
+    addRole.type="submit";form.append(roleL,addRole);
+    form.addEventListener("submit",async ev=>{
+      ev.preventDefault();
+      if(await run("/api/owner/role-rules",{category:"autorole",role_id:role.value,enabled:true},
+        "Роль добавлена."))refresh();
+    });
+    box.append(form);
+    for(const id of data.autoroles){
+      box.append(add($("div","manager-row"),
+        $("span","",optionsList("role").find(opt=>opt[0]===id)?.[1]||id),
+        button("Убрать",async()=>{
+          if(await run("/api/owner/role-rules",
+            {category:"autorole",role_id:id,enabled:false},"Роль убрана."))refresh();
+        },"danger")));
+    }
+    wrap.append(box);
+    const rewards=card("Награды за уровни","Автоматическая выдача по достижении выбранного уровня.");
+    const form2=$("form","manager-form");
+    const [lvL,level]=textInput("Уровень","10",5);level.type="number";level.min="1";level.max="10000";
+    const [role2L,role2]=select("Наградная роль",optionsList("role"));
+    const addReward=button("Добавить награду",null,"primary");addReward.type="submit";
+    form2.append(lvL,role2L,addReward);
+    form2.addEventListener("submit",async ev=>{
+      ev.preventDefault();
+      if(await run("/api/owner/role-rules",
+        {category:"level",level:Number(level.value),role_id:role2.value,enabled:true},
+        "Награда добавлена."))refresh();
+    });
+    rewards.append(form2);
+    for(const reward of data.level_rewards){
+      rewards.append(add($("div","manager-row"),
+        $("span","","Уровень "+reward.level+" → "+(
+          optionsList("role").find(opt=>opt[0]===reward.role_id)?.[1]||reward.role_id)),
+        button("Убрать",async()=>{
+          if(await run("/api/owner/role-rules",{
+            category:"level",level:reward.level,role_id:reward.role_id,enabled:false
+          },"Награда удалена."))refresh();
+        },"danger")));
+    }
+    wrap.append(rewards);
     return wrap;
   }
   async function ticketCategories() {
@@ -459,7 +537,8 @@
     await refreshResults();wrap.append(results);return wrap;
   }
   const loaders={
-    "Магазин NS Coins":shop,"Панели ролей":rolePanels,"Категории тикетов":ticketCategories,
+    "Магазин NS Coins":shop,"Панели ролей":rolePanels,"Правила ролей":roleRules,
+    "Категории тикетов":ticketCategories,
     "Объявления":announcements,"Мероприятия":eventsPage,"Розыгрыши":giveaways,
     "Предложения":suggestions,
   };
