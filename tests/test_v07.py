@@ -146,4 +146,5 @@ def test_cog_and_settings_registered():
         config = type("Cfg", (), {"owner_ids": frozenset()})()
 
     view = HomeView(Stub(), 1)
-    assert "Экономика" in {x.label for x in view.children if isinstance(x, discord.ui.Button)}
+    assert "Экономика" in {option.label for item in view.children if isinstance(item, discord.ui.Select)
+                             for option in item.options}
