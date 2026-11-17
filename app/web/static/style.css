@@ -235,3 +235,5 @@ html,body,.main,.login-screen{background:#0b0b0d;color:#f5f5f6}
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+
+.portal-field-error{font-size:11px;color:#ffadb0;margin:9px 0 12px;min-height:14px}.portal-select.portal-full{width:100%;max-width:none;margin:12px 0 22px}.portal-modal .portal-actions{margin-top:18px}
