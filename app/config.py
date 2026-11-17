@@ -28,6 +28,7 @@ class Config:
     web_discord_client_id: str = ""
     web_discord_client_secret: str = ""
     web_public_url: str = ""
+    presence_intent: bool = False
 
     @classmethod
     def from_env(cls) -> Config:
@@ -84,4 +85,5 @@ class Config:
                 raise ValueError("Discord OAuth client secret выглядит некорректным.")
         return cls(token, guild_id, database_url, data_dir, timezone, level, owners,
                    content_intent, admin_hash, admin_port, admin_bind,
-                   client_id, client_secret, public_url)
+                   client_id, client_secret, public_url,
+                   os.getenv("ENABLE_PRESENCE_INTENT", "false").lower() in ("true", "1", "yes"))
