@@ -10,7 +10,7 @@ from aiohttp import web
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
-from app.models import AuditEntry, RolePanel, RolePanelOption
+from app.models import AuditEntry, LevelRoleReward, RolePanel, RolePanelOption
 from app.services import announcements, economy, tickets
 from app.services.role_rules import validate_panel
 from app.web.moderation_portal import identifier, number
@@ -133,7 +133,10 @@ async def role_panels(request: web.Request) -> web.Response:
         for row in rows:
             options = (await session.scalars(select(RolePanelOption).where(
                 RolePanelOption.panel_id == row.id).order_by(RolePanelOption.id))).all()
-            cards.append(panel_card(row, options))
+            result = panel_card(row, options)
+            result["exclusions"] = [[str(v) for v in pair] for pair in await bot.database.get_setting(
+                bot.config.guild_id, f"roles.exclusions.{row.id}", [])]
+            cards.append(result)
     return web.json_response({"items": cards})
 
 
@@ -220,6 +223,21 @@ async def role_panel_action(request: web.Request) -> web.Response:
             if not result.rowcount:
                 raise web.HTTPNotFound(text="Роль в панели не найдена.")
             await cog._refresh_published(pid)
+        elif action == "exclude":
+            allowed = {opt.role_id for opt in options}
+            first = identifier(data.get("first"))
+            second = identifier(data.get("second"))
+            if first == second or first not in allowed or second not in allowed:
+                raise web.HTTPUnprocessableEntity(text="Укажите две разные роли из панели.")
+            if type(data.get("enabled")) is not bool:
+                raise web.HTTPUnprocessableEntity(text="Необходимо enabled=true/false.")
+            key = f"roles.exclusions.{pid}"
+            pairs = await bot.database.get_setting(bot.config.guild_id, key, [])
+            pair = sorted((first, second))
+            pairs = [p for p in pairs if sorted(p) != pair]
+            if data["enabled"]:
+                pairs.append(pair)
+            await bot.database.set_setting(bot.config.guild_id, key, pairs, actor_id=actor.id)
         elif action == "publish":
             from app.modules.roles import RolePanelView, panel_embed
 
@@ -401,11 +419,64 @@ async def announcement_action(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "message": "Объявление обновлено."})
 
 
+
+async def role_rules(request: web.Request) -> web.Response:
+    bot, _ = await owner(request)
+    auto = await bot.database.get_setting(bot.config.guild_id, "roles_auto_role_ids", [])
+    async with bot.database.sessions() as session:
+        rewards = (await session.scalars(select(LevelRoleReward).where(
+            LevelRoleReward.guild_id == bot.config.guild_id).order_by(LevelRoleReward.level).limit(200))).all()
+    return web.json_response({"autoroles": [str(r) for r in auto], "level_rewards": [
+        {"level": r.level, "role_id": str(r.role_id)} for r in rewards]})
+
+
+async def role_rule_action(request: web.Request) -> web.Response:
+    bot, actor = await owner(request)
+    require_csrf(request)
+    data = await json_payload(request)
+    category = data.get("category")
+    if category not in ("autorole", "level"):
+        raise web.HTTPUnprocessableEntity(text="Недопустимая категория награды.")
+    if type(data.get("enabled")) is not bool:
+        raise web.HTTPUnprocessableEntity(text="Укажите enabled=true/false.")
+    guild = guild_for(bot)
+    if guild is None:
+        raise web.HTTPServiceUnavailable(text="Discord недоступен.")
+    role_id = identifier(data.get("role_id"))
+    role = guild.get_role(role_id)
+    cog = bot.get_cog("Roles")
+    if data["enabled"] and (cog is None or role is None or not await cog._role_allowed(guild, role)):
+        raise web.HTTPForbidden(text="Роль небезопасна или находится выше роли бота.")
+    if category == "autorole":
+        roles = await bot.database.get_setting(bot.config.guild_id, "roles_auto_role_ids", [])
+        roles = sorted((set(roles) | {role_id}) if data["enabled"] else (set(roles) - {role_id}))
+        await bot.database.set_setting(bot.config.guild_id, "roles_auto_role_ids",
+                                       roles, actor_id=actor.id)
+    else:
+        level = int_field(data, "level", 1, 10000)
+        if data["enabled"]:
+            try:
+                async with bot.database.session() as session:
+                    session.add(LevelRoleReward(guild_id=bot.config.guild_id,
+                                                level=level, role_id=role_id))
+            except IntegrityError as exc:
+                raise web.HTTPConflict(text="Это правило уже существует.") from exc
+        else:
+            async with bot.database.session() as session:
+                await session.execute(delete(LevelRoleReward).where(
+                    LevelRoleReward.guild_id == bot.config.guild_id,
+                    LevelRoleReward.level == level, LevelRoleReward.role_id == role_id))
+    await audit_owner(bot, actor.id, "web.role_rule.updated", role_id)
+    return web.json_response({"ok": True, "message": "Правила ролей обновлены."})
+
+
 def register(app: web.Application) -> None:
     app.router.add_get("/api/owner/shop", shop_list)
     app.router.add_post("/api/owner/shop", shop_create)
     app.router.add_post("/api/owner/shop/{id}", shop_change)
     app.router.add_get("/api/owner/role-panels", role_panels)
+    app.router.add_get("/api/owner/role-rules", role_rules)
+    app.router.add_post("/api/owner/role-rules", role_rule_action)
     app.router.add_post("/api/owner/role-panels", role_panel_create)
     app.router.add_post("/api/owner/role-panels/{id}/action", role_panel_action)
     app.router.add_get("/api/owner/ticket-categories", categories_list)
