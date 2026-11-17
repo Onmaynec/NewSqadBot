@@ -22,7 +22,7 @@ from app.services.role_rules import (
     validate_panel,
 )
 from app.ui.mentions import member_mention, role_list, role_mention
-from app.ui.theme import BRAND_BLUE, LoggedView, card, notice, panel_card
+from app.ui.theme import LoggedView, card, notice, panel_card
 
 log = logging.getLogger(__name__)
 PROTECTED_SLOTS = (
@@ -32,10 +32,14 @@ PROTECTED_SLOTS = (
 
 
 def panel_embed(panel: RolePanel) -> discord.Embed:
-    e = discord.Embed(title=f"NewSquad  /  {discord.utils.escape_mentions(panel.title)}",
-        description=discord.utils.escape_mentions(panel.description), color=BRAND_BLUE)
-    e.set_footer(text="NewSquad · Выбранные роли можно изменить в этом меню")
-    return e
+    return panel_card(
+        f"NewSquad  /  {discord.utils.escape_mentions(panel.title)}",
+        "Настройте свой набор ролей через меню под этим сообщением.",
+        ("Описание", discord.utils.escape_mentions(panel.description)),
+        ("Как пользоваться", "Выберите нужные роли и подтвердите изменение. "
+         "Снять назначенные роли можно отдельной кнопкой."),
+        footer="NEW SQUAD  •  Выбор ролей участников",
+    )
 
 
 class RoleSelect(discord.ui.Select):
