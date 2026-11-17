@@ -7,7 +7,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
-from app.models import Ticket, TicketCategory, TicketEvent, TicketPanel, TicketParticipant
+from app.models import SupportSurvey, Ticket, TicketCategory, TicketEvent, TicketPanel, TicketParticipant, WebNotice
 
 DEFAULT_CATEGORIES = (
     ("support", "Поддержка", "Вопросы, ошибки и проблемы", 0),
@@ -41,11 +41,25 @@ async def erase_ticket(db, guild_id: int, ticket_id: int, *, closing_only: bool 
         condition = (Ticket.id == ticket_id, Ticket.guild_id == guild_id)
         if closing_only:
             condition += (Ticket.status == "closing",)
-        row = await session.scalar(select(Ticket.id).where(*condition))
+        row = await session.scalar(select(Ticket).where(*condition))
         if row is None:
             return False
+        # Сохраняем только приглашение оценить обслуживание и измерение времени
+        # ответа. Ни тема, ни описание, ни чат, ни ticket_id не попадают в опрос.
+        if closing_only and row.assignee_id and row.user_id != row.assignee_id:
+            now = int(time.time())
+            session.add(SupportSurvey(
+                guild_id=guild_id, requester_id=row.user_id, staff_id=row.assignee_id,
+                response_seconds=max(0, row.first_response_at - row.opened_at)
+                    if row.first_response_at is not None else None,
+                created_at=now, expires_at=now + 7 * 86400,
+            ))
         await session.execute(delete(TicketEvent).where(TicketEvent.ticket_id == ticket_id))
         await session.execute(delete(TicketParticipant).where(TicketParticipant.ticket_id == ticket_id))
+        # Уведомления о назначении удалённого приватного тикета также удаляем.
+        await session.execute(delete(WebNotice).where(
+            WebNotice.guild_id == guild_id, WebNotice.kind == "ticket_assigned",
+            WebNotice.object_id == ticket_id))
         await session.execute(delete(Ticket).where(*condition))
         return True
 
@@ -177,8 +191,7 @@ async def claim(db, guild_id: int, ticket_id: int, actor_id: int, *, transfer: b
                                     Ticket.status == "open")
         if not transfer:
             stmt = stmt.where(Ticket.assignee_id.is_(None))
-        result = await session.execute(stmt.values(assignee_id=actor_id, updated_at=now,
-            first_response_at=func.coalesce(Ticket.first_response_at, now)))
+        result = await session.execute(stmt.values(assignee_id=actor_id, updated_at=now))
         if result.rowcount:
             event(session, ticket_id, actor_id, "transferred" if transfer else "claimed", assignee_id=actor_id)
         return result.rowcount == 1
@@ -323,9 +336,14 @@ async def touch(db, guild_id: int, ticket_id: int, actor_id: int, *, staff_reply
         if record is None:
             return None
         record.updated_at = now
-        if staff_reply and record.first_response_at is None:
-            record.first_response_at = now
-            event(session, ticket_id, actor_id, "first_response")
+        if staff_reply:
+            # Даже без нажатия «Взять в работу» первый ответ определяет,
+            # какому сотруднику доступна добровольная оценка поддержки.
+            if record.assignee_id is None:
+                record.assignee_id = actor_id
+            if record.first_response_at is None:
+                record.first_response_at = now
+                event(session, ticket_id, actor_id, "first_response")
         return now
 
 

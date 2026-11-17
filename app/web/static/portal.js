@@ -12,13 +12,15 @@
     "Рейтинги": "Рейтинг активности с учётом настроек приватности.",
     "Аудит": "Системный журнал действий и настроек.",
     "Активность": "Агрегированная активность администрации за 30 дней.",
+    "Качество поддержки": "Оценки 1–5 и скорость первого ответа без хранения переписки.",
+    "Уведомления": "Персональные события и назначения с отметкой прочитанного.",
   };
   const menu = {
-    support: ["Обзор", "Заявки", "Тикеты"],
-    moder: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация"],
-    admin: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация",
+    support: ["Обзор", "Уведомления", "Заявки", "Тикеты"],
+    moder: ["Обзор", "Уведомления", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация"],
+    admin: ["Обзор", "Уведомления", "Заявки", "Тикеты", "Качество поддержки", "Сотрудники", "Список участников", "Модерация",
             "Аналитика", "Рейтинги", "Активность", "Аудит", "Мероприятия", "Розыгрыши", "Предложения", "Голосовые комнаты", "Поиск команды"],
-    owner: ["Обзор", "Заявки", "Тикеты", "Сотрудники", "Список участников", "Модерация",
+    owner: ["Обзор", "Уведомления", "Заявки", "Тикеты", "Качество поддержки", "Сотрудники", "Список участников", "Модерация",
             "Аналитика", "Рейтинги", "Активность", "Аудит", "Мероприятия", "Розыгрыши",
             "Предложения", "Голосовые комнаты", "Поиск команды",
             "Магазин NS Coins", "Панели ролей", "Правила ролей", "Категории тикетов", "Объявления"],
@@ -45,6 +47,8 @@
     "Рейтинги": '<path d="M8 21V9H3v12m10 0V3H8v18m10 0v-9h-5v9M2 21h20"/>',
     "Активность": '<path d="M3 12h4l3-6 4 12 3-6h4"/>',
     "Аудит": '<path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/>',
+    "Качество поддержки": '<path d="m12 2 3 6.5 7 .9-5.1 4.9 1.2 6.8L12 18l-6.1 3.1 1.2-6.8L2 9.4l7-.9z"/>',
+    "Уведомления": '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
     "Магазин NS Coins": '<path d="M3 7h18l-2 6H5L3 7zM5 13v8h14v-8M10 21v-5h4v5M4 7l2-4h12l2 4"/>',
     "Панели ролей": '<path d="M4 4h16v16H4zM8 9h8M8 14h8M9 18h6"/>',
     "Правила ролей": '<path d="M9 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4M8 9h8M8 13h5m2 5 2 2 4-4"/>',
@@ -103,22 +107,210 @@
                            info("Не удалось загрузить данные", error.message));
     }
   }
+  let liveTimer = null;
+  let noticeTimer = null;
+  function serviceStatus(title, ok) {
+    const row = e("div", "portal-service");
+    row.append(e("span", "", title), pill(ok ? "Работает" : "Недоступно", ok ? "success" : "warning"));
+    return row;
+  }
   async function overview() {
-    const result = await api("/api/portal/overview");
-    const box = e("div", "portal-stack");
+    const result = await api("/api/portal/dashboard");
+    const box = e("div", "portal-stack portal-live");
+    const top = e("div", "portal-dashboard-head");
+    const headline = e("div");
+    headline.append(e("span", "panel-kicker", "LIVE / NEW SQUAD"),
+      e("h2", "", "Состояние сообщества"),
+      e("p", "portal-muted", "Показатели обновляются каждые 20 секунд · "
+        + new Date(result.generated_at * 1000).toLocaleTimeString("ru-RU")));
+    top.append(headline, e("span", "portal-live-badge", "● В РЕАЛЬНОМ ВРЕМЕНИ"));
+    box.append(top);
     const grid = e("div", "portal-metrics");
-    for (const [label, value] of [
-      ["Открытые обращения", result.open_tickets],
-      ["Заявки на рассмотрении", result.pending_applications],
-      ["Моя роль на сайте", roleLabels[result.role] || result.role],
-    ]) {
-      grid.append(append(e("div", "portal-metric"),
-        e("span", "", label), e("strong", "", value)));
-    }
+    for (const [title, value] of [
+      ["Открытых тикетов", result.open_tickets],
+      ["Заявок в очереди", result.pending_applications],
+      ["Сотрудников онлайн", result.presence_available ? result.online_staff : "—"],
+      ["Моя роль", roleLabels[result.role] || result.role],
+    ]) grid.append(append(e("div", "portal-metric"),
+      e("span", "", title), e("strong", "", value)));
     box.append(grid);
-    box.append(info("Рабочая панель NewSqad",
-      "Открой раздел «Заявки» или «Тикеты» для работы. Доступные разделы зависят от твоих текущих Discord-ролей."));
+    const content = e("div", "portal-dashboard-columns");
+    const workers = e("div", "portal-panel");
+    workers.append(e("h3", "", "Сервисы бота"));
+    workers.append(serviceStatus("Discord Gateway", result.discord_connected));
+    workers.append(serviceStatus("SQLite", result.sqlite_connected));
+    workers.append(serviceStatus("Фоновые задачи", result.scheduler_running));
+    workers.append(serviceStatus("EventBus", result.events_running));
+    if (result.module_errors.length) workers.append(e("p", "portal-warning-text",
+      "Проблемные модули: " + result.module_errors.join(", ")));
+    const staffPanel = e("div", "portal-panel");
+    staffPanel.append(e("h3", "", "Сотрудники"));
+    if (!result.presence_available) staffPanel.append(e("p", "portal-muted",
+      "Онлайн-статусы недоступны: включите Presence Intent в Discord и .env."));
+    const staffList = e("div", "portal-staff-mini");
+    for (const member of result.staff) {
+      const row = e("div", "portal-staff-row");
+      const avatar = e("img", "portal-person-avatar");
+      avatar.src = member.avatar_url;avatar.alt = "";
+      const detail = e("div", "portal-staff-name");
+      detail.append(e("strong", "", member.name), e("span", "", roleLabels[member.role]));
+      const label = member.status === "unknown" ? "Неизвестно" : ({
+        online: "В сети", idle: "Неактивен", dnd: "Не беспокоить", offline: "Не в сети"
+      }[member.status] || "Неизвестно");
+      row.append(avatar, detail, pill(label, member.status === "online" ? "success" : "neutral"));
+      staffList.append(row);
+    }
+    if (!result.staff.length) staffList.append(e("p", "portal-muted", "Нет данных о составе сотрудников."));
+    staffPanel.append(staffList);
+    content.append(workers, staffPanel);
+    box.append(content);
+    if (result.recent_actions.length) {
+      const timeline = e("div", "portal-panel");
+      timeline.append(e("h3", "", "Последние действия администрации"));
+      for (const entry of result.recent_actions) {
+        const node = e("div", "portal-service");
+        node.append(append(e("div", "portal-staff-name"),
+            e("strong", "", entry.action), e("span", "", "Исполнитель " + entry.actor_id)),
+          e("span", "portal-meta", format(entry.at)));
+        timeline.append(node);
+      }
+      box.append(timeline);
+    }
     return box;
+  }
+  async function refreshDashboard() {
+    if (window.portalGroup() !== "Обзор" || document.getElementById("shell").hidden) return;
+    const isOwner = window.portalRole() === "owner";
+    const target = document.getElementById(isOwner ? "overview-live" : "portal-section");
+    if (!target || target.hidden || (isOwner && document.getElementById("overview").hidden)) return;
+    try {
+      const node = await overview();
+      if (window.portalGroup() !== "Обзор" || target.hidden) return;
+      target.replaceChildren(node);
+    } catch (error) {
+      target.replaceChildren(info("Нет связи с системой", error.message));
+    }
+  }
+  function startLive() {
+    if (liveTimer) clearInterval(liveTimer);
+    liveTimer = setInterval(() => {void refreshDashboard();}, 20000);
+  }
+  function stopLive() {
+    if (liveTimer) clearInterval(liveTimer);
+    liveTimer = null;
+  }
+  async function mountOwnerOverview() {
+    startLive();
+    await refreshDashboard();
+  }
+  async function supportQuality() {
+    const wrap = e("div", "portal-stack");
+    const toolbar = e("div", "portal-toolbar");
+    const periods = e("select", "portal-select");
+    for (const [value, label] of [["7", "7 дней"], ["30", "30 дней"], ["90", "90 дней"]]) {
+      const option = e("option", "", label);option.value = value;
+      if (value === "30") option.selected = true;
+      periods.append(option);
+    }
+    toolbar.append(e("span", "portal-muted", "Период"), periods);
+    const body = e("div", "portal-stack");
+    async function update() {
+      try {
+        const data = await api("/api/portal/support-quality?days=" + periods.value);
+        const cards = e("div", "portal-metrics");
+        for (const [label, value] of [
+          ["Средняя оценка", data.average_rating === null ? "—" : data.average_rating + " / 5"],
+          ["Всего оценок", data.ratings],
+          ["Положительных", data.positive_percent === null ? "—" : data.positive_percent + "%"],
+          ["Средний первый ответ", data.avg_first_response_seconds === null ? "—"
+            : Math.round(data.avg_first_response_seconds / 60) + " мин"],
+        ]) cards.append(append(e("div", "portal-metric"),
+          e("span", "", label), e("strong", "", value)));
+        const panel = e("div", "portal-panel");
+        panel.append(e("h3", "", "Качество по сотрудникам"),
+          e("p", "portal-muted",
+            "Оценки добровольные. Скорость первого ответа рассчитывается для всех закрытых обращений с ответом."));
+        if (!data.staff.length) panel.append(info("Оценок пока нет", "После закрытия тикетов участники могут поставить оценку в ЛС."));
+        for (const member of data.staff) {
+          const row = e("div", "portal-quality-row");
+          row.append(e("strong", "", member.name), e("span", "",
+            "Закрыто: " + member.closed_tickets + " · Оценок: " + member.ratings),
+            pill(member.average_rating === null ? "Нет оценок" : "★ " + member.average_rating, "success"),
+            e("span", "portal-muted", "Первый ответ: " +
+              (member.avg_first_response_seconds === null ? "—"
+                : Math.round(member.avg_first_response_seconds / 60) + " мин")));
+          panel.append(row);
+        }
+        body.replaceChildren(cards, panel);
+      } catch (error) {
+        body.replaceChildren(info("Статистика недоступна", error.message));
+      }
+    }
+    periods.addEventListener("change", () => {void update();});
+    await update();wrap.append(toolbar,body);return wrap;
+  }
+  async function noticePage() {
+    const wrap = e("div", "portal-stack");
+    const head = e("div", "portal-toolbar");
+    const reload = button("Обновить", () => {void render("Уведомления");});
+    const markAll = button("Прочитать все", async () => {
+      try {
+        await api("/api/portal/notifications/all/read", {method:"POST", body:{}});
+        await refreshNoticeBadge();
+        await render("Уведомления");
+      } catch (error) {window.portalToast(error.message, true);}
+    }, "primary");
+    head.append(e("span", "portal-muted", "Уведомления доступны только вашей Discord-учётной записи."),
+                reload,markAll);
+    wrap.append(head);
+    const result = await api("/api/portal/notifications");
+    if (result.requires_discord) {
+      wrap.append(info("Нужен вход через Discord", "Локальный пароль используется только для конфигурации."));
+      markAll.disabled = true;return wrap;
+    }
+    if (!result.items.length) wrap.append(info("Всё спокойно", "Новых уведомлений нет."));
+    for (const notice of result.items) {
+      const row = e("div", "portal-notice" + (notice.read ? "" : " unread"));
+      const main = e("div", "portal-notice-content");
+      main.append(e("strong", "", notice.title),
+        e("p", "", notice.description + " · #" + notice.object_id),
+        e("span", "portal-meta", format(notice.created_at)));
+      const actions = e("div", "portal-actions");
+      if (!notice.read) actions.append(button("Прочитано", async () => {
+        try {
+          await api("/api/portal/notifications/" + notice.id + "/read", {
+            method:"POST", body:{}});
+          await refreshNoticeBadge();
+          await render("Уведомления");
+        } catch (error) {window.portalToast(error.message, true);}
+      }));
+      actions.append(button("К разделу", () => {void window.portalNavigate(notice.section);}, "primary"));
+      row.append(main, actions);wrap.append(row);
+    }
+    return wrap;
+  }
+  async function refreshNoticeBadge() {
+    if (document.getElementById("shell").hidden) return;
+    try {
+      const result = await api("/api/portal/notifications");
+      const badge = document.getElementById("notification-count");
+      const unread = Number(result.unread || 0);
+      badge.hidden = unread === 0;
+      badge.textContent = unread > 99 ? "99+" : String(unread);
+      document.getElementById("notice-button").setAttribute(
+        "aria-label", "Уведомления: " + unread + " непрочитанных");
+    } catch {
+      // Потеря соединения не должна сбрасывать счётчик как будто всё прочитано.
+    }
+  }
+  function startNotices() {
+    if (noticeTimer) return;
+    void refreshNoticeBadge();
+    noticeTimer = setInterval(() => {void refreshNoticeBadge();}, 30000);
+  }
+  function stopNotices() {
+    if (noticeTimer) clearInterval(noticeTimer);
+    noticeTimer = null;stopLive();
   }
   function cardList(items, renderer, emptyText) {
     const list = e("div", "portal-list");
@@ -695,15 +887,19 @@
       return row;
     },"Пока нет активности администрации.");
   }
-  const loaders={"Обзор":overview,"Заявки":applications,"Тикеты":tickets,
+  const loaders={"Обзор":overview,"Уведомления":noticePage,"Качество поддержки":supportQuality,
+    "Заявки":applications,"Тикеты":tickets,
     "Сотрудники":staff,"Список участников":members,"Модерация":moderation,"Аналитика":statsPage,
     "Рейтинги":rankings,"Активность":activity,"Аудит":audit};
   async function render(group) {
     if (group !== "Тикеты") stopTicketRefresh();
+    if (group !== "Обзор") stopLive();
+    else startLive();
     if (window.Management?.loaders[group]) {
       descriptions[group] = window.Management.descriptions[group];
       await load(group, window.Management.loaders[group]);
     } else if (loaders[group]) await load(group, loaders[group]);
   }
-  window.Portal={menu,roleLabels,icon,descriptions,render,stopTicketRefresh};
+  window.Portal={menu,roleLabels,icon,descriptions,render,stopTicketRefresh,
+    mountOwnerOverview,stopLive,startNotices,stopNotices,refreshNoticeBadge};
 })();

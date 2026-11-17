@@ -9,7 +9,7 @@ from app.services.tickets import safe_text
 
 
 def test_ticket_version_and_validation():
-    assert VERSION == "1.6.0"
+    assert VERSION == "1.7.0"
     assert safe_text(" Вопрос ", 100) == "Вопрос"
     with pytest.raises(ValueError):
         safe_text(" ", 100)
@@ -27,7 +27,7 @@ def test_ticket_migration_privacy_and_uniqueness(tmp_path):
         connection.execute("PRAGMA foreign_keys = ON")
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"tickets", "ticket_categories", "ticket_participants", "ticket_events", "ticket_panels"} <= tables
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0014_community_categories"
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0015_support_live_ops"
         connection.execute("INSERT INTO ticket_categories (guild_id,key,title,description,candidate_allowed,enabled,sort_order) "
                            "VALUES (?,?,?,?,?,?,?)", (GUILD_ID, "support", "Поддержка", "Помощь", 0, 1, 0))
         with pytest.raises(sqlite3.IntegrityError):

@@ -60,7 +60,10 @@ function loginScreen(visible) {
   $("shell").hidden = visible;
   $("discord-login").hidden = ui.auth_method !== "discord";
   $("login-form").hidden = ui.auth_method === "discord";
-  if (visible) { ui.data = null; ui.csrf = ""; ui.dirty.clear(); }
+  if (visible) {
+    ui.data = null; ui.csrf = ""; ui.dirty.clear();
+    Portal.stopNotices();
+  }
 }
 async function initialize() {
   try {
@@ -136,7 +139,9 @@ async function refresh() {
     $("service-discord").textContent = ui.data.discord_ready ? "Доступен" : "Недоступен";
     renderNav();
     renderPage();
-    if (ui.group === "Обзор" || ui.group === "Диагностика") await refreshDiagnostics();
+    Portal.startNotices();
+    if (ui.role === "owner" && (ui.group === "Обзор" || ui.group === "Диагностика"))
+      await refreshDiagnostics();
   } catch (error) {
     if (error.status === 401) loginScreen(true);
     toast(error.message, true);
@@ -208,6 +213,8 @@ function renderPage() {
     || Portal.descriptions[ui.group] || blurbs[ui.group]
     || "Настройки и инструменты NewSqad.";
   if (isConfig) renderSettings();
+  if (ownerOverview) void Portal.mountOwnerOverview();
+  else Portal.stopLive();
   if (isPortal) void Portal.render(ui.group); else Portal.stopTicketRefresh();
 }
 function labelFor(spec) {
@@ -405,10 +412,12 @@ async function refreshDiagnostics() {
 }
 window.portalAPI = (path, options) => api(path, options);
 window.portalGroup = () => ui.group;
+window.portalRole = () => ui.role;
 window.portalData = () => ui.data;
 window.portalNavigate = (group) => navigate(group);
 window.portalReload = () => Portal.render(ui.group);
 window.portalToast = (message, error = false) => toast(message, error);
+$("notice-button").addEventListener("click", () => {void navigate("Уведомления");});
 $("discord-login").addEventListener("click", () => {
   window.location.assign("/auth/discord");
 });

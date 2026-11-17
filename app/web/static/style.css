@@ -284,3 +284,37 @@ html,body,.main,.login-screen{background:#0b0b0d;color:#f5f5f6}
 .portal-action-form>.button{margin-left:0;width:100%}
 }
 @media(prefers-reduced-motion:reduce){.manager-card{animation:none}}
+
+/* v1.7.0 — Live Operations, support quality, actionable notifications. */
+.overview-live{margin-bottom:21px}
+.portal-live{animation:fade .2s ease}
+.portal-dashboard-head{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.portal-dashboard-head h2{font-size:23px;letter-spacing:-.65px;color:#fff;margin:7px 0 6px}
+.portal-dashboard-head p{margin:0}
+.portal-live-badge{border:1px solid #244f42;border-radius:25px;background:#14352b;color:#8fe1b6;font-weight:750;letter-spacing:.11em;font-size:9px;padding:9px 13px;white-space:nowrap}
+.portal-dashboard-columns{display:grid;grid-template-columns:minmax(220px,1fr) minmax(300px,1.25fr);gap:16px}
+.portal-service{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:1px solid #34363d;color:#d4d6dd;font-size:12px}
+.portal-service:last-child{border-bottom:0}
+.portal-service>span:first-child{min-width:0;overflow-wrap:anywhere}
+.portal-staff-mini{max-height:310px;overflow-y:auto;padding-right:6px;scrollbar-width:thin}
+.portal-staff-row{display:flex;align-items:center;gap:11px;border-bottom:1px solid #32343a;padding:11px 0}
+.portal-staff-row:last-child{border-bottom:0}
+.portal-staff-name{display:flex;flex-direction:column;gap:5px;flex:1;min-width:0}
+.portal-staff-name strong{font-size:11px;color:#f1f2f5;font-weight:680;overflow:hidden;text-overflow:ellipsis}
+.portal-staff-name span{font-size:9px;color:#8e939e}
+.portal-warning-text{font-size:11px;color:#f2c788}
+.portal-quality-row{display:flex;align-items:center;gap:15px;border-top:1px solid #33353b;padding:14px 0;font-size:11px;flex-wrap:wrap}
+.portal-quality-row strong{min-width:115px;color:#fff;flex:1}
+.portal-quality-row>span:not(.portal-pill){color:#b7bbc5}
+.portal-quality-row .portal-pill{margin-left:auto}
+.notice-bell{height:35px;width:40px;border:1px solid #3b3d45;border-radius:9px;display:grid;place-items:center;background:#212228;color:#dfe0e5;position:relative;transition:background .15s,border-color .15s;flex-shrink:0}
+.notice-bell:hover,.notice-bell:focus-visible{background:#34363e;border-color:#777982}
+.notice-bell-count{position:absolute;top:-8px;right:-9px;background:#e8ebf1;color:#11131a;padding:3px 5px;min-width:20px;border-radius:12px;font-size:10px;font-weight:800;line-height:1.25;text-align:center;box-shadow:0 2px 7px #0007}
+.portal-notice{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 19px;background:#18191e;border:1px solid #373940;border-radius:13px;transition:border-color .2s,transform .2s}
+.portal-notice.unread{background:#21232a;border-left:3px solid #8ea1c1;border-color:#4d5564}
+.portal-notice-content{display:flex;flex-direction:column;gap:7px;min-width:0}
+.portal-notice-content strong{font-size:13px;color:#f7f8fb}
+.portal-notice-content p{font-size:11px;color:#adb1bb;margin:0;overflow-wrap:anywhere}
+.portal-notice .portal-actions{flex-shrink:0}
+@media(max-width:1000px){.portal-dashboard-columns{grid-template-columns:1fr}}
+@media(max-width:640px){.notice-bell{width:35px}.portal-notice{flex-direction:column;align-items:stretch}.portal-notice .portal-actions{justify-content:flex-start}.portal-dashboard-head h2{font-size:20px}}
