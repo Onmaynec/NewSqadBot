@@ -32,7 +32,7 @@ def test_v12_schema_and_discord_components(tmp_path):
     assert VERSION == "1.5.0"
     assert implemented("suggestions")
     with sqlite3.connect(tmp_path / "suggestions.db") as conn:
-        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0013_announcements"
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0014_community_categories"
         tables = {r[0] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert {
