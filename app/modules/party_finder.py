@@ -219,6 +219,15 @@ class PartyFinder(commands.Cog):
             if action == "join":
                 row = await store.join(self.bot.database, interaction.guild_id, party_id, interaction.user.id)
                 msg = "Вы присоединились к группе."
+                if row.owner_id != interaction.user.id:
+                    try:
+                        owner = self.bot.get_user(row.owner_id) or await self.bot.fetch_user(row.owner_id)
+                        await owner.send(embed=notice(
+                            f"В вашу группу #{row.id:04d} вступил участник "
+                            f"{interaction.user.display_name}. Мест: {row.member_count}/{row.capacity}.",
+                            kind="info"), allowed_mentions=discord.AllowedMentions.none())
+                    except discord.HTTPException:
+                        log.info("Автор группы #%s отключил личные уведомления", row.id)
             elif action == "leave":
                 row = await store.leave(self.bot.database, interaction.guild_id, party_id, interaction.user.id)
                 msg = "Вы вышли из группы."
@@ -294,12 +303,15 @@ class PartyFinder(commands.Cog):
                                                 kind="warning"), ephemeral=True)
 
     @party.command(name="list", description="Посмотреть открытые группы")
-    async def list_command(self, interaction: discord.Interaction, game: str | None = None) -> None:
+    async def list_command(self, interaction: discord.Interaction, game: str | None = None,
+                           with_places: bool = False) -> None:
         if not await self.enabled() or not await self.permitted(interaction.user):
             await interaction.response.send_message(embed=notice("Только для участников.", kind="warning"),
                                                     ephemeral=True)
             return
         rows = await store.list_active(self.bot.database, interaction.guild_id, game=game)
+        if with_places:
+            rows = [row for row in rows if row.member_count < row.capacity]
         lines = [f"**#{r.id:04d}** · {discord.utils.escape_mentions(r.game)} · "
                  f"{r.member_count}/{r.capacity} · <t:{r.expires_at}:R>" for r in rows]
         await interaction.response.send_message(embed=card("NewSquad / Поиск команды",
@@ -317,6 +329,41 @@ class PartyFinder(commands.Cog):
     @party.command(name="close", description="Закрыть свою группу")
     async def close_command(self, interaction: discord.Interaction, number: int) -> None:
         await self.perform(interaction, number, "close")
+
+
+    @party.command(name="invite", description="Пригласить участника в свою группу")
+    async def invite(self, interaction: discord.Interaction, number: int,
+                     member: discord.Member) -> None:
+        if not await self.enabled() or not await self.permitted(interaction.user):
+            await interaction.response.send_message("Функция недоступна.", ephemeral=True)
+            return
+        row = await store.get(self.bot.database, interaction.guild_id, number)
+        if row is None or row.status != "open" or row.expires_at <= time.time():
+            await interaction.response.send_message("Группа уже закрыта или заполнена.", ephemeral=True)
+            return
+        if row.owner_id != interaction.user.id and not can_manage_settings(
+            interaction, self.bot.config.owner_ids):
+            await interaction.response.send_message("Приглашать может только владелец.", ephemeral=True)
+            return
+        if not await self.permitted(member) or member.bot or member.id == interaction.user.id:
+            await interaction.response.send_message("Участник недоступен для приглашения.", ephemeral=True)
+            return
+        joined = await store.members(self.bot.database, number)
+        if member.id in joined:
+            await interaction.response.send_message("Участник уже в группе.", ephemeral=True)
+            return
+        link = f"https://discord.com/channels/{interaction.guild_id}/{row.channel_id}/{row.message_id}"
+        try:
+            await member.send(embed=card("NewSquad / Приглашение в команду",
+                f"Игра: **{discord.utils.escape_mentions(row.game)}**\n"
+                f"Группа #{row.id:04d}, свободных мест: {row.capacity-row.member_count}.\n"
+                f"Объявление: {link}\n"
+                "Чтобы вступить, нажмите кнопку под объявлением."),
+                allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            await interaction.response.send_message("Не удалось отправить приглашение в ЛС.", ephemeral=True)
+            return
+        await interaction.response.send_message("Приглашение отправлено.", ephemeral=True)
 
     @party.command(name="settings", description="Настройки поиска команды")
     async def settings(self, interaction: discord.Interaction) -> None:
