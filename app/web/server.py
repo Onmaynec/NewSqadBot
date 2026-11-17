@@ -206,7 +206,7 @@ async def oauth_start(request: web.Request) -> web.Response:
     ticket = new_state(panel.pending_states)
     redirect = panel.public_url + "/auth/callback"
     location = authorize_url(panel.discord_client_id, redirect, ticket)
-    response = web.HTTPFound(location=location)
+    response = web.Response(status=302, headers={"Location": location})
     response.set_cookie("nsb_oauth_state", ticket, httponly=True, secure=True,
                         samesite="Lax", max_age=300, path="/auth")
     return response
@@ -233,7 +233,7 @@ async def oauth_callback(request: web.Request) -> web.Response:
         log.warning("Discord OAuth временно недоступен")
         raise web.HTTPBadGateway(text="Discord временно недоступен.") from exc
     token, _ = panel.sessions.create(user_id=uid)
-    response = web.HTTPFound(location=panel.public_url + "/")
+    response = web.Response(status=302, headers={"Location": panel.public_url + "/"})
     response.set_cookie(COOKIE, token, httponly=True, secure=True,
                         samesite="Lax", max_age=4 * 3600, path="/")
     response.del_cookie("nsb_oauth_state", path="/auth")
