@@ -680,9 +680,9 @@ class CaseOperationForm(LoggedModal):
     value = discord.ui.TextInput(label="Значение или причина", min_length=3, max_length=400)
 
     def __init__(self, cog: Moderation, number: int, operation: str, owner_id: int):
-        self.title = {"revoke": "Подтвердить отмену наказания",
-                      "reason": "Изменение причины", "duration": "Изменение срока"}[operation]
-        super().__init__(timeout=300)
+        title = {"revoke": "Подтвердить отмену наказания",
+                 "reason": "Изменение причины", "duration": "Изменение срока"}[operation]
+        super().__init__(title=title, timeout=300)
         self.cog, self.number, self.operation, self.owner_id = cog, number, operation, owner_id
         if operation == "duration":
             self.value.label = "Срок: 10m, 2h, 7d или per"
