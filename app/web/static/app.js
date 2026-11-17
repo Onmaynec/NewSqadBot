@@ -204,7 +204,8 @@ function renderPage() {
     : isDiagnostic ? "МОНИТОРИНГ" : isPortal ? "УПРАВЛЕНИЕ СООБЩЕСТВОМ" : "КОНФИГУРАЦИЯ / NEW SQUAD";
   $("page-title").textContent = ownerOverview ? "Обзор системы" : ui.group === "Обзор"
     ? "Панель управления" : ui.group;
-  $("page-subtitle").textContent = Portal.descriptions[ui.group] || blurbs[ui.group]
+  $("page-subtitle").textContent = window.Management?.descriptions?.[ui.group]
+    || Portal.descriptions[ui.group] || blurbs[ui.group]
     || "Настройки и инструменты NewSqad.";
   if (isConfig) renderSettings();
   if (isPortal) void Portal.render(ui.group); else Portal.stopTicketRefresh();
@@ -405,6 +406,7 @@ async function refreshDiagnostics() {
 window.portalAPI = (path, options) => api(path, options);
 window.portalGroup = () => ui.group;
 window.portalData = () => ui.data;
+window.portalNavigate = (group) => navigate(group);
 window.portalReload = () => Portal.render(ui.group);
 window.portalToast = (message, error = false) => toast(message, error);
 $("discord-login").addEventListener("click", () => {
