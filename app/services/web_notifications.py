@@ -11,7 +11,13 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.models import (
-    Application, CommunityEvent, InventoryItem, TemporaryRole, Ticket, WebNotice, WebNoticeRead,
+    Application,
+    CommunityEvent,
+    InventoryItem,
+    TemporaryRole,
+    Ticket,
+    WebNotice,
+    WebNoticeRead,
 )
 
 RETENTION = 30 * 86400
