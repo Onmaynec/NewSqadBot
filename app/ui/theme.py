@@ -7,7 +7,7 @@ import discord
 
 BRAND_BLUE = 0x4A86F7
 BRAND_GREEN = BRAND_BLUE  # Совместимость со старыми модулями на переходном этапе.
-FOOTER = "NEW SQUAD  •  NewSqadBot"
+FOOTER = "NEW SQUAD  •  Панель управления"
 NO_MENTIONS = discord.AllowedMentions.none()
 BUTTON_PRIMARY = discord.ButtonStyle.primary
 BUTTON_SECONDARY = discord.ButtonStyle.secondary
@@ -28,14 +28,34 @@ def card(title: str, description: str = "", *, footer: str = FOOTER) -> discord.
 
 
 def info_line(label: str, value: object, *, icon: str = "") -> str:
-    """Строка для информационных карточек без лишних вложенных эмбедов."""
+    """Подпись и значение, устойчивые к длинным Discord-панелям."""
     prefix = f"{icon}  " if icon else ""
-    return f"{prefix}**{label}:** {value}"
+    return f"{prefix}**{label}**  ·  {value}"
 
 
 def section(title: str, text: str) -> str:
-    """Единый заголовок секции в описании Embed."""
-    return f"**{title}**\n{text.strip()}"
+    """Заголовок и информация с единым межстрочным ритмом."""
+    return f"**{title.strip()}**\n{text.strip()}"
+
+
+def section_list(*sections: tuple[str, str]) -> str:
+    """Отделять смысловые блоки пустой строкой, без псевдографики."""
+    return "\n\n".join(section(title, body) for title, body in sections if body.strip())
+
+
+def status_line(label: str, value: object, *, good: bool | None = None) -> str:
+    marker = "●" if good else "○" if good is False else "•"
+    return f"{marker}  **{label}:** {value}"
+
+
+def panel_card(title: str, subtitle: str, *sections: tuple[str, str],
+               footer: str = FOOTER) -> discord.Embed:
+    """Общий компонент для настроек, справки и карточек участников."""
+    description = subtitle.strip()
+    details = section_list(*sections)
+    if details:
+        description = f"{description}\n\n{details}" if description else details
+    return card(title, description, footer=footer)
 
 
 def notice(message: str, *, kind: str = "info") -> discord.Embed:
@@ -47,7 +67,9 @@ def notice(message: str, *, kind: str = "info") -> discord.Embed:
     }
     title = titles.get(kind, titles["info"])
     body = discord.utils.escape_mentions(message[:3800])
-    return card(f"NewSquad  /  {title}", body)
+    symbols = {"info": "ℹ", "success": "✓", "warning": "!", "error": "×"}
+    caption = symbols.get(kind, symbols["info"])
+    return card(f"NewSquad  /  {title}", f"{caption}  {body}")
 
 
 async def reply_error(interaction: discord.Interaction, *, trace: str | None = None) -> None:
