@@ -12,6 +12,11 @@ def is_healthy(path: Path, *, now: float | None = None, max_age: int = 90) -> bo
         health = json.loads(path.read_text(encoding="utf-8"))
         if health.get("ready") is not True:
             return False
+        # Старые health-файлы совместимы; v1.4+ проверяет фоновое ядро.
+        if health.get("scheduler") is False or health.get("event_bus") is False:
+            return False
+        if health.get("discord") is False or health.get("sqlite") is False:
+            return False
         timestamp = float(health["timestamp"])
         current = time.time() if now is None else now
         return 0 <= current - timestamp <= max_age
