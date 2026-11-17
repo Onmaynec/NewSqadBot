@@ -64,6 +64,16 @@ function loginScreen(visible) {
 }
 async function initialize() {
   try {
+    const branding = await api("/api/site");
+    const icon = $("login-guild-icon");
+    if (branding.icon_url) {
+      icon.src = branding.icon_url;
+      icon.hidden = false;
+      $("login-initials").hidden = true;
+    } else {
+      icon.hidden = true;
+      $("login-initials").textContent = (branding.name || "NS").slice(0, 2).toUpperCase();
+    }
     const session = await api("/api/session");
     ui.auth_method = session.auth_method || "password";
     if (session.authenticated) {
