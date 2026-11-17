@@ -93,6 +93,9 @@ async function refresh() {
       viewerImage.hidden = true;
       $("top-guild-initials").hidden = false;
     }
+    $("brand-guild-icon").hidden = !ui.data.guild_icon_url;
+    $("brand-initials").hidden = Boolean(ui.data.guild_icon_url);
+    if (ui.data.guild_icon_url) $("brand-guild-icon").src = ui.data.guild_icon_url;
     $("workspace-name").textContent = ui.data.guild_name;
     $("overview-guild-name").textContent = ui.data.guild_name;
     const initials = ui.data.guild_name.trim().slice(0, 2).toLocaleUpperCase("ru") || "NS";
@@ -112,8 +115,7 @@ async function refresh() {
       : "Участников: " + Number(ui.data.guild_member_count).toLocaleString("ru-RU"))
       + "  ·  ID: " + ui.data.guild_id;
     $("guild-banner").style.backgroundImage = ui.data.guild_banner_url
-      ? 'linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,.05)), url("' + ui.data.guild_banner_url + '")'
-      : "";
+      ? 'url("' + ui.data.guild_banner_url + '")' : "";
     $("metric-version").textContent = ui.data.version;
     $("footer-version").textContent = ui.data.version;
     $("metric-discord").textContent = ui.data.discord_ready ? "Online" : "Offline";
