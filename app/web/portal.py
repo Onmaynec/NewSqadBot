@@ -9,16 +9,13 @@ import json
 import logging
 import time
 from dataclasses import asdict
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 import discord
 from aiohttp import web
 from sqlalchemy import func, select
 
 from app.models import (
-    Application, ApplicationEvent, AuditEntry, ModerationAction, ModerationCase,
-    StatsDay, Ticket, TicketEvent,
+    Application, ApplicationEvent, AuditEntry, ModerationCase, Ticket,
 )
 from app.services import applications as membership_store
 from app.services import moderation_cases, statistics as stats, tickets as ticket_store
