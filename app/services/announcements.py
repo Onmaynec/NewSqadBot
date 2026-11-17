@@ -248,3 +248,18 @@ async def from_template(db, *, guild_id: int, slug: str,
         db, guild_id=guild_id, author_id=author_id, channel_id=channel_id,
         kind=values[0], title=values[1], body=values[2], color=values[3],
     )
+
+
+async def update_sent(db, *, guild_id: int, number: int,
+                      title: str, body: str, now: int | None = None) -> Announcement:
+    """Записывает изменения только после успешного редактирования Discord-сообщения."""
+    now = int(time.time()) if now is None else now
+    async with db.session() as session:
+        row = await session.scalar(select(Announcement).where(
+            Announcement.guild_id == guild_id, Announcement.id == number,
+        ))
+        if row is None or row.status != "sent":
+            raise ValueError("Сообщение не опубликовано или не найдено.")
+        title, body = validate(row.kind, title, body, row.color)
+        row.title, row.body, row.updated_at = title, body, now
+    return await get(db, guild_id, number)
