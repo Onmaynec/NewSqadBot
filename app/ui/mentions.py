@@ -16,7 +16,7 @@ def role_mention(role: discord.Role | None, *, role_id: int | None = None,
     if role is not None:
         return role.mention
     if role_id:
-        return f"Роль удалена или недоступна (ID \`{role_id}\`)"
+        return f"Роль удалена или недоступна (ID `{role_id}`)"
     return "Не назначена"
 
 
@@ -31,7 +31,7 @@ def channel_mention(guild: discord.Guild | None, channel_id: int | None) -> str:
         return "Не выбран"
     channel = guild.get_channel(channel_id) if guild else None
     if channel is None:
-        return f"Канал удалён или недоступен (ID \`{channel_id}\`)"
+        return f"Канал удалён или недоступен (ID `{channel_id}`)"
     if isinstance(channel, discord.CategoryChannel):
         return f"**{discord.utils.escape_markdown(channel.name)}** (категория)"
     return channel.mention
