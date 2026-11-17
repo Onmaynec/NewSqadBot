@@ -101,7 +101,6 @@ async function refresh() {
     const initials = ui.data.guild_name.trim().slice(0, 2).toLocaleUpperCase("ru") || "NS";
     for (const [imgId, initialsId] of [
       ["workspace-icon", "workspace-initials"],
-      ["top-guild-icon", "top-guild-initials"],
       ["overview-guild-icon", "overview-guild-initials"],
     ]) {
       const img = $(imgId);
