@@ -243,6 +243,17 @@
       actions.append(button("Назад", () => { void render("Заявки"); }));
       if (["pending", "in_review", "needs_info"].includes(item.status)) {
         actions.append(button("Взять в работу", () => { void submit("claim"); }));
+        actions.append(button("Передать сотруднику", async () => {
+          const userId = await chooseStaff();
+          if (userId) {
+            try {
+              const result = await api("/api/portal/applications/" + id + "/action",
+                {method: "POST", body: {action: "transfer", user_id: userId}});
+              window.portalToast(result.message);
+              await applicationDetails(id);
+            } catch (error) {window.portalToast(error.message, true);}
+          }
+        }));
         actions.append(button("Одобрить", async () => {
           if (await confirmAction("Одобрить заявку?", "Кандидат получит роль участника и доступ к серверу.", "Одобрить")) {
             await submit("approve");
@@ -311,14 +322,17 @@
     const send = button("Отправить в Discord", () => {}, "primary");
     send.type = "submit";
     form.append(textarea, send);
+    const participants = e("div", "portal-participants");
     const foot = e("div", "portal-muted", "Сообщения отправляются от имени бота с подписью сотрудника. Переписка не хранится в SQLite.");
-    wrap.append(header, actions, messages, form, foot);
+    wrap.append(header, actions, participants, messages, form, foot);
     let lastMessages = "";
     async function refreshMessages() {
       if (window.portalGroup() !== "Тикеты" || !messages.isConnected) return;
       try {
         const data = await api("/api/portal/tickets/" + id);
         const ticket = data.ticket;
+        participants.replaceChildren(e("span", "portal-muted", "Дополнительные участники: "));
+        for (const uid of data.participants || []) participants.append(pill(uid));
         header.querySelector("p").textContent = ticket.subject + " · " + ticket.status
           + " · ответственный: " + (ticket.assignee_id || "не назначен");
         const signature = data.messages.map((m) => m.id).join("|");
@@ -361,6 +375,20 @@
       const staffId = await chooseStaff();
       if (staffId) await action("transfer", {user_id: staffId});
     }));
+    actions.append(button("Пригласить участника", async () => {
+      const userId = await inputDialog("Добавить участника",
+        "Укажи Discord ID одобренного участника. Канал станет доступен ему в Discord.",
+        "Discord ID (цифры)", 15);
+      if (userId) await action("add_member", {user_id: userId});
+    }));
+    actions.append(button("Удалить участника", async () => {
+      const userId = await inputDialog("Убрать участника из тикета",
+        "Можно удалить только приглашённого участника, но не автора обращения.",
+        "Discord ID (цифры)", 15);
+      if (userId && await confirmAction("Закрыть доступ участнику?",
+          "Права на просмотр приватного канала будут сняты.", "Убрать"))
+        await action("remove_member", {user_id: userId});
+    }, "danger"));
     actions.append(button("Закрыть и удалить", async () => {
       if (await confirmAction("Удалить тикет безвозвратно?",
         "Discord-канал и вся переписка будут безвозвратно удалены. Транскрипт не создаётся.",
