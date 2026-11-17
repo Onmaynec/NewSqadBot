@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from typing import Literal
 
 import discord
 from discord import app_commands
@@ -49,7 +50,9 @@ class RoleSelect(discord.ui.Select):
             placeholder="Выберите роли" if panel.mode == "multi" else "Выберите одну роль",
             min_values=1, max_values=len(options) if panel.mode == "multi" else 1,
             custom_id=f"newsqad:roles:select:{panel.id}",
-            options=[discord.SelectOption(label=o.label, value=str(o.role_id)) for o in options],
+            options=[discord.SelectOption(
+                label=f"{o.category.title()} · {o.label}"[:100], value=str(o.role_id))
+                for o in options],
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -168,6 +171,14 @@ class Roles(commands.Cog):
                 await interaction.response.send_message("Эта панель больше не активна.", ephemeral=True)
                 return
             known = {o.role_id for o in options}
+            exclusions = await self.bot.database.get_setting(
+                guild.id, f"roles.exclusions.{panel_id}", [])
+            for pair in exclusions:
+                if len(pair) == 2 and set(pair) <= (desired | {r.id for r in interaction.user.roles}):
+                    if set(pair) & desired:
+                        await interaction.response.send_message(
+                            "Выбраны несовместимые роли. Снимите конфликтующую роль.", ephemeral=True)
+                        return
             if not desired.issubset(known) or (panel.mode == "single" and len(desired) > 1):
                 await interaction.response.send_message("Выбраны неизвестные роли.", ephemeral=True)
                 return
@@ -307,7 +318,8 @@ class Roles(commands.Cog):
         await interaction.response.send_message(f"Создан черновик панели **#{number}**. Добавьте роли: `/roles panel add`, затем `/roles panel publish`.", ephemeral=True)
 
     @panel.command(name="add", description="Добавить роль в панель")
-    async def panel_add(self, interaction: discord.Interaction, number: int, role: discord.Role, label: str) -> None:
+    async def panel_add(self, interaction: discord.Interaction, number: int, role: discord.Role, label: str,
+                        category: Literal["games", "notifications", "interests", "decorative"] = "games") -> None:
         if not await self._admin(interaction):
             return
         panel, options = await self._panel_data(number)
@@ -322,7 +334,7 @@ class Roles(commands.Cog):
             return
         try:
             async with self.bot.database.session() as session:
-                session.add(RolePanelOption(panel_id=number, role_id=role.id, label=label.strip()))
+                session.add(RolePanelOption(panel_id=number, role_id=role.id, label=label.strip(), category=category))
         except IntegrityError:
             await interaction.response.send_message("Эта роль уже добавлена.", ephemeral=True)
             return
@@ -331,6 +343,30 @@ class Roles(commands.Cog):
             f"{role_mention(role)} добавлена в панель #{number}."
             + ("" if refreshed else "\nПанель ещё не обновлена — используйте publish."),
             kind="success"), ephemeral=True)
+
+
+    @panel.command(name="exclude", description="Запретить одновременный выбор двух ролей")
+    async def panel_exclude(self, interaction: discord.Interaction, number: int,
+                            first: discord.Role, second: discord.Role, enabled: bool = True) -> None:
+        if not await self._admin(interaction):
+            return
+        panel, options = await self._panel_data(number)
+        known = {o.role_id for o in options}
+        if not panel or panel.guild_id != interaction.guild_id or first.id == second.id or (
+                first.id not in known or second.id not in known):
+            await interaction.response.send_message(
+                "Укажите две разные роли из этой панели.", ephemeral=True)
+            return
+        key = f"roles.exclusions.{number}"
+        pairs = await self.bot.database.get_setting(interaction.guild_id, key, [])
+        pair = sorted((first.id, second.id))
+        pairs = [p for p in pairs if sorted(p) != pair]
+        if enabled:
+            pairs.append(pair)
+        await self.bot.database.set_setting(interaction.guild_id, key, pairs,
+            actor_id=interaction.user.id)
+        await interaction.response.send_message(
+            "Ограничение сохранено." if enabled else "Ограничение снято.", ephemeral=True)
 
     @panel.command(name="remove", description="Удалить роль из панели")
     async def panel_remove(self, interaction: discord.Interaction, number: int, role: discord.Role) -> None:
