@@ -267,6 +267,7 @@ class Tickets(commands.Cog):
         self._member_locks: dict[int, asyncio.Lock] = {}
         self._loaded = False
         self._last_message: dict[int, int] = {}
+        self._survey_task: asyncio.Task | None = None
         bot.scheduler.register("tickets.inactive_warn", self._warn_inactive)
         bot.scheduler.register("tickets.inactive_close", self._close_inactive)
         bot.scheduler.register("tickets.first_reply_alert", self._alert_unanswered)
@@ -282,6 +283,25 @@ class Tickets(commands.Cog):
         for survey in await support_quality.pending(self.bot.database, self.bot.config.guild_id):
             if survey.notified_at is not None:
                 self.bot.add_view(SupportSurveyView(self.bot, survey.id, survey.requester_id))
+        self._survey_task = asyncio.create_task(
+            self._survey_maintenance(), name="support-survey-maintenance")
+
+    async def cog_unload(self) -> None:
+        if self._survey_task:
+            self._survey_task.cancel()
+            await asyncio.gather(self._survey_task, return_exceptions=True)
+            self._survey_task = None
+
+    async def _survey_maintenance(self) -> None:
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                await support_quality.purge(self.bot.database, self.bot.config.guild_id)
+                await self._deliver_surveys()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Не удалось очистить или доставить опросы поддержки")
 
     async def staff(self, interaction: discord.Interaction, ticket: Ticket | None = None) -> bool:
         if interaction.guild_id != self.bot.config.guild_id or not isinstance(interaction.user, discord.Member):
