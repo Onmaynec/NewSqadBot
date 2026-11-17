@@ -140,7 +140,7 @@ async def test_voice_creation_registers_and_moves_when_admitted(monkeypatch):
     guild.create_voice_channel.assert_awaited_once()
     registered.assert_awaited_once()
     member.move_to.assert_awaited_once_with(created, reason="NewSquad: создание временной комнаты")
-    assert VERSION == "1.6.0"
+    assert VERSION == "1.7.0"
 
 
 @pytest.mark.asyncio
