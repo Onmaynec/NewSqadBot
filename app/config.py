@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 GUILD_ID = 1439347293076586638
 FEMALE_ROLE_ID = 1453273881359024231
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 
 
 @dataclass(frozen=True, slots=True)
