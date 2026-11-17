@@ -6,13 +6,14 @@
   <meta name="theme-color" content="#0a0a0b">
   <title>NewSqadBot — Консоль управления</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/portal.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
 <body>
   <div class="shell" id="shell" hidden>
     <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">N<span>·</span></div>
+        <div class="brand-mark" aria-hidden="true"><img id="brand-guild-icon" class="guild-icon" alt="" hidden><span id="brand-initials">N·</span></div>
         <div class="brand-copy"><strong>NEW SQUAD</strong><small>Панель управления</small></div>
       </div>
       <div class="workspace"><span class="workspace-avatar"><img id="workspace-icon" class="guild-icon" alt="Иконка сервера" hidden><span id="workspace-initials">NS</span></span><span class="workspace-copy"><strong id="workspace-name">NewSquad</strong><small>Discord · Один сервер</small></span><span class="workspace-chevron">⌄</span></div>
@@ -28,7 +29,7 @@
       <header class="topbar">
         <button type="button" id="menu-toggle" class="menu-toggle" aria-label="Открыть меню">☰</button>
         <div class="breadcrumbs">NEW SQUAD <span>/</span> <strong id="breadcrumb">Обзор</strong></div>
-        <div class="top-actions"><span class="connection" id="connection"><i></i> Проверка...</span><span class="top-divider"></span><span class="avatar" title="Сервер Discord"><img id="top-guild-icon" class="guild-icon" alt="Иконка сервера" hidden><span id="top-guild-initials">NS</span></span></div>
+        <div class="top-actions"><span class="connection" id="connection"><i></i> Проверка...</span><span class="top-divider"></span><span class="viewer-role" id="viewer-role">OWNER</span><span class="avatar" title="Ваш Discord-аккаунт"><img id="viewer-avatar" class="guild-icon" alt="Аватар Discord-пользователя" hidden><span id="top-guild-initials">NS</span></span></div>
       </header>
 
       <div class="page">
@@ -59,6 +60,8 @@
           <div class="panel foot-panel"><div><strong>Безопасная конфигурация</strong><p>Настройки записываются в существующую базу с записью в журнал. Токен Discord и пароль панели недоступны через сайт.</p></div><div class="round-icon" aria-hidden="true">✓</div></div>
         </section>
 
+        <section id="portal-section" class="section" hidden></section>
+
         <section id="settings-section" class="section" hidden>
           <div class="settings-toolbar"><label class="search" for="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Поиск по названию или ключу..." autocomplete="off"><kbd>/</kbd></label><span id="item-count" class="item-count">0 параметров</span></div>
           <div class="settings-grid" id="settings-grid"></div>
@@ -83,12 +86,13 @@
   </div>
 
   <div id="login-screen" class="login-screen">
-    <div class="login-art"><div class="login-brand"><span class="login-logo">N<span>·</span></span><strong>NEW SQUAD</strong></div><div class="login-statement">Управление.<br>Без лишнего.</div><div class="login-art-bottom">NEW SQUAD / ADMIN CONSOLE <span>EST. 2026</span></div></div>
+    <div class="login-art"><div class="login-brand"><span class="login-logo"><img id="login-guild-icon" class="guild-icon" alt="Аватар сервера" hidden><span id="login-initials">N·</span></span><strong>NEW SQUAD</strong></div><div class="login-statement">Управление.<br>Без лишнего.</div><div class="login-art-bottom">NEW SQUAD / ADMIN CONSOLE <span>EST. 2026</span></div></div>
     <div class="login-form-area">
       <div class="login-card">
         <span class="login-kicker">ЛОКАЛЬНАЯ АДМИНИСТРАТИВНАЯ ПАНЕЛЬ</span>
         <h1>Добро пожаловать.</h1>
         <p>Войди, чтобы управлять настройками NewSqadBot.</p>
+        <button class="button discord-login" id="discord-login" type="button" hidden>Войти через Discord <span>↗</span></button>
         <form id="login-form">
           <label for="password">Пароль администратора</label>
           <input id="password" name="password" type="password" required minlength="14" autocomplete="current-password" placeholder="Введите пароль">

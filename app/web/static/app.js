@@ -1,7 +1,8 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const ui = {csrf: "", data: null, group: "Обзор", query: "", saving: false, dirty: new Map(), toastTimer: null};
+const ui = {csrf: "", data: null, group: "Обзор", query: "", saving: false, dirty: new Map(), toastTimer: null,
+  role: "owner", auth_method: "password"};
 const icons = {
   "Обзор": "◈", "Роли": "◇", "Каналы": "▤", "Участники": "♙",
   "Поддержка": "□", "Голосовые": "◉", "Прогрессия": "↗",
@@ -57,13 +58,27 @@ async function api(path, options = {}) {
 function loginScreen(visible) {
   $("login-screen").hidden = !visible;
   $("shell").hidden = visible;
+  $("discord-login").hidden = ui.auth_method !== "discord";
+  $("login-form").hidden = ui.auth_method === "discord";
   if (visible) { ui.data = null; ui.csrf = ""; ui.dirty.clear(); }
 }
 async function initialize() {
   try {
+    const branding = await api("/api/site");
+    const icon = $("login-guild-icon");
+    if (branding.icon_url) {
+      icon.src = branding.icon_url;
+      icon.hidden = false;
+      $("login-initials").hidden = true;
+    } else {
+      icon.hidden = true;
+      $("login-initials").textContent = (branding.name || "NS").slice(0, 2).toUpperCase();
+    }
     const session = await api("/api/session");
+    ui.auth_method = session.auth_method || "password";
     if (session.authenticated) {
       ui.csrf = session.csrf;
+      ui.role = session.role || "owner";
       loginScreen(false);
       await refresh();
     } else {
@@ -77,12 +92,25 @@ async function initialize() {
 async function refresh() {
   try {
     ui.data = await api("/api/bootstrap");
+    ui.role = ui.data.viewer_role || "owner";
+    $("viewer-role").textContent = Portal.roleLabels[ui.role] || ui.role.toUpperCase();
+    const viewerImage = $("viewer-avatar");
+    if (ui.data.viewer && ui.data.viewer.avatar_url) {
+      viewerImage.src = ui.data.viewer.avatar_url;
+      viewerImage.hidden = false;
+      $("top-guild-initials").hidden = true;
+    } else {
+      viewerImage.hidden = true;
+      $("top-guild-initials").hidden = false;
+    }
+    $("brand-guild-icon").hidden = !ui.data.guild_icon_url;
+    $("brand-initials").hidden = Boolean(ui.data.guild_icon_url);
+    if (ui.data.guild_icon_url) $("brand-guild-icon").src = ui.data.guild_icon_url;
     $("workspace-name").textContent = ui.data.guild_name;
     $("overview-guild-name").textContent = ui.data.guild_name;
     const initials = ui.data.guild_name.trim().slice(0, 2).toLocaleUpperCase("ru") || "NS";
     for (const [imgId, initialsId] of [
       ["workspace-icon", "workspace-initials"],
-      ["top-guild-icon", "top-guild-initials"],
       ["overview-guild-icon", "overview-guild-initials"],
     ]) {
       const img = $(imgId);
@@ -96,13 +124,12 @@ async function refresh() {
       : "Участников: " + Number(ui.data.guild_member_count).toLocaleString("ru-RU"))
       + "  ·  ID: " + ui.data.guild_id;
     $("guild-banner").style.backgroundImage = ui.data.guild_banner_url
-      ? 'linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,.05)), url("' + ui.data.guild_banner_url + '")'
-      : "";
+      ? 'url("' + ui.data.guild_banner_url + '")' : "";
     $("metric-version").textContent = ui.data.version;
     $("footer-version").textContent = ui.data.version;
     $("metric-discord").textContent = ui.data.discord_ready ? "Online" : "Offline";
     $("metric-config").textContent = ui.data.total_configured + " / " + ui.data.settings.length;
-    const active = Object.values(ui.data.modules).filter((item) => item === "active").length;
+    const active = Object.values(ui.data.modules || {}).filter((item) => item === "active").length;
     $("metric-modules").textContent = active + " / " + Object.keys(ui.data.modules).length;
     $("connection").classList.toggle("offline", !ui.data.discord_ready);
     $("connection").lastChild.textContent = ui.data.discord_ready ? " Discord подключён" : " Discord не готов";
@@ -149,10 +176,13 @@ function renderNav() {
   const nav = $("navigation");
   nav.replaceChildren();
   if (!ui.data) return;
-  for (const group of ["Обзор", ...ui.data.groups, "Диагностика"]) {
+  const portalGroups = Portal.menu[ui.role] || Portal.menu.support;
+  const groups = ui.role === "owner"
+    ? [...portalGroups, ...ui.data.groups, "Диагностика"] : portalGroups;
+  for (const group of groups) {
     const button = element("button", "nav-item" + (ui.group === group ? " active" : ""));
     button.type = "button";
-    button.append(element("span", "nav-icon", icons[group] || "○"));
+    button.append(Portal.icon(group));
     button.append(element("span", "nav-text", group));
     button.append(element("span", "nav-indicator"));
     button.addEventListener("click", () => { void navigate(group); });
@@ -161,16 +191,23 @@ function renderNav() {
 }
 function renderPage() {
   if (!ui.data) return;
-  const isOverview = ui.group === "Обзор";
+  const ownerOverview = ui.group === "Обзор" && ui.role === "owner";
   const isDiagnostic = ui.group === "Диагностика";
-  $("overview").hidden = !isOverview;
-  $("settings-section").hidden = isOverview || isDiagnostic;
+  const isConfig = ui.role === "owner" && ui.data.groups.includes(ui.group);
+  const isPortal = !ownerOverview && !isDiagnostic && !isConfig;
+  $("overview").hidden = !ownerOverview;
+  $("settings-section").hidden = !isConfig;
   $("diagnostics-section").hidden = !isDiagnostic;
+  $("portal-section").hidden = !isPortal;
   $("breadcrumb").textContent = ui.group;
-  $("eyebrow").textContent = isOverview ? "РАБОЧЕЕ ПРОСТРАНСТВО" : isDiagnostic ? "МОНИТОРИНГ" : "КОНФИГУРАЦИЯ / NEW SQUAD";
-  $("page-title").textContent = isOverview ? "Обзор системы" : isDiagnostic ? "Диагностика" : ui.group;
-  $("page-subtitle").textContent = blurbs[ui.group] || "Настройки Discord.";
-  if (!isOverview && !isDiagnostic) renderSettings();
+  $("eyebrow").textContent = ownerOverview ? "РАБОЧЕЕ ПРОСТРАНСТВО"
+    : isDiagnostic ? "МОНИТОРИНГ" : isPortal ? "УПРАВЛЕНИЕ СООБЩЕСТВОМ" : "КОНФИГУРАЦИЯ / NEW SQUAD";
+  $("page-title").textContent = ownerOverview ? "Обзор системы" : ui.group === "Обзор"
+    ? "Панель управления" : ui.group;
+  $("page-subtitle").textContent = Portal.descriptions[ui.group] || blurbs[ui.group]
+    || "Настройки и инструменты NewSqad.";
+  if (isConfig) renderSettings();
+  if (isPortal) void Portal.render(ui.group); else Portal.stopTicketRefresh();
 }
 function labelFor(spec) {
   const map = {"role": "Роль Discord", "channel": "Канал Discord",
@@ -365,6 +402,12 @@ async function refreshDiagnostics() {
     if (ui.group === "Диагностика") toast(error.message, true);
   }
 }
+window.portalAPI = (path, options) => api(path, options);
+window.portalGroup = () => ui.group;
+window.portalToast = (message, error = false) => toast(message, error);
+$("discord-login").addEventListener("click", () => {
+  window.location.assign("/auth/discord");
+});
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const submit = $("login-submit");

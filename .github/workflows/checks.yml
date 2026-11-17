@@ -21,7 +21,9 @@ jobs:
       - name: Тесты
         run: python -m pytest -q
       - name: Проверка JavaScript локальной панели
-        run: node --check app/web/static/app.js
+        run: |
+          node --check app/web/static/app.js
+          node --check app/web/static/portal.js
   docker:
     runs-on: ubuntu-latest
     steps:

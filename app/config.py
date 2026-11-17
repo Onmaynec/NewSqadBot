@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 GUILD_ID = 1439347293076586638
@@ -24,6 +25,10 @@ class Config:
     web_admin_password_hash: str = ""
     web_admin_port: int = 8787
     web_admin_bind: str = "127.0.0.1"
+    web_discord_client_id: str = ""
+    web_discord_client_secret: str = ""
+    web_public_url: str = ""
+    presence_intent: bool = False
 
     @classmethod
     def from_env(cls) -> Config:
@@ -64,5 +69,21 @@ class Config:
         admin_bind = os.getenv("WEB_ADMIN_BIND", "127.0.0.1").strip()
         if not 1 <= admin_port <= 65535 or admin_bind not in ("127.0.0.1", "0.0.0.0"):
             raise ValueError("Неверный адрес или порт локальной панели.")
+        client_id = os.getenv("WEB_DISCORD_CLIENT_ID", "").strip()
+        client_secret = os.getenv("WEB_DISCORD_CLIENT_SECRET", "").strip()
+        public_url = os.getenv("WEB_PUBLIC_URL", "").strip().rstrip("/")
+        oauth_values = (client_id, client_secret, public_url)
+        if any(oauth_values):
+            if not all(oauth_values):
+                raise ValueError("Для Discord OAuth нужны WEB_DISCORD_CLIENT_ID, WEB_DISCORD_CLIENT_SECRET и WEB_PUBLIC_URL.")
+            parsed = urlsplit(public_url)
+            if (not client_id.isdecimal() or parsed.scheme != "https" or not parsed.hostname
+                    or parsed.username or parsed.password or parsed.query or parsed.fragment
+                    or parsed.path or parsed.port not in (None, 443)):
+                raise ValueError("WEB_PUBLIC_URL должен быть HTTPS-адресом без пути, параметров и логина.")
+            if len(client_secret) < 12:
+                raise ValueError("Discord OAuth client secret выглядит некорректным.")
         return cls(token, guild_id, database_url, data_dir, timezone, level, owners,
-                   content_intent, admin_hash, admin_port, admin_bind)
+                   content_intent, admin_hash, admin_port, admin_bind,
+                   client_id, client_secret, public_url,
+                   os.getenv("ENABLE_PRESENCE_INTENT", "false").lower() in ("true", "1", "yes"))

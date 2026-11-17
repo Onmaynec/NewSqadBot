@@ -1,6 +1,6 @@
 """Однопроцессная web-консоль: локальный порт, пароль, CSRF, whitelist настроек.
 
-Нет OAuth, удалённого хостинга, SQL API или редактирования произвольных ключей.
+Поддерживает отдельный Discord OAuth на публичном HTTPS и локальный пароль без OAuth.
 Discord данные берутся из работающего бота; секреты из .env никогда не возвращаются.
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ import hmac
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -24,6 +24,7 @@ from app.services.diagnostics import collect
 from app.services.role_rules import DANGEROUS_PERMISSION_NAMES
 from app.web.auth import SessionStore, validate_hash, verify_password
 from app.web.catalog import BY_KEY, GROUPS, SETTINGS, Setting
+from app.web.oauth import authorize_url, consume_state, exchange_code, new_state, permission
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).parent / "static"
@@ -36,6 +37,10 @@ class PanelState:
     bot: object
     password_hash: str
     sessions: SessionStore
+    discord_client_id: str = ""
+    discord_client_secret: str = ""
+    public_url: str = ""
+    pending_states: dict[str, float] = field(default_factory=dict)
 
 
 STATE = web.AppKey("state", PanelState)
@@ -56,11 +61,14 @@ def local_host(value: str) -> bool:
 @web.middleware
 async def security_headers(request: web.Request, handler):
     host = request.headers.get("Host", "")
-    if not local_host(host):
+    panel = state(request)
+    public_host = urlsplit(panel.public_url).netloc if panel.public_url else ""
+    if not local_host(host) and host != public_host:
         response = web.json_response({"error": "Недопустимый адрес сайта."}, status=421)
     elif request.method not in ("GET", "HEAD"):
-        # Браузерные POST/fetch обязаны прислать точный Origin.
-        if request.headers.get("Origin") != f"http://{host}":
+        # Никакой обработки POST от произвольных интернет-сайтов.
+        expected = panel.public_url if host == public_host else f"http://{host}"
+        if request.headers.get("Origin") != expected:
             response = web.json_response({"error": "Запрос с другого сайта запрещён."}, status=403)
         else:
             try:
@@ -98,6 +106,18 @@ def require_auth(request: web.Request):
     return record
 
 
+async def require_role(request: web.Request, role: str = "support"):
+    session = require_auth(request)
+    if session.user_id is None:
+        if state(request).discord_client_id:
+            raise web.HTTPUnauthorized(text="Войдите через Discord.")
+        # Пароль для localhost является локальным владельцем.
+        if not local_host(request.headers.get("Host", "")):
+            raise web.HTTPForbidden(text="Парольный вход разрешён только локально.")
+        return "owner", None
+    return await permission(state(request).bot, session.user_id, role)
+
+
 def require_csrf(request: web.Request) -> None:
     record = require_auth(request)
     supplied = request.headers.get("X-CSRF-Token", "")
@@ -125,19 +145,45 @@ async def index(request: web.Request) -> web.FileResponse:
 
 async def static_file(request: web.Request) -> web.FileResponse:
     name = request.match_info["name"]
-    if name not in ("app.js", "style.css"):
+    if name not in ("app.js", "portal.js", "style.css"):
         raise web.HTTPNotFound()
     return web.FileResponse(ROOT / name)
 
 
+async def site_info(request: web.Request) -> web.Response:
+    """Public branding only. No guild members, settings, secrets or role IDs."""
+    guild = guild_for(state(request).bot)
+    return web.json_response({
+        "name": guild.name if guild else "NewSqad",
+        "icon_url": str(guild.icon.url) if guild and getattr(guild, "icon", None) else None,
+    })
+
+
 async def session_info(request: web.Request) -> web.Response:
-    session = state(request).sessions.get(request.cookies.get(COOKIE))
-    return web.json_response({"authenticated": bool(session),
-                              "csrf": session.csrf if session else None})
+    panel = state(request)
+    session = panel.sessions.get(request.cookies.get(COOKIE))
+    if session is None:
+        return web.json_response({"authenticated": False, "csrf": None,
+                                  "auth_method": "discord" if panel.discord_client_id else "password"})
+    try:
+        role, member = await require_role(request)
+    except web.HTTPException:
+        return web.json_response({"authenticated": False, "csrf": None,
+                                  "auth_method": "discord" if panel.discord_client_id else "password"})
+    return web.json_response({
+        "authenticated": True, "csrf": session.csrf, "role": role,
+        "user": {"id": str(member.id), "name": member.display_name,
+                 "avatar_url": str(member.display_avatar.url)} if member else None,
+        "auth_method": "discord" if panel.discord_client_id else "password",
+    })
 
 
 async def login(request: web.Request) -> web.Response:
     panel = state(request)
+    if panel.discord_client_id:
+        raise web.HTTPForbidden(text="Вход по паролю выключен. Используйте Discord.")
+    if not local_host(request.headers.get("Host", "")):
+        raise web.HTTPForbidden(text="Пароль доступен только локально.")
     peer = request.remote or "unknown"
     if panel.sessions.limited(peer):
         return web.json_response({"error": "Слишком много попыток. Повторите через 5 минут."}, status=429)
@@ -153,6 +199,53 @@ async def login(request: web.Request) -> web.Response:
     response.set_cookie(COOKIE, token, httponly=True, secure=False,
                         samesite="Strict", max_age=4 * 3600, path="/")
     log.info("Успешный вход в локальную административную панель")
+    return response
+
+
+
+async def oauth_start(request: web.Request) -> web.Response:
+    panel = state(request)
+    if not panel.discord_client_id:
+        raise web.HTTPNotFound()
+    # Cookie must be issued from public HTTPS origin: localhost cookie cannot
+    # return to a distinct ts.net callback host.
+    host = request.headers.get("Host", "")
+    if host != urlsplit(panel.public_url).netloc:
+        return web.Response(status=302, headers={"Location": panel.public_url + "/auth/discord"})
+    ticket = new_state(panel.pending_states)
+    redirect = panel.public_url + "/auth/callback"
+    location = authorize_url(panel.discord_client_id, redirect, ticket)
+    response = web.Response(status=302, headers={"Location": location})
+    response.set_cookie("nsb_oauth_state", ticket, httponly=True, secure=True,
+                        samesite="Lax", max_age=300, path="/auth")
+    return response
+
+
+async def oauth_callback(request: web.Request) -> web.Response:
+    panel = state(request)
+    if not panel.discord_client_id:
+        raise web.HTTPNotFound()
+    oauth_state = request.query.get("state")
+    code = request.query.get("code")
+    if not consume_state(panel.pending_states, oauth_state,
+                         request.cookies.get("nsb_oauth_state")):
+        raise web.HTTPForbidden(text="Сессия авторизации устарела или не совпадает.")
+    if not isinstance(code, str) or not 1 <= len(code) <= 1024:
+        raise web.HTTPBadRequest(text="Discord не прислал код авторизации.")
+    try:
+        uid = await exchange_code(panel.discord_client_id, panel.discord_client_secret,
+                                  panel.public_url + "/auth/callback", code)
+        await permission(panel.bot, uid, "support")
+    except web.HTTPException:
+        raise
+    except (OSError, TimeoutError) as exc:
+        log.warning("Discord OAuth временно недоступен")
+        raise web.HTTPBadGateway(text="Discord временно недоступен.") from exc
+    token, _ = panel.sessions.create(user_id=uid)
+    response = web.Response(status=302, headers={"Location": panel.public_url + "/"})
+    response.set_cookie(COOKIE, token, httponly=True, secure=True,
+                        samesite="Lax", max_age=4 * 3600, path="/")
+    response.del_cookie("nsb_oauth_state", path="/auth")
     return response
 
 
@@ -204,7 +297,7 @@ async def read_all_settings(db, guild_id: int) -> dict:
 
 
 async def bootstrap(request: web.Request) -> web.Response:
-    require_auth(request)
+    role, member = await require_role(request)
     bot = state(request).bot
     try:
         raw = await read_all_settings(bot.database, bot.config.guild_id)
@@ -227,15 +320,21 @@ async def bootstrap(request: web.Request) -> web.Response:
     channels = sorted((serialize_channel(ch) for ch in guild.channels if channel_type(ch) != "other"),
                       key=lambda x: (x["type"], x["category"], x["name"])) if guild else []
     return web.json_response({
+        "viewer_role": role,
+        "viewer": {"id": str(member.id), "name": member.display_name,
+                   "avatar_url": str(member.display_avatar.url)} if member else None,
         "version": VERSION, "guild_id": str(bot.config.guild_id),
         "guild_name": guild.name if guild else "NewSquad",
         "guild_icon_url": str(guild.icon.url) if guild and getattr(guild, "icon", None) else None,
         "guild_banner_url": str(guild.banner.url) if guild and getattr(guild, "banner", None) else None,
         "guild_member_count": getattr(guild, "member_count", None) if guild else None,
         "discord_ready": guild is not None,
-        "modules": bot.module_states,
-        "groups": GROUPS, "settings": settings, "roles": roles, "channels": channels,
-        "total_configured": sum(spec.key in raw for spec in SETTINGS),
+        "modules": bot.module_states if role == "owner" else {},
+        "groups": GROUPS if role == "owner" else (),
+        "settings": settings if role == "owner" else (),
+        "roles": roles if role == "owner" else (),
+        "channels": channels if role == "owner" else (),
+        "total_configured": sum(spec.key in raw for spec in SETTINGS) if role == "owner" else 0,
     })
 
 
@@ -339,6 +438,7 @@ def validate_value(spec: Setting, value, guild):
 
 
 async def save_setting(request: web.Request) -> web.Response:
+    await require_role(request, "owner")
     require_csrf(request)
     spec = BY_KEY.get(request.match_info.get("key"))
     if spec is None:
@@ -354,7 +454,8 @@ async def save_setting(request: web.Request) -> web.Response:
     try:
         # actor_id=0 означает действие локального администратора (не Discord ID).
         # Database.set_setting создаёт запись в system_audit без значения настройки.
-        await bot.database.set_setting(bot.config.guild_id, spec.key, value, actor_id=0)
+        await bot.database.set_setting(bot.config.guild_id, spec.key, value,
+                                       actor_id=require_auth(request).user_id or 0)
     except Exception:
         log.exception("Сохранение параметра %s не выполнено", spec.key)
         return web.json_response({"error": "Не удалось сохранить: проверьте SQLite."}, status=503)
@@ -366,6 +467,7 @@ async def save_setting(request: web.Request) -> web.Response:
 
 async def save_batch(request: web.Request) -> web.Response:
     """Проверить все изменения и зафиксировать одним commit; без частичных сохранений."""
+    await require_role(request, "owner")
     require_csrf(request)
     payload = await json_payload(request)
     if set(payload) != {"group", "changes"}:
@@ -385,7 +487,8 @@ async def save_batch(request: web.Request) -> web.Response:
     except ValueError as exc:
         return web.json_response({"error": f"{key}: {exc}"}, status=422)
     try:
-        await bot.database.set_settings(bot.config.guild_id, normalized, actor_id=0)
+        await bot.database.set_settings(bot.config.guild_id, normalized,
+                                        actor_id=require_auth(request).user_id or 0)
     except Exception:
         log.exception("Не удалось атомарно сохранить раздел %s", group)
         return web.json_response({"error": "SQLite не смогла сохранить изменения. Ничего не применено."},
@@ -400,7 +503,7 @@ async def save_batch(request: web.Request) -> web.Response:
 
 
 async def diagnostics(request: web.Request) -> web.Response:
-    require_auth(request)
+    await require_role(request, "admin")
     bot = state(request).bot
     if guild_for(bot) is None:
         return web.json_response({"ready": False, "items": [{
@@ -414,27 +517,40 @@ async def diagnostics(request: web.Request) -> web.Response:
         return web.json_response({"error": "Ошибка диагностики. Смотрите Docker-логи."}, status=503)
 
 
-def create_app(bot, password_hash: str) -> web.Application:
-    if not validate_hash(password_hash):
+def create_app(bot, password_hash: str, *, discord_client_id: str = "",
+               discord_client_secret: str = "", public_url: str = "") -> web.Application:
+    if not discord_client_id and not validate_hash(password_hash):
         raise ValueError("WEB_ADMIN_PASSWORD_HASH некорректен: выполните python -m app.web.auth hash")
     app = web.Application(middlewares=[security_headers], client_max_size=MAX_JSON)
-    app[STATE] = PanelState(bot=bot, password_hash=password_hash, sessions=SessionStore())
+    app[STATE] = PanelState(bot=bot, password_hash=password_hash, sessions=SessionStore(),
+                            discord_client_id=discord_client_id,
+                            discord_client_secret=discord_client_secret, public_url=public_url)
     app.router.add_get("/", index)
     app.router.add_get("/static/{name}", static_file)
+    app.router.add_get("/api/site", site_info)
     app.router.add_get("/api/session", session_info)
     app.router.add_post("/api/login", login)
+    app.router.add_get("/auth/discord", oauth_start)
+    app.router.add_get("/auth/callback", oauth_callback)
     app.router.add_post("/api/logout", logout)
     app.router.add_get("/api/bootstrap", bootstrap)
     app.router.add_get("/api/diagnostics", diagnostics)
     app.router.add_post("/api/settings/batch", save_batch)
     app.router.add_post("/api/settings/{key}", save_setting)
+    from app.web.portal import register
+    register(app)
     return app
 
 
-async def start_server(bot, *, password_hash: str, bind: str, port: int) -> web.AppRunner:
+async def start_server(bot, *, password_hash: str, bind: str, port: int,
+                       discord_client_id: str = "", discord_client_secret: str = "",
+                       public_url: str = "") -> web.AppRunner:
     if bind not in ("127.0.0.1", "0.0.0.0") or not 1 <= port <= 65535:
         raise ValueError("Неверный локальный адрес или порт панели.")
-    runner = web.AppRunner(create_app(bot, password_hash), access_log=None)
+    runner = web.AppRunner(create_app(bot, password_hash,
+                                  discord_client_id=discord_client_id,
+                                  discord_client_secret=discord_client_secret,
+                                  public_url=public_url), access_log=None)
     await runner.setup()
     try:
         site = web.TCPSite(runner, host=bind, port=port)
