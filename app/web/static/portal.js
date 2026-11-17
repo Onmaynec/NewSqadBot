@@ -447,6 +447,10 @@
         const row = e("div", "portal-list-row");
         const avatar = e("img", "portal-person-avatar");avatar.src=item.avatar_url;avatar.alt="";
         row.append(avatar, rowTitle(item.name, item.id), e("span", "portal-meta", "На сервере: " + format(item.joined_at)));
+        row.append(button("Модерация", () => {
+          chosenModerTarget = item.id;
+          void window.portalNavigate("Модерация");
+        }));
         return row;
       }, "Участники не найдены."));
       body.prepend(e("p", "portal-muted", "В кэше: " + data.cached_members + ", участников сервера: " + (data.server_member_count || "—")));
