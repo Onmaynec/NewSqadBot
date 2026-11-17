@@ -13,7 +13,12 @@ from app.core.database import Database, migrate
 from app.modules.announcements import AnnouncementModal, build_announcement
 from app.modules.announcements_manager import AnnouncementManager
 from app.modules.help_center import (
-    HelpEntry, HelpSearchModal, HelpView, build_pages, detail_embed, find_entries,
+    HelpEntry,
+    HelpSearchModal,
+    HelpView,
+    build_pages,
+    detail_embed,
+    find_entries,
     visible_entries,
 )
 from app.services import announcements as store
