@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#0a0a0b">
   <title>NewSqadBot — Консоль управления</title>
   <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/portal.js" defer></script>
   <script src="/static/app.js" defer></script>
 </head>
 <body>
@@ -28,7 +29,7 @@
       <header class="topbar">
         <button type="button" id="menu-toggle" class="menu-toggle" aria-label="Открыть меню">☰</button>
         <div class="breadcrumbs">NEW SQUAD <span>/</span> <strong id="breadcrumb">Обзор</strong></div>
-        <div class="top-actions"><span class="connection" id="connection"><i></i> Проверка...</span><span class="top-divider"></span><span class="avatar" title="Сервер Discord"><img id="top-guild-icon" class="guild-icon" alt="Иконка сервера" hidden><span id="top-guild-initials">NS</span></span></div>
+        <div class="top-actions"><span class="connection" id="connection"><i></i> Проверка...</span><span class="top-divider"></span><span class="viewer-role" id="viewer-role">OWNER</span><span class="avatar" title="Ваш Discord-аккаунт"><img id="viewer-avatar" class="guild-icon" alt="Аватар Discord-пользователя" hidden><span id="top-guild-initials">NS</span></span></div>
       </header>
 
       <div class="page">
@@ -58,6 +59,8 @@
           </div>
           <div class="panel foot-panel"><div><strong>Безопасная конфигурация</strong><p>Настройки записываются в существующую базу с записью в журнал. Токен Discord и пароль панели недоступны через сайт.</p></div><div class="round-icon" aria-hidden="true">✓</div></div>
         </section>
+
+        <section id="portal-section" class="section" hidden></section>
 
         <section id="settings-section" class="section" hidden>
           <div class="settings-toolbar"><label class="search" for="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="Поиск по названию или ключу..." autocomplete="off"><kbd>/</kbd></label><span id="item-count" class="item-count">0 параметров</span></div>
@@ -89,6 +92,7 @@
         <span class="login-kicker">ЛОКАЛЬНАЯ АДМИНИСТРАТИВНАЯ ПАНЕЛЬ</span>
         <h1>Добро пожаловать.</h1>
         <p>Войди, чтобы управлять настройками NewSqadBot.</p>
+        <button class="button discord-login" id="discord-login" type="button" hidden>Войти через Discord <span>↗</span></button>
         <form id="login-form">
           <label for="password">Пароль администратора</label>
           <input id="password" name="password" type="password" required minlength="14" autocomplete="current-password" placeholder="Введите пароль">
