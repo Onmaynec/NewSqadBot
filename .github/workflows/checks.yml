@@ -20,11 +20,15 @@ jobs:
         run: python -m compileall -q app main.py
       - name: Тесты
         run: python -m pytest -q
+      - name: Проверка JavaScript локальной панели
+        run: node --check app/web/static/app.js
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Сборка контейнера
-        run: docker build -t newsqadbot:test .
+      - name: Сборка контейнера с резервным реестром
+        run: |
+          docker build --build-arg PYTHON_BASE_IMAGE=python:3.12-slim-bookworm -t newsqadbot:test . ||
+          docker build --build-arg PYTHON_BASE_IMAGE=public.ecr.aws/docker/library/python:3.12-slim-bookworm -t newsqadbot:test .
       - name: "Smoke: пустая база, миграции и 16 модулей"
         run: docker run --rm --entrypoint python newsqadbot:test -m app.ops.smoke
