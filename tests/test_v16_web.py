@@ -12,7 +12,7 @@ from app.core.database import Database, migrate
 from app.models import AuditEntry
 from app.web.auth import SessionStore, hash_password, validate_hash, verify_password
 from app.web.catalog import BY_KEY
-from app.web.server import create_app, local_host, validate_value
+from app.web.server import create_app, local_host, parse_snowflake, validate_value
 
 
 class Role:
@@ -148,10 +148,10 @@ async def test_browser_login_csrf_write_session_and_audit(tmp_path):
             bootstrap = await client.get("/api/bootstrap")
             assert bootstrap.status == 200
             body = await bootstrap.json()
-            assert body["guild_id"] == 777
+            assert body["guild_id"] == "777"
             assert not any("token" in item["key"] for item in body["settings"])
             assert "super secret local admin pass" not in json.dumps(body)
-            assert body["roles"][0]["id"] == 123 or body["roles"][0]["id"] == 456
+            assert body["roles"][0]["id"] in ("123", "456")
 
             no_csrf = await client.post("/api/settings/tickets_max_open",
                 json={"value": 4}, headers={"Origin": origin})
@@ -204,3 +204,137 @@ async def test_server_rejects_wrong_host_and_oversized_input(tmp_path):
             assert "script-src 'self'" in found.headers["Content-Security-Policy"]
     finally:
         await db.close()
+
+
+def test_discord_snowflakes_preserve_all_digits_and_reject_unsafe_numbers():
+    identifier = "1440528514318073900"
+    assert parse_snowflake(identifier) == 1440528514318073900
+    assert str(parse_snowflake(identifier)) == identifier
+    with pytest.raises(ValueError):
+        parse_snowflake(float(identifier))
+    with pytest.raises(ValueError):
+        parse_snowflake("-1")
+    with pytest.raises(ValueError):
+        parse_snowflake("1.44e18")
+    with pytest.raises(ValueError):
+        parse_snowflake(True)
+
+
+@pytest.mark.asyncio
+async def test_bulk_save_exact_snowflakes_is_atomic_and_audited(tmp_path, monkeypatch):
+    """Выбрать 2 канала и роль -> 1 запрос -> все ID без потерь."""
+    from sqlalchemy import select
+
+    import app.web.server as server
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'bulk.db'}"
+    migrate(url)
+    db = Database(url)
+    bot = FakeBot(db)
+    role_id = 1440528514318073900
+    giveaway_id = 1440528514318073901
+    suggestion_id = 1440528514318073902
+    role = Role(role_id, position=2)
+    bot.guild.roles.append(role)
+
+    class Channel:
+        def __init__(self, identifier, name):
+            self.id = identifier
+            self.name = name
+            self.category = None
+
+        def permissions_for(self, member):
+            return SimpleNamespace(view_channel=True, send_messages=True, embed_links=True)
+
+    bot.guild.channels = [
+        Channel(giveaway_id, "Giveaway"),
+        Channel(suggestion_id, "Ideas"),
+    ]
+    bot.guild.get_channel = lambda identifier: next(
+        (ch for ch in bot.guild.channels if ch.id == identifier), None)
+    monkeypatch.setattr(server, "channel_type", lambda ch: "text")
+    try:
+        async with TestClient(TestServer(create_app(bot, hash_password("a long valid secret password"))),
+                              cookie_jar=CookieJar(unsafe=True)) as client:
+            origin = str(client.make_url("/")).rstrip("/")
+            login = await client.post("/api/login",
+                json={"password": "a long valid secret password"},
+                headers={"Origin": origin})
+            csrf = (await login.json())["csrf"]
+            headers = {"Origin": origin, "X-CSRF-Token": csrf}
+            bootstrap = await client.get("/api/bootstrap")
+            payload = await bootstrap.json()
+            assert payload["guild_id"] == "777"
+            assert any(r["id"] == str(role_id) for r in payload["roles"])
+            assert {c["id"] for c in payload["channels"]} == {
+                str(giveaway_id), str(suggestion_id)}
+            assert all(isinstance(c["id"], str) for c in payload["channels"])
+
+            partial = await client.post("/api/settings/batch", json={
+                "group": "Каналы", "changes": {
+                    "giveaway_channel_id": str(giveaway_id),
+                    "suggest_channel_id": "1440528514318073999",
+                }}, headers=headers)
+            assert partial.status == 422
+            assert await db.get_setting(777, "giveaway_channel_id") is None
+            assert await db.get_setting(777, "suggest_channel_id") is None
+
+            valid = await client.post("/api/settings/batch", json={
+                "group": "Каналы", "changes": {
+                    "giveaway_channel_id": str(giveaway_id),
+                    "suggest_channel_id": str(suggestion_id),
+                }}, headers=headers)
+            assert valid.status == 200, await valid.text()
+            response = await valid.json()
+            assert response["count"] == 2
+            assert response["values"] == {
+                "giveaway_channel_id": str(giveaway_id),
+                "suggest_channel_id": str(suggestion_id),
+            }
+            assert await db.get_setting(777, "giveaway_channel_id") == giveaway_id
+            assert await db.get_setting(777, "suggest_channel_id") == suggestion_id
+
+            roles = await client.post("/api/settings/batch", json={
+                "group": "Роли", "changes": {"member_role_id": str(role_id)}},
+                headers=headers)
+            assert roles.status == 200, await roles.text()
+            assert await db.get_setting(777, "member_role_id") == role_id
+
+            bootstrap = await client.get("/api/bootstrap")
+            payload = await bootstrap.json()
+            spec = next(x for x in payload["settings"] if x["key"] == "giveaway_channel_id")
+            assert spec["value"] == str(giveaway_id)
+
+            crossed = await client.post("/api/settings/batch", json={
+                "group": "Роли", "changes": {"giveaway_channel_id": str(giveaway_id)}},
+                headers=headers)
+            assert crossed.status == 422
+
+            csrf_fail = await client.post("/api/settings/batch", json={
+                "group": "Каналы", "changes": {"giveaway_channel_id": str(giveaway_id)}},
+                headers={"Origin": origin})
+            assert csrf_fail.status == 403
+
+            async with db.sessions() as session:
+                rows = (await session.scalars(select(AuditEntry))).all()
+                assert len(rows) == 3
+                assert all(row.actor_id == 0 for row in rows)
+    finally:
+        await db.close()
+
+
+def test_frontend_has_single_save_and_navigation_guard():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "app/web/static"
+    js = (root / "app.js").read_text(encoding="utf-8")
+    html = (root / "index.html").read_text(encoding="utf-8")
+    css = (root / "style.css").read_text(encoding="utf-8")
+    assert '"/api/settings/batch"' in js
+    assert "Number(field.value)" not in js
+    assert "beforeunload" in js
+    assert "confirmDiscard" in js
+    assert 'id="bulk-save"' in html
+    assert 'id="leave-dialog"' in html
+    assert 'id="overview-guild-icon"' in html
+    assert "color-scheme: dark" in css
