@@ -11,7 +11,7 @@ from discord.ext import commands
 
 from app.core.permissions import can_manage_settings
 from app.models import Ticket, TicketCategory
-from app.services import support_quality, tickets as store
+from app.services import support_quality, tickets
 from app.services.membership_access import approved_member
 from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, card, notice, panel_card
 
@@ -68,7 +68,7 @@ class TicketOpenView(LoggedView):
             return
         # Не задерживаем ACK из-за запросов к SQLite: Discord ждёт ответ на interaction до 3 секунд.
         await interaction.response.defer(ephemeral=True, thinking=True)
-        if not await store.panel_active(self.cog.bot.database, interaction.guild_id, interaction.message.id):
+        if not await tickets.panel_active(self.cog.bot.database, interaction.guild_id, interaction.message.id):
             await interaction.followup.send("Эта панель обращений неактивна.", ephemeral=True)
             return
         if not await self.cog.bot.database.get_setting(interaction.guild_id, "tickets_enabled", True):
@@ -84,7 +84,7 @@ class TicketOpenView(LoggedView):
                 ephemeral=True,
             )
             return
-        categories = await store.categories(self.cog.bot.database, interaction.guild_id)
+        categories = await tickets.categories(self.cog.bot.database, interaction.guild_id)
         if not categories:
             await interaction.followup.send("Категории пока не настроены.", ephemeral=True)
             return
@@ -207,7 +207,7 @@ class TicketActions(LoggedView):
             await interaction.response.send_message("Нет прав на обработку обращений.", ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        ok = await store.claim(self.cog.bot.database, interaction.guild_id, self.ticket_id, interaction.user.id)
+        ok = await tickets.claim(self.cog.bot.database, interaction.guild_id, self.ticket_id, interaction.user.id)
         if ok:
             await self.cog.refresh(self.ticket_id)
             await self.cog.audit("Тикет принят в работу", self.ticket_id, interaction.user.id)
@@ -215,7 +215,7 @@ class TicketActions(LoggedView):
 
     @discord.ui.button(label="Закрыть и удалить", style=discord.ButtonStyle.danger, custom_id="close")
     async def close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        ticket = await store.get(self.cog.bot.database, interaction.guild_id, self.ticket_id)
+        ticket = await tickets.get(self.cog.bot.database, interaction.guild_id, self.ticket_id)
         if not ticket or (interaction.user.id != ticket.user_id and not await self.cog.staff(interaction, ticket)):
             await interaction.response.send_message("Недостаточно прав.", ephemeral=True)
             return
@@ -272,9 +272,9 @@ class Tickets(commands.Cog):
         bot.scheduler.register("tickets.first_reply_alert", self._alert_unanswered)
 
     async def cog_load(self) -> None:
-        await store.seed_categories(self.bot.database, self.bot.config.guild_id)
+        await tickets.seed_categories(self.bot.database, self.bot.config.guild_id)
         self.bot.add_view(TicketOpenView(self))
-        active = await store.list_tickets(self.bot.database, self.bot.config.guild_id, limit=1000)
+        active = await tickets.list_tickets(self.bot.database, self.bot.config.guild_id, limit=1000)
         for ticket in active:
             if ticket.channel_id and ticket.status == "open" and ticket.control_message_id:
                 self.bot.add_view(TicketActions(self, ticket.id), message_id=ticket.control_message_id)
@@ -322,7 +322,7 @@ class Tickets(commands.Cog):
             return "Обращения доступны только на NewSquad."
         if not await self.bot.database.get_setting(guild.id, "tickets_enabled", True):
             return "Поддержка сейчас отключена администрацией."
-        category = await store.category(self.bot.database, guild.id, category_id)
+        category = await tickets.category(self.bot.database, guild.id, category_id)
         if category is None or not category.enabled:
             return "Эта категория обращений больше не доступна."
         member_role = await self.bot.database.get_setting(guild.id, "candidate_role_id")
@@ -348,7 +348,7 @@ class Tickets(commands.Cog):
         async with lock:
             max_open = int(await self.bot.database.get_setting(guild.id, "tickets_max_open", 3))
             try:
-                entry = await store.reserve(self.bot.database, guild.id, interaction.user.id,
+                entry = await tickets.reserve(self.bot.database, guild.id, interaction.user.id,
                                             category.id, subject, description, support_role_id=support_role.id, max_open=max_open)
             except ValueError as exc:
                 return str(exc)
@@ -367,8 +367,8 @@ class Tickets(commands.Cog):
                     overwrites=overwrites, reason=f"[NSB-TICKET-{entry.id}] Приватное обращение")
                 message = await channel.send(embed=ticket_embed(entry, category),
                     view=TicketActions(self, entry.id), allowed_mentions=discord.AllowedMentions.none())
-                await store.save_control_message(self.bot.database, guild.id, entry.id, message.id)
-                if not await store.created(self.bot.database, guild.id, entry.id, channel.id):
+                await tickets.save_control_message(self.bot.database, guild.id, entry.id, message.id)
+                if not await tickets.created(self.bot.database, guild.id, entry.id, channel.id):
                     raise RuntimeError("Тикет уже был обработан параллельно")
                 try:
                     await self._schedule_inactivity(entry.id)
@@ -389,11 +389,11 @@ class Tickets(commands.Cog):
                         await channel.delete(reason=f"[NSB-TICKET-{entry.id}] Отмена неполного создания")
                     except discord.HTTPException:
                         log.exception("Не удалось удалить незавершённый тикет %s", entry.id)
-                await store.fail_create(self.bot.database, guild.id, entry.id, type(exc).__name__)
+                await tickets.fail_create(self.bot.database, guild.id, entry.id, type(exc).__name__)
                 return "Не удалось открыть обращение. Администрация получила запись об ошибке; повторите попытку."
 
     async def refresh(self, ticket_id: int) -> None:
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         if not ticket or not ticket.channel_id or not ticket.control_message_id:
             return
         channel = await self.get_channel(ticket)
@@ -401,7 +401,7 @@ class Tickets(commands.Cog):
             return
         try:
             msg = await channel.fetch_message(ticket.control_message_id)
-            await msg.edit(embed=ticket_embed(ticket, await store.category(self.bot.database,
+            await msg.edit(embed=ticket_embed(ticket, await tickets.category(self.bot.database,
                 ticket.guild_id, ticket.category_id)), view=TicketActions(self, ticket.id)
                 if ticket.status == "open" else None, allowed_mentions=discord.AllowedMentions.none())
         except discord.HTTPException:
@@ -447,19 +447,19 @@ class Tickets(commands.Cog):
                 log.exception("Не удалось удалить канал тикета ticket_id=%s channel_id=%s",
                               ticket.id, ticket.channel_id)
                 return "Discord не разрешил удалить канал. Проверьте Manage Channels и повторите закрытие."
-        await store.erase_ticket(self.bot.database, ticket.guild_id, ticket.id)
+        await tickets.erase_ticket(self.bot.database, ticket.guild_id, ticket.id)
         # Отправка ЛС не влияет на факт успешного закрытия: снимок оценки
         # создан той же транзакцией, что и удаление приватного тикета.
         await self._deliver_surveys(requester_id=ticket.user_id)
         return "Обращение закрыто. Канал удалён, переписка и история не сохранены."
 
     async def close_ticket(self, interaction: discord.Interaction, ticket_id: int, reason: str = "") -> str:
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         if not ticket or interaction.guild_id != ticket.guild_id:
             return "Обращение не найдено или уже закрыто."
         if interaction.user.id != ticket.user_id and not await self.staff(interaction, ticket):
             return "Недостаточно прав на закрытие."
-        if not await store.start_close(self.bot.database, ticket.guild_id, ticket_id,
+        if not await tickets.start_close(self.bot.database, ticket.guild_id, ticket_id,
                                        interaction.user.id, "Закрыто"):
             return "Обращение уже закрывается."
         try:
@@ -470,7 +470,7 @@ class Tickets(commands.Cog):
 
 
     async def _schedule_first_reply_alert(self, ticket_id: int) -> None:
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         if ticket is None or ticket.status != "open" or ticket.first_response_at is not None:
             return
         hours = int(await self.bot.database.get_setting(
@@ -483,7 +483,7 @@ class Tickets(commands.Cog):
 
     async def _alert_unanswered(self, payload: dict) -> None:
         """Не храним сообщения и не раскрываем данные тикета в публичных каналах."""
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, int(payload["ticket_id"]))
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, int(payload["ticket_id"]))
         if ticket is None or ticket.status != "open" or ticket.first_response_at is not None:
             return
         channel = await self.get_channel(ticket)
@@ -505,7 +505,7 @@ class Tickets(commands.Cog):
         days = int(await self.bot.database.get_setting(self.bot.config.guild_id, "tickets_inactivity_days", 0))
         if days == 0:
             return
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         if ticket is None or ticket.status != "open":
             return
         due_at = max(int(time.time()), ticket.updated_at + days * 86400 - 86400)
@@ -515,7 +515,7 @@ class Tickets(commands.Cog):
 
     async def _warn_inactive(self, payload: dict) -> None:
         ticket_id = int(payload["ticket_id"])
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         days = int(await self.bot.database.get_setting(self.bot.config.guild_id, "tickets_inactivity_days", 0))
         if ticket is None or ticket.status != "open" or days == 0:
             return
@@ -537,7 +537,7 @@ class Tickets(commands.Cog):
 
     async def _close_inactive(self, payload: dict) -> None:
         ticket_id = int(payload["ticket_id"])
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         days = int(await self.bot.database.get_setting(self.bot.config.guild_id, "tickets_inactivity_days", 0))
         if ticket is None or ticket.status != "open" or days == 0:
             return
@@ -546,7 +546,7 @@ class Tickets(commands.Cog):
             return
         if int(time.time()) < ticket.updated_at + days * 86400:
             return
-        if not await store.start_close(self.bot.database, ticket.guild_id, ticket.id, 0, "Закрыто автоматически"):
+        if not await tickets.start_close(self.bot.database, ticket.guild_id, ticket.id, 0, "Закрыто автоматически"):
             return
         result = await self._delete_ticket(ticket)
         if not result.startswith("Обращение закрыто"):
@@ -559,9 +559,9 @@ class Tickets(commands.Cog):
             return
         self._loaded = True
         await self._deliver_surveys()
-        for ticket_id in await store.stale_creating(self.bot.database, self.bot.config.guild_id, int(time.time()) - 600):
-            await store.fail_create(self.bot.database, self.bot.config.guild_id, ticket_id, "Создание прервано при перезапуске")
-        for ticket in await store.list_tickets(self.bot.database, self.bot.config.guild_id, limit=1000):
+        for ticket_id in await tickets.stale_creating(self.bot.database, self.bot.config.guild_id, int(time.time()) - 600):
+            await tickets.fail_create(self.bot.database, self.bot.config.guild_id, ticket_id, "Создание прервано при перезапуске")
+        for ticket in await tickets.list_tickets(self.bot.database, self.bot.config.guild_id, limit=1000):
             if ticket.status == "closing":
                 try:
                     result = await self._delete_ticket(ticket)
@@ -588,7 +588,7 @@ class Tickets(commands.Cog):
         if not message.guild or message.guild.id != self.bot.config.guild_id or message.author.bot:
             return
         now = int(time.time())
-        ticket = await store.by_channel(self.bot.database, message.guild.id, message.channel.id)
+        ticket = await tickets.by_channel(self.bot.database, message.guild.id, message.channel.id)
         if not ticket or ticket.status != "open":
             return
         member = message.author
@@ -596,18 +596,18 @@ class Tickets(commands.Cog):
             member.guild_permissions.administrator or any(r.id == ticket.staff_role_id for r in member.roles))
         if staff and ticket.first_response_at is None or now - self._last_message.get(message.channel.id, 0) >= 60:
             self._last_message[message.channel.id] = now
-            await store.touch(self.bot.database, ticket.guild_id, ticket.id, member.id, staff_reply=staff)
+            await tickets.touch(self.bot.database, ticket.guild_id, ticket.id, member.id, staff_reply=staff)
             await self._schedule_inactivity(ticket.id)
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel) -> None:
         if channel.guild.id != self.bot.config.guild_id:
             return
-        ticket = await store.by_channel(self.bot.database, channel.guild.id, channel.id)
+        ticket = await tickets.by_channel(self.bot.database, channel.guild.id, channel.id)
         if ticket and ticket.status == "closing":
             return  # Удаление инициировано ботом; вызывающий код очистит БД.
         if ticket:
-            await store.erase_ticket(self.bot.database, ticket.guild_id, ticket.id, closing_only=False)
+            await tickets.erase_ticket(self.bot.database, ticket.guild_id, ticket.id, closing_only=False)
 
     @tickets.command(name="panel", description="Опубликовать панель обращения в поддержку")
     async def panel(self, interaction: discord.Interaction, channel: discord.TextChannel | None = None) -> None:
@@ -629,7 +629,7 @@ class Tickets(commands.Cog):
         except discord.HTTPException:
             await interaction.response.send_message("Не удалось опубликовать панель. Проверьте права бота.", ephemeral=True)
             return
-        await store.save_panel(self.bot.database, self.bot.config.guild_id, channel.id, msg.id, interaction.user.id)
+        await tickets.save_panel(self.bot.database, self.bot.config.guild_id, channel.id, msg.id, interaction.user.id)
         await interaction.response.send_message(f"Панель опубликована в {channel.mention}.", ephemeral=True)
 
     @tickets.command(name="settings", description="Показать настройки тикетов")
@@ -642,7 +642,7 @@ class Tickets(commands.Cog):
         enabled = await self.bot.database.get_setting(guild_id, "tickets_enabled", True)
         max_open = await self.bot.database.get_setting(guild_id, "tickets_max_open", 3)
         inactivity_days = await self.bot.database.get_setting(guild_id, "tickets_inactivity_days", 0)
-        cats = await store.categories(self.bot.database, guild_id, enabled_only=False)
+        cats = await tickets.categories(self.bot.database, guild_id, enabled_only=False)
         description = (f"Система: **{'включена' if enabled else 'отключена'}**\n"
             f"Категория каналов: {f'<#{cat}>' if cat else 'не задана'}\n"
             f"Роль поддержки: {f'<@&{role}>' if role else 'не задана'}\n"
@@ -670,7 +670,7 @@ class Tickets(commands.Cog):
         await self.bot.database.set_setting(self.bot.config.guild_id, "tickets_inactivity_days", days,
                                              actor_id=interaction.user.id)
         if days:
-            for ticket in await store.list_tickets(self.bot.database, self.bot.config.guild_id):
+            for ticket in await tickets.list_tickets(self.bot.database, self.bot.config.guild_id):
                 if ticket.status == "open":
                     await self._schedule_inactivity(ticket.id)
         await interaction.response.send_message(
@@ -688,7 +688,7 @@ class Tickets(commands.Cog):
     @tickets.command(name="list", description="Открытые обращения (или свои обращения)")
     async def list(self, interaction: discord.Interaction) -> None:
         staff = await self.staff(interaction)
-        tickets = await store.list_tickets(self.bot.database, self.bot.config.guild_id,
+        tickets = await tickets.list_tickets(self.bot.database, self.bot.config.guild_id,
             user_id=None if staff else interaction.user.id)
         lines = [f"**#{t.id}** · {discord.utils.escape_mentions(t.subject)} · {t.status} · "
                  + (f"<#{t.channel_id}>" if t.channel_id else "канал создаётся") for t in tickets]
@@ -698,7 +698,7 @@ class Tickets(commands.Cog):
 
     @tickets.command(name="mine", description="Мои обращения и тикеты, назначенные мне")
     async def mine(self, interaction: discord.Interaction) -> None:
-        rows = await store.list_tickets(self.bot.database, interaction.guild_id, limit=100)
+        rows = await tickets.list_tickets(self.bot.database, interaction.guild_id, limit=100)
         staff = await self.staff(interaction)
         mine = [t for t in rows if t.user_id == interaction.user.id or (
             staff and t.assignee_id == interaction.user.id)]
@@ -717,7 +717,7 @@ class Tickets(commands.Cog):
         if not await self.staff(interaction):
             await interaction.response.send_message("Нужна роль поддержки.", ephemeral=True)
             return
-        rows = await store.list_tickets(self.bot.database, interaction.guild_id, limit=500)
+        rows = await tickets.list_tickets(self.bot.database, interaction.guild_id, limit=500)
         cutoff = int(time.time()) - older_hours * 3600
         entries = [t for t in rows if t.status == "open" and t.opened_at <= cutoff
                    and t.first_response_at is None]
@@ -741,11 +741,11 @@ class Tickets(commands.Cog):
 
     @tickets.command(name="claim", description="Принять обращение в работу")
     async def claim_command(self, interaction: discord.Interaction, ticket_id: int) -> None:
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         if not ticket or not await self.staff(interaction, ticket):
             await interaction.response.send_message("Нет доступа к этому обращению.", ephemeral=True)
             return
-        ok = await store.claim(self.bot.database, ticket.guild_id, ticket_id, interaction.user.id)
+        ok = await tickets.claim(self.bot.database, ticket.guild_id, ticket_id, interaction.user.id)
         if ok:
             await self.refresh(ticket_id)
             await self.audit("Тикет принят в работу", ticket_id, interaction.user.id)
@@ -753,14 +753,14 @@ class Tickets(commands.Cog):
 
     @tickets.command(name="transfer", description="Передать обращение другому сотруднику")
     async def transfer(self, interaction: discord.Interaction, ticket_id: int, member: discord.Member) -> None:
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         if not ticket or not await self.staff(interaction, ticket):
             await interaction.response.send_message("Нет прав.", ephemeral=True)
             return
         if not self._staff_member(member, ticket):
             await interaction.response.send_message("Получатель должен быть сотрудником поддержки.", ephemeral=True)
             return
-        ok = await store.claim(self.bot.database, ticket.guild_id, ticket_id, member.id, transfer=True)
+        ok = await tickets.claim(self.bot.database, ticket.guild_id, ticket_id, member.id, transfer=True)
         if ok:
             await self.refresh(ticket_id)
             await self.audit("Тикет передан", ticket_id, interaction.user.id, f"Ответственный: {member.id}")
@@ -771,7 +771,7 @@ class Tickets(commands.Cog):
 
     @tickets.command(name="close", description="Закрыть обращение и безвозвратно удалить канал")
     async def close_command(self, interaction: discord.Interaction, ticket_id: int) -> None:
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         if not ticket or (ticket.user_id != interaction.user.id and not await self.staff(interaction, ticket)):
             await interaction.response.send_message(embed=notice("Обращение недоступно.", kind="warning"),
                                                     ephemeral=True)
@@ -790,7 +790,7 @@ class Tickets(commands.Cog):
 
     async def edit_participant(self, interaction: discord.Interaction, ticket_id: int, member: discord.Member,
                                *, remove: bool) -> None:
-        ticket = await store.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         if not ticket or not await self.staff(interaction, ticket):
             await interaction.response.send_message("Нет прав.", ephemeral=True)
             return
@@ -807,7 +807,7 @@ class Tickets(commands.Cog):
             return
         before = channel.overwrites_for(member)
         try:
-            updated = await store.participant(self.bot.database, ticket.guild_id, ticket.id,
+            updated = await tickets.participant(self.bot.database, ticket.guild_id, ticket.id,
                 member.id, interaction.user.id, remove=remove)
             if updated:
                 try:
@@ -815,7 +815,7 @@ class Tickets(commands.Cog):
                         view_channel=True, send_messages=True, read_message_history=True),
                         reason=f"[NSB-TICKET-{ticket.id}] Изменение участников")
                 except discord.HTTPException:
-                    await store.participant(self.bot.database, ticket.guild_id, ticket.id,
+                    await tickets.participant(self.bot.database, ticket.guild_id, ticket.id,
                         member.id, interaction.user.id, remove=not remove)
                     raise
         except (discord.HTTPException, ValueError):
@@ -850,11 +850,11 @@ class Tickets(commands.Cog):
         if support_role and (support_role.guild.id != self.bot.config.guild_id or support_role.is_default()):
             await interaction.response.send_message("Недопустимая роль поддержки.", ephemeral=True)
             return
-        if len(await store.categories(self.bot.database, self.bot.config.guild_id, enabled_only=False)) >= 25:
+        if len(await tickets.categories(self.bot.database, self.bot.config.guild_id, enabled_only=False)) >= 25:
             await interaction.response.send_message("Достигнут лимит 25 категорий.", ephemeral=True)
             return
         try:
-            category = await store.add_category(self.bot.database, self.bot.config.guild_id, key,
+            category = await tickets.add_category(self.bot.database, self.bot.config.guild_id, key,
                 title, description, support_role_id=support_role.id if support_role else None,
                 candidate_allowed=allow_candidates)
         except ValueError as exc:
@@ -870,7 +870,7 @@ class Tickets(commands.Cog):
         if not await self.require_admin(interaction):
             return
         try:
-            ok = await store.update_category(self.bot.database, self.bot.config.guild_id, category_id,
+            ok = await tickets.update_category(self.bot.database, self.bot.config.guild_id, category_id,
                 title=title, description=description, enabled=enabled, candidate_allowed=allow_candidates,
                 support_role_id=support_role.id if support_role else None, role_supplied=support_role is not None)
         except ValueError as exc:
