@@ -34,6 +34,7 @@ class Moderation(commands.Cog):
         self.bot = bot
         self.bot.scheduler.register("moderation.unban", self._expire_ban)
         self._case_locks: dict[int, asyncio.Lock] = {}
+        self._target_locks: dict[int, asyncio.Lock] = {}
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -545,6 +546,86 @@ class Moderation(commands.Cog):
                     operation="moderation.revoked")
                 return f"Дело #{number:05d} отменено. Причина записана."
             return "Неизвестное действие."
+
+    async def create_from_web(self, guild: discord.Guild, actor: discord.Member,
+                              target_id: int, kind: str, reason: str,
+                              duration: str = "") -> str:
+        """Manually issued sanctions from site; same case, DM and audit flow as /m.
+
+        Refuse self-mod, owner/admin/higher-ranked members, and roles above the bot.
+        A per-target lock protects parallel sanctions across Discord buttons and web.
+        """
+        if guild.id != self.bot.config.guild_id or kind not in ("ban", "mute", "kick", "warn"):
+            return "Недопустимая операция модерации."
+        reason = reason.strip()
+        if not 3 <= len(reason) <= 400:
+            return "Причина наказания должна содержать от 3 до 400 символов."
+        if target_id in (guild.owner_id, actor.id):
+            return "Нельзя наказать себя или владельца сервера."
+        lock = self._target_locks.setdefault(target_id, asyncio.Lock())
+        async with lock:
+            try:
+                target = await guild.fetch_member(target_id)
+            except discord.NotFound:
+                target = None
+            except discord.HTTPException:
+                return "Discord не разрешил проверить участника."
+            if target is None and kind != "ban":
+                return "Участник должен находиться на сервере."
+            me = guild.me
+            if me is None:
+                return "Discord не вернул права бота."
+            if target is not None:
+                if (target.guild_permissions.administrator or
+                    target.top_role >= me.top_role or
+                    (actor.id != guild.owner_id and target.top_role >= actor.top_role)):
+                    return "Недостаточно прав по иерархии ролей участника."
+            if kind == "ban" and not me.guild_permissions.ban_members:
+                return "У бота нет разрешения Ban Members."
+            if kind == "kick" and not me.guild_permissions.kick_members:
+                return "У бота нет разрешения Kick Members."
+            if kind == "mute" and not me.guild_permissions.moderate_members:
+                return "У бота нет разрешения Moderate Members."
+            seconds = None
+            if kind in ("ban", "mute"):
+                try:
+                    seconds = parse_duration(duration, allow_permanent=kind == "ban",
+                        max_seconds=28 * 86400 if kind == "mute" else None)
+                except ValueError as exc:
+                    return str(exc)
+            expires = int(time.time()) + seconds if seconds is not None else None
+            try:
+                case = await self.new_case(target_id, actor.id, kind, reason, expires)
+            except ValueError as exc:
+                return str(exc)
+            if target is not None:
+                await self.notify(target,
+                    f"Дело #{case.id:05d}: {kind}. Причина: {reason}. Срок: {duration or 'per'}.",
+                    case.id)
+            try:
+                if kind == "ban":
+                    await guild.ban(target if target is not None else discord.Object(id=target_id),
+                                    reason=audit_reason(case.id, reason))
+                elif kind == "mute":
+                    await target.timeout(dt.timedelta(seconds=seconds),
+                                         reason=audit_reason(case.id, reason))
+                elif kind == "kick":
+                    await target.kick(reason=audit_reason(case.id, reason))
+            except discord.HTTPException as exc:
+                logger.warning("Discord отказал в web-модерации: дело %s (%s)", case.id, kind)
+                await self.update_case(case.id, status="failed", error=str(exc))
+                return f"Discord отклонил операцию. Дело #{case.id:05d} отмечено как failed."
+            await self.update_case(case.id, status="completed" if kind == "kick" else "active")
+            if kind == "ban" and expires is not None:
+                await self.bot.scheduler.schedule(
+                    job_key=f"moderation:unban:{case.id}", handler="moderation.unban",
+                    due_at=expires, payload={"case_id": case.id})
+            try:
+                await self.report(await self.get_case(case.id), "Ручная модерация через сайт",
+                                  actor_id=actor.id, operation=f"moderation.web.{kind}")
+            except Exception:
+                logger.exception("Журнал модерации не отправлен: дело #%s", case.id)
+            return f"Операция {kind} выполнена. Создано дело #{case.id:05d}."
 
     @m.command(name="case", description="Карточка дела и доступные действия")
     async def case(self, interaction: discord.Interaction, number: int) -> None:
