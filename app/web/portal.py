@@ -539,4 +539,9 @@ def register(app: web.Application) -> None:
     from app.web.moderation_portal import register as register_moderation
 
     register_moderation(app)
+    from app.web.owner_portal import register as register_owner
+    from app.web.community_portal import register as register_community
+
+    register_owner(app)
+    register_community(app)
     app.router.add_get("/api/portal/activity", admin_activity)
