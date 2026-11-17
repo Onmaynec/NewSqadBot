@@ -18,9 +18,9 @@ def test_voice_schema_and_unique_ownership(tmp_path):
     migrate(url)
     with sqlite3.connect(file) as sql:
         sql.execute("PRAGMA foreign_keys=ON")
-        assert VERSION == "1.1.1"
+        assert VERSION == "1.2.0"
         assert implemented("voice")
-        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0012_statistics"
+        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0013_announcements"
         tables = {r[0] for r in sql.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"voice_rooms", "voice_room_access"} <= tables
         insert = ("INSERT INTO voice_rooms(guild_id,channel_id,owner_id,lobby_id,name,user_limit,locked,hidden,"
