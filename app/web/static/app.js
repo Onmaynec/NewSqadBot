@@ -404,6 +404,8 @@ async function refreshDiagnostics() {
 }
 window.portalAPI = (path, options) => api(path, options);
 window.portalGroup = () => ui.group;
+window.portalData = () => ui.data;
+window.portalReload = () => Portal.render(ui.group);
 window.portalToast = (message, error = false) => toast(message, error);
 $("discord-login").addEventListener("click", () => {
   window.location.assign("/auth/discord");
