@@ -381,12 +381,12 @@ async def announcement_action(request: web.Request) -> web.Response:
         if action == "cancel":
             row = await announcements.cancel(bot.database, guild_id=bot.config.guild_id, number=aid)
         elif action == "schedule":
-            seconds = int_field(data, "due_at", int(time.time()) + 60, int(time.time()) + 365*86400)
-            row = await announcements.schedule(bot.database, guild_id=bot.config.guild_id,
-                                               number=aid, due_at=seconds)
             manager = bot.get_cog("AnnouncementManager")
             if manager is None:
                 raise web.HTTPServiceUnavailable(text="Модуль объявлений не загружен.")
+            seconds = int_field(data, "due_at", int(time.time()) + 60, int(time.time()) + 365*86400)
+            row = await announcements.schedule(bot.database, guild_id=bot.config.guild_id,
+                                               number=aid, due_at=seconds)
             await manager._enqueue(row)
         elif action == "edit":
             row = await announcements.edit(bot.database, guild_id=bot.config.guild_id,
