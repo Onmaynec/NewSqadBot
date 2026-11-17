@@ -10,7 +10,7 @@ from app.config import FEMALE_ROLE_ID, VERSION
 from app.core.catalog import MODULES
 from app.core.permissions import can_manage_settings
 from app.models import GuildSetting, TicketCategory
-from app.ui.mentions import channel_mention, role_mention, role_list
+from app.ui.mentions import channel_mention, role_list, role_mention
 from app.ui.theme import LoggedView, card, notice
 
 PAGE_OPTIONS = (
