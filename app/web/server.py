@@ -8,6 +8,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -74,7 +75,7 @@ async def security_headers(request: web.Request, handler):
     response.headers.update({
         "Content-Security-Policy": (
             "default-src 'none'; script-src 'self'; style-src 'self'; "
-            "img-src 'self'; connect-src 'self'; font-src 'self'; "
+            "img-src 'self' https://cdn.discordapp.com https://media.discordapp.net; connect-src 'self'; font-src 'self'; "
             "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"),
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
@@ -172,7 +173,7 @@ def guild_for(bot):
 
 def serialize_role(role: discord.Role) -> dict:
     return {
-        "id": role.id, "name": role.name, "position": role.position,
+        "id": str(role.id), "name": role.name, "position": role.position,
         "managed": role.managed,
         "dangerous": any(getattr(role.permissions, key, False)
                          for key in DANGEROUS_PERMISSION_NAMES),
@@ -190,7 +191,7 @@ def channel_type(channel) -> str:
 
 
 def serialize_channel(channel) -> dict:
-    return {"id": channel.id, "name": channel.name, "type": channel_type(channel),
+    return {"id": str(channel.id), "name": channel.name, "type": channel_type(channel),
             "category": channel.category.name if getattr(channel, "category", None) else ""}
 
 
@@ -219,20 +220,46 @@ async def bootstrap(request: web.Request) -> web.Response:
             warning = "Роль удалена из Discord."
         if guild and spec.kind == "channel" and value and guild.get_channel(value) is None:
             warning = "Канал удалён из Discord."
-        settings.append({**spec.public(), "value": value, "configured": spec.key in raw,
-                         "warning": warning})
+        settings.append({**spec.public(), "value": public_value(spec, value),
+                         "configured": spec.key in raw, "warning": warning})
     roles = sorted((serialize_role(role) for role in guild.roles if not role.is_default()),
                    key=lambda x: (-x["position"], x["name"])) if guild else []
     channels = sorted((serialize_channel(ch) for ch in guild.channels if channel_type(ch) != "other"),
                       key=lambda x: (x["type"], x["category"], x["name"])) if guild else []
     return web.json_response({
-        "version": VERSION, "guild_id": bot.config.guild_id,
+        "version": VERSION, "guild_id": str(bot.config.guild_id),
         "guild_name": guild.name if guild else "NewSquad",
+        "guild_icon_url": str(guild.icon.url) if guild and getattr(guild, "icon", None) else None,
+        "guild_banner_url": str(guild.banner.url) if guild and getattr(guild, "banner", None) else None,
+        "guild_member_count": getattr(guild, "member_count", None) if guild else None,
         "discord_ready": guild is not None,
         "modules": bot.module_states,
         "groups": GROUPS, "settings": settings, "roles": roles, "channels": channels,
         "total_configured": sum(spec.key in raw for spec in SETTINGS),
     })
+
+
+
+def public_value(spec: Setting, value):
+    """Snowflake — строка в JSON: JavaScript Number округляет 18–20-значные ID."""
+    if spec.kind in ("role", "channel"):
+        return str(value) if value is not None else None
+    if spec.kind == "channel_list" and isinstance(value, list):
+        return [str(item) for item in value]
+    return value
+
+
+def parse_snowflake(value) -> int:
+    """Не допускаем float, отрицательные и округлённые значения JavaScript."""
+    if type(value) is int:
+        candidate = value
+    elif isinstance(value, str) and re.fullmatch(r"[1-9][0-9]{0,19}", value):
+        candidate = int(value)
+    else:
+        raise ValueError("Некорректный Discord ID: используйте строку с цифрами.")
+    if not 0 < candidate < 2**64:
+        raise ValueError("Discord ID выходит за допустимый диапазон.")
+    return candidate
 
 
 def _check_role(guild, key: str, value: int) -> None:
@@ -270,8 +297,7 @@ def validate_value(spec: Setting, value, guild):
     if spec.kind in ("role", "channel"):
         if value is None:
             return None
-        if type(value) is not int or value <= 0:
-            raise ValueError("Ожидается Discord ID выбранного объекта.")
+        value = parse_snowflake(value)
         if guild is None:
             raise ValueError("Discord недоступен: выбор роли/канала временно запрещён.")
         if spec.kind == "role":
@@ -302,12 +328,13 @@ def validate_value(spec: Setting, value, guild):
     if spec.kind == "channel_list":
         if guild is None:
             raise ValueError("Discord недоступен.")
-        if not isinstance(value, list) or len(value) > 40 or any(type(item) is not int for item in value):
+        if not isinstance(value, list) or len(value) > 40:
             raise ValueError("Ожидается список до 40 каналов.")
+        ids = [parse_snowflake(item) for item in value]
         if any(guild.get_channel(item) is None or channel_type(guild.get_channel(item)) != "text"
-               for item in value):
+               for item in ids):
             raise ValueError("Один из выбранных каналов удалён или недоступен.")
-        return list(dict.fromkeys(value))
+        return list(dict.fromkeys(ids))
     raise ValueError("Неподдерживаемый тип настройки.")
 
 
@@ -334,6 +361,42 @@ async def save_setting(request: web.Request) -> web.Response:
     log.info("Web: параметр %s изменён локальным администратором", spec.key)
     return web.json_response({"ok": True, "key": spec.key, "value": value,
                               "restart_required": spec.restart_required})
+
+
+
+async def save_batch(request: web.Request) -> web.Response:
+    """Проверить все изменения и зафиксировать одним commit; без частичных сохранений."""
+    require_csrf(request)
+    payload = await json_payload(request)
+    if set(payload) != {"group", "changes"}:
+        raise web.HTTPBadRequest(text="Нужны group и changes.")
+    group, changes = payload["group"], payload["changes"]
+    if group not in GROUPS or not isinstance(changes, dict) or not 1 <= len(changes) <= 80:
+        return web.json_response({"error": "Неверная группа или пустой список изменений."}, status=422)
+    bot = state(request).bot
+    guild = guild_for(bot)
+    normalized = {}
+    try:
+        for key, raw_value in changes.items():
+            spec = BY_KEY.get(key)
+            if spec is None or spec.group != group:
+                raise ValueError("Параметр недоступен в выбранном разделе.")
+            normalized[key] = validate_value(spec, raw_value, guild)
+    except ValueError as exc:
+        return web.json_response({"error": f"{key}: {exc}"}, status=422)
+    try:
+        await bot.database.set_settings(bot.config.guild_id, normalized, actor_id=0)
+    except Exception:
+        log.exception("Не удалось атомарно сохранить раздел %s", group)
+        return web.json_response({"error": "SQLite не смогла сохранить изменения. Ничего не применено."},
+                                 status=503)
+    log.info("Web: раздел %s сохранён одним commit, параметров: %d", group, len(normalized))
+    return web.json_response({
+        "ok": True, "values": {key: public_value(BY_KEY[key], value)
+                               for key, value in normalized.items()},
+        "count": len(normalized),
+        "restart_required": any(BY_KEY[key].restart_required for key in normalized),
+    })
 
 
 async def diagnostics(request: web.Request) -> web.Response:
@@ -363,6 +426,7 @@ def create_app(bot, password_hash: str) -> web.Application:
     app.router.add_post("/api/logout", logout)
     app.router.add_get("/api/bootstrap", bootstrap)
     app.router.add_get("/api/diagnostics", diagnostics)
+    app.router.add_post("/api/settings/batch", save_batch)
     app.router.add_post("/api/settings/{key}", save_setting)
     return app
 
