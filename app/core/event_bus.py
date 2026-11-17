@@ -26,6 +26,7 @@ class EventBus:
         self.handlers: dict[str, dict[str, EventHandler]] = defaultdict(dict)
         self._task: asyncio.Task[None] | None = None
         self._dispatch_lock = asyncio.Lock()
+        self._scan_cursor: tuple[int, str] | None = None
         self.failures = 0
         self.last_error: str | None = None
         self._unhandled_logged: set[str] = set()
@@ -79,7 +80,7 @@ class EventBus:
 
     async def _dispatch_locked(self, *, scan_limit: int) -> int:
         count = 0
-        cursor: tuple[int, str] | None = None
+        cursor: tuple[int, str] | None = self._scan_cursor
         for _ in range(max(1, (scan_limit + 99) // 100)):
             async with self.database.sessions() as session:
                 query = select(OutboxEvent).order_by(OutboxEvent.created_at, OutboxEvent.id).limit(100)
@@ -91,6 +92,7 @@ class EventBus:
                 records = (await session.scalars(query)).all()
                 events = [(r.id, r.kind, r.payload_json, r.created_at) for r in records]
             if not events:
+                cursor = None
                 break
             for event_id, kind, payload_json, created_at in events:
                 cursor = (created_at, event_id)
@@ -132,7 +134,10 @@ class EventBus:
                     async with self.database.session() as session:
                         await session.execute(delete(OutboxEvent).where(OutboxEvent.id == event_id))
             if len(events) < 100:
+                cursor = None
                 break
+        # Не даём неисправным первым 500 событиям блокировать всю очередь.
+        self._scan_cursor = cursor
         return count
 
     async def _loop(self) -> None:
