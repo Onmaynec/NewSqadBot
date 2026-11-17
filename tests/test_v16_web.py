@@ -331,7 +331,7 @@ def test_frontend_has_single_save_and_navigation_guard():
     html = (root / "index.html").read_text(encoding="utf-8")
     css = (root / "style.css").read_text(encoding="utf-8")
     assert '"/api/settings/batch"' in js
-    assert "Number(field.value)" not in js
+    assert 'if (spec.kind === "role" || spec.kind === "channel") return field.value || null;' in js
     assert "beforeunload" in js
     assert "confirmDiscard" in js
     assert 'id="bulk-save"' in html
