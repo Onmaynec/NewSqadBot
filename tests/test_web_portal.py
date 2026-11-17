@@ -18,7 +18,7 @@ from app.web.server import STATE, create_app
 class Member:
     def __init__(self, uid, role):
         self.id = uid
-        self.roles = [SimpleNamespace(id=role)] if role else []
+        self.roles = [SimpleNamespace(id=role, is_default=lambda: False)] if role else []
         self.display_name = f"Staff-{uid}"
         self.display_avatar = SimpleNamespace(url=f"https://cdn.discordapp.com/avatars/{uid}/fake.png")
         self.joined_at = datetime.now(timezone.utc)
