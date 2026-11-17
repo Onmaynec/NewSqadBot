@@ -10,7 +10,8 @@ from app.config import FEMALE_ROLE_ID, VERSION
 from app.core.catalog import MODULES
 from app.core.permissions import can_manage_settings
 from app.models import GuildSetting, TicketCategory
-from app.ui.theme import LoggedView, card
+from app.ui.mentions import channel_mention, role_mention, role_list
+from app.ui.theme import LoggedView, card, notice
 
 PAGE_OPTIONS = (
     ("summary", "Обзор", "Статус и заполненность настроек"),
@@ -80,9 +81,7 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
         for key, label in ROLE_SLOTS:
             rid = settings.get(key, FEMALE_ROLE_ID if key == "female_role_id" else None)
             role = guild.get_role(rid) if guild and rid else None
-            line = f"**{label}** — " + (f"{discord.utils.escape_markdown(role.name)} (`{rid}`) ✅"
-                                             if role else "⚠️ не настроена" if not rid
-                                             else f"⚠️ ID `{rid}` не найден на сервере")
+            line = f"**{label}**  ·  {role_mention(role, role_id=rid, guild=guild)}"
             lines.append(line)
         lines.append("\nРоль кандидата должна находиться **ниже** роли NewSqadBot для автоматического снятия.")
     elif page == "channels":
@@ -90,9 +89,9 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
             cid = settings.get(key)
             channel = guild.get_channel(cid) if guild and cid else None
             if channel:
-                description = f"**{discord.utils.escape_markdown(channel.name)}** (`{cid}`) ✅"
+                description = channel_mention(guild, cid)
             else:
-                description = "⚠️ не выбран" if not cid else f"⚠️ ID `{cid}` не найден"
+                description = "Не выбран" if not cid else channel_mention(guild, cid)
             lines.append(f"**{label}** — {description}")
         lines.append("\nКатегория тикетов — именно **категория Discord**, не текстовый канал.")
     elif page == "tickets":
@@ -110,7 +109,7 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
                 TicketCategory.guild_id == bot.config.guild_id).order_by(TicketCategory.sort_order))).all()
         for c in cats:
             lines.append(f"• **{safe_value(c.title, limit=50)}** · {'активна' if c.enabled else 'выключена'}"
-                         f" · {('роль ' + str(c.support_role_id)) if c.support_role_id else 'общая поддержка'}")
+                         f" · {role_mention(None, role_id=c.support_role_id, guild=guild) if c.support_role_id else 'Общая поддержка'}")
         if not cats:
             lines.append("Категории не созданы")
     elif page == "voice":
@@ -119,8 +118,8 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
         rooms = await rooms_store.all_rooms(bot.database, bot.config.guild_id)
         lines = [
             f"**Включены:** {'да' if settings.get('voice_enabled', True) else 'нет'}",
-            f"**Канал создания:** {f'<#{settings.get("voice_lobby_channel_id")}>' if settings.get('voice_lobby_channel_id') else 'не выбран'}",
-            f"**Категория комнат:** {settings.get('voice_category_channel_id') or 'не выбрана'}",
+            f"**Канал создания:** {channel_mention(guild, settings.get('voice_lobby_channel_id'))}",
+            f"**Категория комнат:** {channel_mention(guild, settings.get('voice_category_channel_id'))}",
             f"**Комнат:** {len(rooms)} / {settings.get('voice_max_rooms', 30)}",
             f"**Лимит участников:** {settings.get('voice_default_limit', 0) or 'без лимита'}",
             "", "Настроить: `/voice setup`, `/voice configure`.",
@@ -221,7 +220,18 @@ async def overview_embed(bot, page: str, offset: int = 0) -> tuple[discord.Embed
         total_pages = max(1, (len(keys) + PAGE_SIZE - 1) // PAGE_SIZE)
         offset = max(0, min(offset, total_pages - 1))
         subset = keys[offset * PAGE_SIZE:(offset + 1) * PAGE_SIZE]
-        lines = [f"**{safe_value(key, limit=70)}**\n`{safe_value(settings[key])}`" for key in subset]
+        lines = []
+        for key in subset:
+            value = settings[key]
+            if key.endswith("_role_id"):
+                shown = role_mention(None, role_id=value if isinstance(value, int) else None, guild=guild)
+            elif key.endswith("_role_ids") and isinstance(value, list):
+                shown = role_list(guild, value)
+            elif key.endswith(("_channel_id", "_category_id")):
+                shown = channel_mention(guild, value if isinstance(value, int) else None)
+            else:
+                shown = f"`{safe_value(value)}`"
+            lines.append(f"**{safe_value(key, limit=70)}**\n{shown}")
         if not lines:
             lines = ["Изменённые настройки пока отсутствуют."]
         lines.append(f"\nСтраница **{offset + 1}/{total_pages}** · Параметров: {len(keys)}")
@@ -260,7 +270,10 @@ class SettingsOverviewView(LoggedView):
         if not await super().interaction_check(interaction):
             return False
         if interaction.user.id != self.owner_id or not can_manage_settings(interaction, self.bot.config.owner_ids):
-            await interaction.response.send_message("Эта панель доступна только тому, кто её открыл.", ephemeral=True)
+            await interaction.response.send_message(
+                embed=notice("Эта панель доступна только администратору, открывшему её.", kind="warning"),
+                ephemeral=True,
+            )
             return False
         return True
 
