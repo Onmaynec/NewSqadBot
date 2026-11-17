@@ -13,6 +13,9 @@ def _redact(text: str, *, token: str) -> str:
     """Не записывать в Docker-журнал токен, webhook-секрет или заголовок Auth."""
     if token:
         text = text.replace(token, "[REDACTED]")
+    oauth_secret = os.getenv("WEB_DISCORD_CLIENT_SECRET", "").strip()
+    if oauth_secret:
+        text = text.replace(oauth_secret, "[REDACTED]")
     admin_hash = os.getenv("WEB_ADMIN_PASSWORD_HASH", "").strip()
     if admin_hash:
         text = text.replace(admin_hash, "[REDACTED]")
