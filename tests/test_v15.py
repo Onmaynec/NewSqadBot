@@ -9,16 +9,8 @@ import pytest
 
 from app.config import VERSION
 from app.core.database import Database, migrate
-from app.models import (
-    Application, CommunityEvent, EventSignup, ModerationCase, RolePanel, RolePanelOption,
-)
-from app.services import (
-    achievements,
-    applications,
-    moderation_cases,
-    quests,
-    suggestions,
-)
+from app.models import Application, CommunityEvent, EventSignup, ModerationCase, RolePanel, RolePanelOption
+from app.services import achievements, applications, moderation_cases, quests, suggestions
 
 
 def url(tmp_path):
