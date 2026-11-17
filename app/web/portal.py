@@ -539,8 +539,8 @@ def register(app: web.Application) -> None:
     from app.web.moderation_portal import register as register_moderation
 
     register_moderation(app)
-    from app.web.owner_portal import register as register_owner
     from app.web.community_portal import register as register_community
+    from app.web.owner_portal import register as register_owner
 
     register_owner(app)
     register_community(app)
