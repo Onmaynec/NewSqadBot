@@ -14,7 +14,8 @@ from app.core.durations import nickname
 from app.core.permissions import can_manage_settings
 from app.services import applications as store
 from app.services.audit import log_event
-from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView
+from app.ui.mentions import channel_mention, role_mention
+from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, panel_card
 
 log = logging.getLogger(__name__)
 
@@ -33,25 +34,24 @@ def application_embed(app) -> discord.Embed:
                   "approving": "Одобрение выполняется", "rejecting": "Отказ выполняется",
                   "approved": "Одобрена", "rejected": "Отклонена", "withdrawn": "Отозвана",
                   "action_failed": "Требуется вмешательство"}
-    e = discord.Embed(title=f"NewSquad  /  Заявка #{app.id:04d}", color=BRAND_BLUE)
-    e.description = ("**Рассмотрение кандидата**\n"
-                     "Проверьте ответы, затем возьмите заявку в работу и примите решение.")
-    e.add_field(name="Участник", value=f"<@{app.user_id}>  •  `{app.user_id}`", inline=False)
-    e.add_field(name="Discord", value=discord.utils.escape_markdown(app.username), inline=False)
-    e.add_field(name="Имя", value=discord.utils.escape_markdown(app.name), inline=True)
-    e.add_field(name="Пол", value="Женский" if app.gender == "female" else "Мужской", inline=True)
-    e.add_field(name="Возраст", value=str(app.age), inline=True)
-    e.add_field(name="Пригласил", value=discord.utils.escape_mentions(app.inviter), inline=False)
-    e.add_field(name="Статус", value=status_map.get(app.status, app.status), inline=True)
+    e = panel_card(
+        f"NewSquad  /  Заявка #{app.id:04d}",
+        "Анкета кандидата. Для рассмотрения используйте кнопки под сообщением.",
+        ("Кандидат", f"<@{app.user_id}>  ·  **{discord.utils.escape_markdown(app.username)}**"),
+        ("Анкета", f"**Имя:** {discord.utils.escape_markdown(app.name)}\n"
+                   f"**Пол:** {'Женский' if app.gender == 'female' else 'Мужской'}\n"
+                   f"**Возраст:** {app.age}\n"
+                   f"**Пригласил:** {discord.utils.escape_mentions(app.inviter)}"),
+        footer="NEW SQUAD  •  Приватная анкета для администрации",
+    )
+    e.add_field(name="Статус заявки", value=status_map.get(app.status, app.status), inline=True)
     if app.reviewer_id:
         e.add_field(name="Рассматривает", value=f"<@{app.reviewer_id}>", inline=True)
     if app.decision_reason:
         e.add_field(name="Решение", value=discord.utils.escape_mentions(app.decision_reason[:500]), inline=False)
     if app.last_error:
         e.add_field(name="Не завершено", value=discord.utils.escape_mentions(app.last_error[:500]), inline=False)
-    e.set_footer(text="NewSquad • Только для администрации • Данные анкеты")
     return e
-
 
 class ApplicationForm(LoggedModal, title="NewSquad — заявка на вступление"):
     # Discord 2.6+: 4 поля на одном экране, Select внутри Label.
@@ -512,10 +512,36 @@ class Membership(commands.Cog):
         if not can_manage_settings(interaction, self.bot.config.owner_ids):
             await interaction.response.send_message("Нет доступа.", ephemeral=True)
             return
-        keys = ("member_role_id", "candidate_role_id", "female_role_id", "reviewer_role_id",
-                "application_channel_id", "review_channel_id", "membership_audit_channel_id")
-        lines = [f"{key}: {await self.bot.database.get_setting(interaction.guild_id, key, FEMALE_ROLE_ID if key == 'female_role_id' else 'не настроено')}" for key in keys]
-        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+        roles = (
+            ("member_role_id", "Роль участника"),
+            ("candidate_role_id", "Роль кандидата"),
+            ("female_role_id", "Женская роль"),
+            ("reviewer_role_id", "Роль рассмотрения"),
+        )
+        channels = (
+            ("application_channel_id", "Подача заявок"),
+            ("review_channel_id", "Рассмотрение заявок"),
+            ("membership_audit_channel_id", "Журнал заявок"),
+        )
+        guild = interaction.guild
+        entries = []
+        for key, label in roles:
+            value = await self.bot.database.get_setting(
+                interaction.guild_id, key, FEMALE_ROLE_ID if key == "female_role_id" else None,
+            )
+            entries.append(f"**{label}:** {role_mention(None, role_id=value, guild=guild)}")
+        places = []
+        for key, label in channels:
+            value = await self.bot.database.get_setting(interaction.guild_id, key)
+            places.append(f"**{label}:** {channel_mention(guild, value)}")
+        await interaction.response.send_message(
+            embed=panel_card(
+                "NewSquad / Membership / Настройки",
+                "Роли и каналы приёма участников.",
+                ("Роли", "\n".join(entries)),
+                ("Каналы", "\n".join(places)),
+            ), ephemeral=True,
+        )
 
     @application_commands.command(name="status", description="Статус вашей анкеты")
     async def own_status(self, interaction: discord.Interaction) -> None:
