@@ -145,7 +145,7 @@ async def index(request: web.Request) -> web.FileResponse:
 
 async def static_file(request: web.Request) -> web.FileResponse:
     name = request.match_info["name"]
-    if name not in ("app.js", "portal.js", "style.css"):
+    if name not in ("app.js", "portal.js", "manage.js", "style.css"):
         raise web.HTTPNotFound()
     return web.FileResponse(ROOT / name)
 
