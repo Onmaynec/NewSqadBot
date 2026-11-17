@@ -41,7 +41,7 @@ def test_v06_migration_idempotent(tmp_path):
         db.execute("PRAGMA foreign_keys=ON")
         tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"member_progress", "member_profiles", "experience_awards"} <= tables
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0013_announcements"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0014_community_categories"
         db.execute("INSERT INTO member_progress(guild_id,user_id,created_at,updated_at) VALUES (?,?,?,?)",
                    (GUILD_ID, 111, 100, 100))
         with pytest.raises(sqlite3.IntegrityError):
