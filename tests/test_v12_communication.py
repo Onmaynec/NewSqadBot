@@ -13,9 +13,9 @@ import pytest
 from sqlalchemy import func, select
 
 from app.config import GUILD_ID, VERSION
-from app.models import ScheduledJob
 from app.core.database import Database, migrate
 from app.core.scheduler import Scheduler
+from app.models import ScheduledJob
 from app.modules.announcements import AnnouncementModal, build_announcement
 from app.modules.announcements_manager import AnnouncementManager
 from app.modules.help_center import (
