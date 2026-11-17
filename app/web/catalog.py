@@ -1,7 +1,7 @@
 """Белый список настроек для локальной панели (нет доступа к токенам/.env)."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from app.config import FEMALE_ROLE_ID
