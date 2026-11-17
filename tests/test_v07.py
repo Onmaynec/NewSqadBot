@@ -11,7 +11,7 @@ from app.services import economy as service
 
 
 def test_validation_and_version():
-    assert VERSION == "1.2.0"
+    assert VERSION == "1.3.0"
     assert service.local_day(1_700_000_000, "Europe/Tallinn").isoformat() == "2023-11-15"
     assert service.code_field(" Role_Bronze ") == "role_bronze"
     with pytest.raises(ValueError):
@@ -146,4 +146,5 @@ def test_cog_and_settings_registered():
         config = type("Cfg", (), {"owner_ids": frozenset()})()
 
     view = HomeView(Stub(), 1)
-    assert "Экономика" in {x.label for x in view.children if isinstance(x, discord.ui.Button)}
+    assert "Экономика" in {option.label for item in view.children if isinstance(item, discord.ui.Select)
+                             for option in item.options}

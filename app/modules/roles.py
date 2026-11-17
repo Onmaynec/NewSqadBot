@@ -21,7 +21,8 @@ from app.services.role_rules import (
     role_safe_for_self_assign,
     validate_panel,
 )
-from app.ui.theme import BRAND_BLUE, LoggedView
+from app.ui.mentions import member_mention, role_list, role_mention
+from app.ui.theme import LoggedView, card, notice, panel_card
 
 log = logging.getLogger(__name__)
 PROTECTED_SLOTS = (
@@ -31,10 +32,14 @@ PROTECTED_SLOTS = (
 
 
 def panel_embed(panel: RolePanel) -> discord.Embed:
-    e = discord.Embed(title=f"NewSquad  /  {discord.utils.escape_mentions(panel.title)}",
-        description=discord.utils.escape_mentions(panel.description), color=BRAND_BLUE)
-    e.set_footer(text="NewSquad · Выбранные роли можно изменить в этом меню")
-    return e
+    return panel_card(
+        f"NewSquad  /  {discord.utils.escape_mentions(panel.title)}",
+        "Настройте свой набор ролей через меню под этим сообщением.",
+        ("Описание", discord.utils.escape_mentions(panel.description)),
+        ("Как пользоваться", "Выберите нужные роли и подтвердите изменение. "
+         "Снять назначенные роли можно отдельной кнопкой."),
+        footer="NEW SQUAD  •  Выбор ролей участников",
+    )
 
 
 class RoleSelect(discord.ui.Select):
@@ -186,9 +191,15 @@ class Roles(commands.Cog):
             except discord.HTTPException as exc:
                 await interaction.response.send_message(f"Роли изменены не полностью: {exc}", ephemeral=True)
                 return
-            await interaction.response.send_message("Роли обновлены." if current != desired else "Изменений нет.", ephemeral=True)
+            await interaction.response.send_message(embed=notice(
+                "Выданы: " + role_list(guild, desired - current) + "\n"
+                "Сняты: " + role_list(guild, current - desired)
+                if current != desired else "Выбранные роли не изменились.",
+                kind="success"), ephemeral=True)
             await log_event(self.bot, channel_setting="audit_channel_id", title="Выбор ролей",
-                details=f"Панель #{panel_id}; добавлено: {sorted(desired-current)}; снято: {sorted(current-desired)}",
+                details=(f"Участник: {member_mention(member)}\nПанель: #{panel_id}\n"
+                         f"Выданы: {role_list(guild, desired - current)}\n"
+                         f"Сняты: {role_list(guild, current - desired)}"),
                 actor_id=interaction.user.id, action="roles.panel_selection", target_id=member.id)
 
     async def _approved(self, payload: dict) -> None:
@@ -269,7 +280,11 @@ class Roles(commands.Cog):
             count = len((await session.scalars(select(RolePanel.id).where(
                 RolePanel.guild_id == interaction.guild_id, RolePanel.enabled.is_(True)))).all())
         auto = await self.bot.database.get_setting(interaction.guild_id, "roles_auto_role_ids", [])
-        await interaction.response.send_message(f"Панелей: **{count}**\nАвтоматические роли: {', '.join(f'<@&{r}>' for r in auto) or 'нет'}",
+        await interaction.response.send_message(
+            embed=panel_card("NewSquad / Настройки ролей",
+                "Сводка активных панелей и настроенных автоматических ролей.",
+                ("Панели", str(count)),
+                ("Автоматическая выдача", role_list(interaction.guild, auto))),
             ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
 
     @panel.command(name="create", description="Создать черновик панели ролей")
@@ -312,7 +327,10 @@ class Roles(commands.Cog):
             await interaction.response.send_message("Эта роль уже добавлена.", ephemeral=True)
             return
         refreshed = await self._refresh_published(number)
-        await interaction.response.send_message("Роль добавлена." + ("" if refreshed else " Панель в канале не обновлена, используйте publish."), ephemeral=True)
+        await interaction.response.send_message(embed=notice(
+            f"{role_mention(role)} добавлена в панель #{number}."
+            + ("" if refreshed else "\nПанель ещё не обновлена — используйте publish."),
+            kind="success"), ephemeral=True)
 
     @panel.command(name="remove", description="Удалить роль из панели")
     async def panel_remove(self, interaction: discord.Interaction, number: int, role: discord.Role) -> None:
@@ -326,7 +344,10 @@ class Roles(commands.Cog):
             await session.execute(delete(RolePanelOption).where(
                 RolePanelOption.panel_id == number, RolePanelOption.role_id == role.id))
         refreshed = await self._refresh_published(number)
-        await interaction.response.send_message("Роль убрана из панели." + ("" if refreshed else " Требуется повторная публикация."), ephemeral=True)
+        await interaction.response.send_message(embed=notice(
+            f"{role_mention(role)} удалена из панели #{number}."
+            + ("" if refreshed else "\nТребуется повторная публикация."),
+            kind="success"), ephemeral=True)
 
     @panel.command(name="publish", description="Опубликовать или обновить панель")
     async def panel_publish(self, interaction: discord.Interaction, number: int) -> None:
@@ -419,9 +440,11 @@ class Roles(commands.Cog):
             await interaction.response.send_message(f"Выдать роль не удалось: {exc}", ephemeral=True)
             return
         await log_event(self.bot, channel_setting="audit_channel_id", title="Роль выдана вручную",
-            details=f"Роль: {role.id}; участник: {user.id}", actor_id=interaction.user.id,
+            details=f"Роль: {role_mention(role)}\nУчастник: {member_mention(user)}", actor_id=interaction.user.id,
             action="roles.grant", target_id=user.id)
-        await interaction.response.send_message("Роль выдана.", ephemeral=True)
+        await interaction.response.send_message(
+            embed=notice(f"{role_mention(role)} выдана участнику {member_mention(user)}.", kind="success"),
+            ephemeral=True)
 
     @roles.command(name="remove", description="Снять безопасную роль с участника")
     async def remove(self, interaction: discord.Interaction, user: discord.Member, role: discord.Role) -> None:
@@ -438,7 +461,9 @@ class Roles(commands.Cog):
         await log_event(self.bot, channel_setting="audit_channel_id", title="Роль снята вручную",
             details=f"Роль: {role.id}; участник: {user.id}", actor_id=interaction.user.id,
             action="roles.revoke", target_id=user.id)
-        await interaction.response.send_message("Роль снята.", ephemeral=True)
+        await interaction.response.send_message(
+            embed=notice(f"{role_mention(role)} снята с участника {member_mention(user)}.", kind="success"),
+            ephemeral=True)
 
     @roles.command(name="temporary", description="Выдать роль на ограниченный срок (например 2h, 7d)")
     async def temporary(self, interaction: discord.Interaction, user: discord.Member, role: discord.Role, duration: str) -> None:
@@ -481,9 +506,11 @@ class Roles(commands.Cog):
         await self.bot.scheduler.schedule(job_key=f"roles:expire:{grant_id}", handler="roles.expire",
             due_at=expires, payload={"grant_id": grant_id})
         await log_event(self.bot, channel_setting="audit_channel_id", title="Временная роль выдана",
-            details=f"Роль: {role.id}; участник: {user.id}; срок: {duration}; выдача #{grant_id}",
+            details=f"Роль: {role_mention(role)}\nУчастник: {member_mention(user)}\nСрок: {duration}\nВыдача: #{grant_id}",
             actor_id=interaction.user.id, action="roles.temporary", target_id=user.id)
-        await interaction.response.send_message(f"Роль выдана на {duration}. Выдача #{grant_id}.", ephemeral=True)
+        await interaction.response.send_message(
+            embed=notice(f"{role_mention(role)} выдана на {duration} участнику {user.mention}.\n"
+                         f"Выдача #{grant_id}.", kind="success"), ephemeral=True)
 
     @autorole.command(name="add", description="Добавить безопасную роль, выдаваемую после одобрения")
     async def autorole_add(self, interaction: discord.Interaction, role: discord.Role) -> None:
@@ -495,7 +522,9 @@ class Roles(commands.Cog):
         ids = await self.bot.database.get_setting(interaction.guild_id, "roles_auto_role_ids", [])
         ids = sorted(set(ids) | {role.id})
         await self.bot.database.set_setting(interaction.guild_id, "roles_auto_role_ids", ids, actor_id=interaction.user.id)
-        await interaction.response.send_message("Роль добавлена в автоматическую выдачу после Membership.", ephemeral=True)
+        await interaction.response.send_message(
+            embed=notice(f"{role_mention(role)} добавлена в автоматическую выдачу.", kind="success"),
+            ephemeral=True)
 
     @autorole.command(name="remove", description="Исключить роль из автоматической выдачи")
     async def autorole_remove(self, interaction: discord.Interaction, role: discord.Role) -> None:
@@ -503,14 +532,18 @@ class Roles(commands.Cog):
             return
         ids = await self.bot.database.get_setting(interaction.guild_id, "roles_auto_role_ids", [])
         await self.bot.database.set_setting(interaction.guild_id, "roles_auto_role_ids", [i for i in ids if i != role.id], actor_id=interaction.user.id)
-        await interaction.response.send_message("Роль исключена из автоматической выдачи.", ephemeral=True)
+        await interaction.response.send_message(
+            embed=notice(f"{role_mention(role)} исключена из автоматической выдачи.", kind="success"),
+            ephemeral=True)
 
     @autorole.command(name="list", description="Показать автоматические роли")
     async def autorole_list(self, interaction: discord.Interaction) -> None:
         if not await self._admin(interaction):
             return
         ids = await self.bot.database.get_setting(interaction.guild_id, "roles_auto_role_ids", [])
-        await interaction.response.send_message("\n".join(f"<@&{rid}>" for rid in ids) or "Роли не выбраны.", ephemeral=True,
+        await interaction.response.send_message(
+            embed=card("NewSquad / Автоматическая выдача",
+                       role_list(interaction.guild, ids, empty="Роли не назначены.")), ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none())
 
     @rewards.command(name="add", description="Выдавать роль при достижении уровня")
@@ -544,8 +577,10 @@ class Roles(commands.Cog):
         async with self.bot.database.sessions() as session:
             records = (await session.scalars(select(LevelRoleReward).where(
                 LevelRoleReward.guild_id == interaction.guild_id).order_by(LevelRoleReward.level).limit(40))).all()
-        lines = [f"Уровень {r.level} → <@&{r.role_id}>" for r in records]
-        await interaction.response.send_message("\n".join(lines)[:1900] or "Правил пока нет.", ephemeral=True,
+        lines = [f"**Уровень {r.level}**  →  {role_mention(None, role_id=r.role_id, guild=interaction.guild)}" for r in records]
+        await interaction.response.send_message(
+            embed=card("NewSquad / Награды за уровень",
+                       "\n".join(lines)[:3900] or "Правил пока нет."), ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none())
 
 

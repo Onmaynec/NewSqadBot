@@ -33,5 +33,7 @@ def test_engagement_modules_import_and_commands_registered():
 
     import discord
     view = HomeView(Stub(), 1)
-    labels = {item.label for item in view.children if isinstance(item, discord.ui.Button)}
+    labels = ({item.label for item in view.children if isinstance(item, discord.ui.Button)}
+              | {option.label for item in view.children if isinstance(item, discord.ui.Select)
+                 for option in item.options})
     assert {"Задания", "Достижения", "Экономика", "Все настройки"} <= labels

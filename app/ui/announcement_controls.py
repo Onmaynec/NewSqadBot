@@ -19,9 +19,9 @@ def preview_embed(item) -> discord.Embed:
             f"**{discord.utils.escape_mentions(item.title)}**\n\n"
             f"{discord.utils.escape_mentions(item.body)}",
         )
-    embed.add_field(name="Публикация", value=f"<#{item.channel_id}>", inline=True)
+    embed.add_field(name="Канал публикации", value=f"<#{item.channel_id}>", inline=True)
     if item.due_at:
-        embed.add_field(name="Время", value=f"<t:{item.due_at}:F>", inline=True)
+        embed.add_field(name="Запланировано", value=f"<t:{item.due_at}:F>", inline=True)
     return embed
 
 
@@ -80,11 +80,11 @@ class AnnouncementPreviewView(LoggedView):
             return False
         return True
 
-    @discord.ui.button(label="Опубликовать", style=discord.ButtonStyle.primary, emoji="📢")
+    @discord.ui.button(label="Опубликовать", style=discord.ButtonStyle.primary, emoji="📢", row=0)
     async def send(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self.cog.send_record(interaction, self.item.id)
 
-    @discord.ui.button(label="Изменить", style=discord.ButtonStyle.secondary, emoji="✏️")
+    @discord.ui.button(label="Изменить", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
     async def edit(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         item = await store.get(self.cog.bot.database, self.cog.bot.config.guild_id, self.item.id)
         if item is None or item.status not in ("draft", "failed"):
@@ -95,18 +95,13 @@ class AnnouncementPreviewView(LoggedView):
             return
         await interaction.response.send_modal(EditAnnouncementModal(self.cog, item))
 
-    @discord.ui.button(label="Отложить", style=discord.ButtonStyle.secondary, emoji="🕒")
+    @discord.ui.button(label="Отложить", style=discord.ButtonStyle.secondary, emoji="🕒", row=1)
     async def schedule(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.send_modal(ScheduleAnnouncementModal(self.cog, self.item.id))
 
-    @discord.ui.button(label="Отменить", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Отменить", style=discord.ButtonStyle.danger, row=1)
     async def cancel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self.cog.cancel_record(interaction, self.item.id)
-
-    @discord.ui.button(label="Сохранено", style=discord.ButtonStyle.secondary, disabled=True)
-    async def saved(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        return
-
 
 async def display_preview(interaction: discord.Interaction, cog, item) -> None:
     await interaction.response.send_message(

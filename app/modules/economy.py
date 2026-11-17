@@ -12,6 +12,7 @@ from app.services import economy as store
 from app.services.audit import log_event
 from app.services.membership_access import approved_member
 from app.services.role_rules import forbidden_role_ids, role_safe_for_self_assign
+from app.ui.mentions import role_mention
 from app.ui.theme import card, notice
 
 log = logging.getLogger(__name__)
@@ -359,7 +360,7 @@ class Economy(commands.Cog):
         if item and item.kind == "role":
             delivered = await self._deliver_role(interaction.user, item.id)
         message = (f"Приобретён товар **{discord.utils.escape_markdown(item.title)}**. "
-                   + ("Роль выдана." if item.kind == "role" and delivered else
+                   + (f"Роль {role_mention(role)} выдана." if item.kind == "role" and delivered else
                       "Выдача роли ожидает повторной попытки: `/inventory claim`." if not delivered else
                       "Используй `/inventory equip`, чтобы установить титул."))
         await interaction.followup.send(embed=notice(message, kind="success" if delivered else "warning"),

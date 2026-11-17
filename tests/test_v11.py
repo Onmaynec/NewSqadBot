@@ -27,7 +27,7 @@ def test_events_migration_and_constraints(tmp_path):
     url = db_url(tmp_path)
     migrate(url)
     migrate(url)
-    assert VERSION == "1.2.0"
+    assert VERSION == "1.3.0"
     assert implemented("events")
     with sqlite3.connect(tmp_path / "events.db") as con:
         con.execute("PRAGMA foreign_keys=ON")
@@ -232,7 +232,8 @@ def test_discord_views_and_commands_exist():
         config = type("Config", (), {"owner_ids": frozenset()})()
 
     view = HomeView(Stub(), 1)
-    assert "Мероприятия" in {item.label for item in view.children if isinstance(item, discord.ui.Button)}
+    assert "Мероприятия" in {option.label for item in view.children if isinstance(item, discord.ui.Select)
+                                for option in item.options}
 
 
 @pytest.mark.asyncio

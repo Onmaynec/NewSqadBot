@@ -11,7 +11,7 @@ from app.services import profiles, progression
 
 
 def test_version_and_thresholds():
-    assert VERSION == "1.2.0"
+    assert VERSION == "1.3.0"
     assert [progression.threshold(level) for level in range(1, 5)] == [0, 200, 600, 1200]
     for xp, level in [(0, 1), (199, 1), (200, 2), (599, 2), (600, 3), (1199, 3), (1200, 4)]:
         assert progression.level_for_xp(xp) == level
@@ -131,5 +131,7 @@ def test_new_cogs_exposed():
     class Stub:
         config = type("Config", (), {"owner_ids": frozenset()})()
     view = HomeView(Stub(), 1)
-    names = {b.label for b in view.children if isinstance(b, discord.ui.Button)}
+    names = ({b.label for b in view.children if isinstance(b, discord.ui.Button)}
+             | {option.label for item in view.children if isinstance(item, discord.ui.Select)
+                for option in item.options})
     assert {"Уровни и XP", "Профили", "Все настройки"} <= names

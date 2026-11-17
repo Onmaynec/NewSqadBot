@@ -12,7 +12,8 @@ from app.config import VERSION
 from app.core.catalog import MODULES
 from app.core.permissions import can_manage_settings
 from app.models import RolePanel
-from app.ui.theme import LoggedView, card, notice
+from app.ui.mentions import channel_mention, role_mention
+from app.ui.theme import LoggedView, card, notice, panel_card
 
 if TYPE_CHECKING:
     from app.bot import NewSqadBot
@@ -64,7 +65,54 @@ class PrivateSettingsView(LoggedView):
         return True
 
 
+class HubSelect(discord.ui.Select):
+    """Разделы по назначению вместо 19 кнопок на одном экране."""
+    def __init__(self, home: "HomeView", labels: tuple[str, ...],
+                 placeholder: str, row: int):
+        self.routes = {label: home._action_buttons[label] for label in labels}
+        super().__init__(
+            placeholder=placeholder, min_values=1, max_values=1, row=row,
+            options=[discord.SelectOption(
+                label=label, value=label,
+                description="Открыть раздел настроек",
+            ) for label in labels],
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        button = self.routes[self.values[0]]
+        await button.callback(interaction)
+
+
 class HomeView(PrivateSettingsView):
+    def __init__(self, client: "NewSqadBot", owner_id: int):
+        super().__init__(client, owner_id)
+        self._action_buttons = {
+            button.label: button for button in self.children
+            if isinstance(button, discord.ui.Button)
+        }
+        self.clear_items()
+        featured = (
+            ("Состояние", 0), ("Роли", 0), ("Каналы", 0),
+            ("Объявления", 1), ("Диагностика", 1), ("Все настройки", 1),
+        )
+        for label, row in featured:
+            button = self._action_buttons[label]
+            button.row = row
+            self.add_item(button)
+        self.add_item(HubSelect(
+            self,
+            ("Приветствия", "Роли участников", "Тикеты", "Профили"),
+            "Участники и поддержка", 2,
+        ))
+        self.add_item(HubSelect(
+            self,
+            ("Модули", "Мероприятия", "Предложения", "Статистика",
+             "Голосовые комнаты", "Уровни и XP", "Экономика",
+             "Задания", "Достижения"),
+            "Модули и активность сообщества", 3,
+        ))
+
+
     @discord.ui.button(label="Состояние", emoji="📊", style=discord.ButtonStyle.secondary, row=0)
     async def status(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         db_ok = await self.client.database.ping()
@@ -628,8 +676,8 @@ async def show_tickets_settings(interaction: discord.Interaction, client: "NewSq
     text = (f"**Приём обращений:** {'включён' if enabled else 'отключён'}\n"
             f"**Максимум одновременно:** {limit}\n"
             f"**Автозакрытие:** {idle_days} дней (0 — выключено)\n"
-            f"**Категория приватных каналов:** {f'<#{room_id}>' if room_id else 'не выбрана'}\n"
-            f"**Поддержка (роль):** {role_id or 'не настроена'}\n"
+            f"**Категория приватных каналов:** {channel_mention(client.get_guild(guild_id), room_id)}\n"
+            f"**Роль поддержки:** {role_mention(None, guild=client.get_guild(guild_id), role_id=role_id)}\n"
             "**После закрытия:** канал и история удаляются\n"
             "**Журнал и экспорт тикетов:** отключены\n"
             f"**Категории:** {len(items)}\n\n"
@@ -648,20 +696,12 @@ class BackView(PrivateSettingsView):
 
 
 def home_embed() -> discord.Embed:
-    return embed_card(
+    return panel_card(
         "NewSquad  /  Центр управления",
-        "**Панель администратора**\n"
-        "Все разделы связаны с настройками сервера. Выберите нужную кнопку ниже.\n\n"
-        "**01  /  Сервер и безопасность**\n"
-        "Состояние, модули, роли, каналы и полный обзор.\n\n"
-        "**02  /  Участники и поддержка**\n"
-        "Membership, приветствия, роли участников, тикеты и профили.\n\n"
-        "**03  /  Активность сообщества**\n"
-        "Голосовые комнаты, уровни, экономика, достижения, задания и статистика.\n\n"
-        "**04  /  Общение и мероприятия**\n"
-        "Мероприятия, предложения, поиск группы и сопутствующие настройки.\n\n"
-        "**Доступ**  •  Только администрация\n"
-        "**Изменения**  •  Сохраняются в базе и журнале",
+        "Настройки сервера, права участников и инструменты управления.",
+        ("Быстрый доступ", "Состояние · Роли · Каналы · Объявления · Диагностика"),
+        ("Настройки сообщества", "Откройте один из разделов в двух выпадающих меню ниже."),
+        ("Безопасность", "Доступ только администраторам. Изменения сохраняются в SQLite."),
     )
 
 class SlotMenu(discord.ui.Select):
@@ -704,7 +744,7 @@ class RolePicker(discord.ui.RoleSelect):
             return
         await self.client.database.set_setting(self.client.config.guild_id, self.slot, role.id, actor_id=interaction.user.id)
         await interaction.response.edit_message(
-            embed=embed_card("Настройка сохранена", f"**{dict(ROLE_SLOTS)[self.slot]}:** {role.mention}\nID: `{role.id}`"),
+            embed=embed_card("NewSquad / Роль сохранена", f"**{dict(ROLE_SLOTS)[self.slot]}**\n{role_mention(role)}\n\nИзменение сохранено в настройках сервера."),
             view=BackView(self.client, self.owner_id),
         )
 
@@ -740,10 +780,10 @@ class ChannelPicker(discord.ui.ChannelSelect):
         await self.client.database.set_setting(
             self.client.config.guild_id, self.slot, channel.id, actor_id=interaction.user.id
         )
-        display = channel.name if self.category_slot else channel.mention
+        display = channel_mention(interaction.guild, channel.id)
         await interaction.response.edit_message(
             embed=embed_card("Настройка сохранена",
-                             f"**{dict(CHANNEL_SLOTS)[self.slot]}:** {display}\nID: `{channel.id}`"),
+                             f"**{dict(CHANNEL_SLOTS)[self.slot]}**\n{display}\n\nНастройка сохранена."),
             view=BackView(self.client, self.owner_id),
         )
 

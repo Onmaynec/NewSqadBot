@@ -39,7 +39,7 @@ def url(tmp_path):
 def test_schema_migration_and_components(tmp_path):
     migrate(url(tmp_path))
     migrate(url(tmp_path))
-    assert VERSION == "1.2.0"
+    assert VERSION == "1.3.0"
     with sqlite3.connect(tmp_path / "ann.db") as conn:
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0013_announcements"
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -68,7 +68,7 @@ async def test_drafts_update_templates_restart_and_preview(tmp_path):
         assert "ПРЕДПРОСМОТР" in embed.footer.text
         assert len(AnnouncementPreviewView(
             SimpleNamespace(bot=SimpleNamespace(config=SimpleNamespace(owner_ids=frozenset()))),
-            row, 10).children) == 5
+            row, 10).children) == 4
         row = await store.edit(db, guild_id=GUILD_ID, number=row.id, actor_id=10,
                                title="Новая версия", body="Подробные изменения")
         assert row.title == "Новая версия"

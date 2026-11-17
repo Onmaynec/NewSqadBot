@@ -12,7 +12,8 @@ from discord.ext import commands, tasks
 from app.core.permissions import can_manage_settings
 from app.services import voice as store
 from app.services.membership_access import approved_member
-from app.ui.theme import LoggedModal, LoggedView, card, notice
+from app.ui.mentions import channel_mention
+from app.ui.theme import LoggedModal, LoggedView, card, notice, panel_card
 
 log = logging.getLogger(__name__)
 
@@ -28,14 +29,21 @@ def room_name(raw: str) -> str:
 
 def describe_room(room, channel: discord.VoiceChannel | None = None) -> discord.Embed:
     count = len(channel.members) if channel else 0
-    embed = card("NewSquad  /  Голосовая комната",
-        f"**{discord.utils.escape_markdown(room.name)}**\n"
-        f"Канал: <#{room.channel_id}>\nВладелец: <@{room.owner_id}>\n"
-        f"Участники: **{count}** · Лимит: **{room.user_limit or 'без лимита'}**\n"
-        f"Вход: **{'по приглашению' if room.locked else 'свободный'}** · "
-        f"Видимость: **{'скрыта' if room.hidden else 'открыта'}**\n\n"
-        "Кнопки доступны владельцу комнаты. Настройка доступа: `/voice allow` и `/voice deny`.")
-    embed.set_footer(text="NewSquad • Комнаты удаляются автоматически, когда пустеют")
+    embed = panel_card(
+        "NewSquad  /  Управление комнатой",
+        f"**{discord.utils.escape_markdown(room.name)}**",
+        ("Основная информация",
+         f"**Канал:** <#{room.channel_id}>\n"
+         f"**Владелец:** <@{room.owner_id}>\n"
+         f"**Участников:** {count} / {room.user_limit or 'без лимита'}"),
+        ("Доступ и приватность",
+         f"**Подключение:** {'закрыто' if room.locked else 'свободное'}\n"
+         f"**Видимость:** {'скрытая' if room.hidden else 'публичная'}"),
+        ("Управление",
+         "Используйте кнопки для изменения комнаты.\n"
+         "Приглашения и ограничения: `/voice allow` · `/voice deny`."),
+        footer="NEW SQUAD  •  Комната удаляется, когда остаётся пустой",
+    )
     return embed
 
 
@@ -122,15 +130,15 @@ class RoomControls(LoggedView):
         channel = interaction.guild.get_channel(self.channel_id)
         await interaction.edit_original_response(embed=describe_room(room, channel), view=RoomControls(self.cog, self.channel_id))
 
-    @discord.ui.button(label="Закрыть / Открыть вход", emoji="🔒", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Управление входом", emoji="🔒", style=discord.ButtonStyle.primary, row=0)
     async def lock(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._toggle(interaction, "locked")
 
-    @discord.ui.button(label="Скрыть / Показать", emoji="👁️", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Видимость", emoji="👁️", style=discord.ButtonStyle.secondary, row=0)
     async def hide(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._toggle(interaction, "hidden")
 
-    @discord.ui.button(label="Название", emoji="✏️", style=discord.ButtonStyle.secondary, row=0)
+    @discord.ui.button(label="Название", emoji="✏️", style=discord.ButtonStyle.secondary, row=1)
     async def rename(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.send_modal(RenameRoomModal(self.cog, self.channel_id))
 
@@ -138,12 +146,12 @@ class RoomControls(LoggedView):
     async def limit(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.send_modal(LimitRoomModal(self.cog, self.channel_id))
 
-    @discord.ui.button(label="Удалить", emoji="🗑️", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="Удалить комнату", emoji="🗑️", style=discord.ButtonStyle.danger, row=2)
     async def close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.send_message(embed=notice("Удаление комнаты необратимо. В комнате не должно быть "
             "других участников.", kind="warning"), view=CloseRoomConfirm(self.cog, self.channel_id), ephemeral=True)
 
-    @discord.ui.button(label="Обновить", emoji="🔄", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="Обновить", emoji="🔄", style=discord.ButtonStyle.secondary, row=2)
     async def refresh(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.defer()
         room = await store.by_channel(self.cog.bot.database, interaction.guild_id, self.channel_id)
@@ -631,7 +639,7 @@ class Voice(commands.Cog):
             return
         if not await self._approved(interaction.user):
             await interaction.response.send_message(embed=notice(
-                "Нет одобренной заявки Membership или права администратора.", kind="warning"), ephemeral=True)
+                "Создавать комнаты могут участники без роли кандидата.", kind="warning"), ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
         await self._create_for(interaction.user, lobby)
@@ -667,8 +675,8 @@ class Voice(commands.Cog):
         rooms = await store.all_rooms(self.bot.database, self.bot.config.guild_id)
         await interaction.response.send_message(embed=card("NewSquad  /  Голосовые комнаты",
             f"**Включены:** {'да' if settings['enabled'] else 'нет'}\n"
-            f"**Канал входа:** {f'<#{settings["lobby_channel_id"]}>' if settings['lobby_channel_id'] else 'не выбран'}\n"
-            f"**Категория комнат:** {settings['category_channel_id'] or 'не выбрана'}\n"
+            f"**Канал входа:** {channel_mention(interaction.guild, settings['lobby_channel_id'])}\n"
+            f"**Категория комнат:** {channel_mention(interaction.guild, settings['category_channel_id'])}\n"
             f"**Лимит комнат:** {len(rooms)}/{settings['max_rooms']}\n"
             f"**Участников на комнату:** {settings['default_limit'] or 'без лимита'}\n"
             "Настройка: `/voice setup` и `/voice configure`."), ephemeral=True)

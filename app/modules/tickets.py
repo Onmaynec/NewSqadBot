@@ -13,7 +13,7 @@ from app.core.permissions import can_manage_settings
 from app.models import Ticket, TicketCategory
 from app.services import tickets as store
 from app.services.membership_access import approved_member
-from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, card, notice
+from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, card, notice, panel_card
 
 log = logging.getLogger(__name__)
 
@@ -36,16 +36,22 @@ async def report_ticket_ui_error(interaction: discord.Interaction, error: Except
 def ticket_embed(ticket: Ticket, category: TicketCategory | None = None) -> discord.Embed:
     labels = {"creating": "Создаётся", "open": "Открыт", "closing": "Закрывается",
               "closed": "Закрыт", "failed": "Ошибка"}
-    e = card(f"NewSquad  /  Обращение #{ticket.id:05d}",
-        f"**Описание обращения**\n{discord.utils.escape_mentions(ticket.description[:1500])}")
-    e.add_field(name="Тема обращения", value=discord.utils.escape_mentions(ticket.subject), inline=False)
-    e.add_field(name="Категория", value=category.title if category else str(ticket.category_id))
-    e.add_field(name="Автор", value=f"<@{ticket.user_id}>")
-    e.add_field(name="Статус", value=labels.get(ticket.status, ticket.status))
-    e.add_field(name="Ответственный", value=f"<@{ticket.assignee_id}>" if ticket.assignee_id else "Не назначен")
+    e = panel_card(
+        f"NewSquad  /  Обращение #{ticket.id:05d}",
+        f"**{discord.utils.escape_mentions(ticket.subject[:180])}**",
+        ("Описание",
+         discord.utils.escape_mentions(ticket.description[:1500])),
+        footer="NEW SQUAD  •  Поддержка  /  Приватное обращение",
+    )
+    e.add_field(name="Категория", value=discord.utils.escape_mentions(category.title) if category
+                else f"#{ticket.category_id}", inline=True)
+    e.add_field(name="Статус", value=labels.get(ticket.status, ticket.status), inline=True)
+    e.add_field(name="Автор", value=f"<@{ticket.user_id}>", inline=True)
+    e.add_field(name="Ответственный", value=f"<@{ticket.assignee_id}>"
+                if ticket.assignee_id else "Не назначен", inline=True)
     if ticket.close_reason:
-        e.add_field(name="Причина закрытия", value=discord.utils.escape_mentions(ticket.close_reason[:500]), inline=False)
-    e.set_footer(text="NEW SQUAD  •  Поддержка  /  Приватное обращение")
+        e.add_field(name="Причина закрытия",
+                    value=discord.utils.escape_mentions(ticket.close_reason[:500]), inline=False)
     return e
 
 
