@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import tempfile
 import time
 from pathlib import Path
 
@@ -36,14 +37,22 @@ class NewSqadBot(commands.Bot):
         self.events: EventBus | None = None
         self.module_states: dict[str, str] = {}
         self._heartbeat: asyncio.Task[None] | None = None
+        self._startup_finished = False
 
     async def setup_hook(self) -> None:
         loop = asyncio.get_running_loop()
         loop.set_exception_handler(self._asyncio_error)
         logger.info("Начало инициализации: version=%s guild_id=%s", VERSION, self.config.guild_id)
         self.config.data_dir.mkdir(parents=True, exist_ok=True)
+        # Реальная проверка записи: os.access ненадёжен для Docker volumes.
+        with tempfile.TemporaryFile(dir=self.config.data_dir):
+            pass
+        self._write_health(False, phase="starting")
+        logger.info("SQLite: запуск Alembic и проверка целостности")
         await asyncio.to_thread(migrate, self.config.database_url)
         self.database = Database(self.config.database_url)
+        await self.database.check_integrity()
+        logger.info("SQLite: миграции и проверка целостности завершены")
         self.scheduler = Scheduler(self.database)
         self.events = EventBus(self.database)
         from app.panels.botsettings import CoreCommands
@@ -60,6 +69,7 @@ class NewSqadBot(commands.Bot):
         logger.info("Синхронизировано серверных команд: %s", len(synced))
         self.scheduler.start()
         self.events.start()
+        self._startup_finished = True
         self._heartbeat = asyncio.create_task(self._health_loop(), name="newsqad-health")
 
     @staticmethod
@@ -76,22 +86,39 @@ class NewSqadBot(commands.Bot):
     async def _health_loop(self) -> None:
         while True:
             try:
-                if self.database is not None:
-                    healthy = await self.database.ping()
-                else:
-                    healthy = False
-                self._write_health(bool(self.is_ready() and healthy and self.get_guild(self.config.guild_id)))
+                if self._startup_finished:
+                    if self.scheduler is not None and not self.scheduler.running:
+                        logger.error("Обнаружена остановка Scheduler; выполняется перезапуск")
+                        self.scheduler.start()
+                    if self.events is not None and not self.events.running:
+                        logger.error("Обнаружена остановка EventBus; выполняется перезапуск")
+                        self.events.start()
+                sqlite_ok = self.database is not None and await self.database.ping()
+                discord_ok = bool(self.is_ready() and self.get_guild(self.config.guild_id))
+                workers_ok = bool(self.scheduler and self.scheduler.running
+                                  and self.events and self.events.running)
+                ready = bool(self._startup_finished and sqlite_ok and discord_ok and workers_ok)
+                self._write_health(ready, phase="ready" if ready else "degraded",
+                                   discord_ok=discord_ok, sqlite_ok=sqlite_ok)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logger.exception("Ошибка проверки состояния")
-                self._write_health(False)
+                self._write_health(False, phase="health_error")
             await asyncio.sleep(20)
 
-    def _write_health(self, ready: bool) -> None:
+    def _write_health(self, ready: bool, *, phase: str = "stopped",
+                      discord_ok: bool = False, sqlite_ok: bool = False) -> None:
         path = Path(self.config.data_dir) / "health.json"
         temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps({"ready": ready, "timestamp": time.time(), "version": VERSION}), encoding="utf-8")
+        payload = {
+            "ready": ready, "timestamp": time.time(), "version": VERSION, "phase": phase,
+            "discord": discord_ok, "sqlite": sqlite_ok,
+            "scheduler": bool(self.scheduler and self.scheduler.running),
+            "event_bus": bool(self.events and self.events.running),
+            "module_errors": [key for key, status in self.module_states.items() if status == "error"],
+        }
+        temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         temporary.replace(path)
 
     async def on_interaction(self, interaction: discord.Interaction) -> None:
@@ -118,6 +145,10 @@ class NewSqadBot(commands.Bot):
             logger.exception("Не удалось ответить на неподтверждённую форму interaction=%s", interaction.id)
 
     async def on_ready(self) -> None:
+        # on_ready вызывается повторно после reconnect. Не дублируем задачи.
+        if self._startup_finished:
+            self.scheduler.start()
+            self.events.start()
         guild = self.get_guild(self.config.guild_id)
         if guild is None:
             logger.error("Бот не найден на целевом сервере NewSquad (%s)", self.config.guild_id)
@@ -131,6 +162,12 @@ class NewSqadBot(commands.Bot):
                 except discord.HTTPException:
                     logger.exception("Ошибка выхода из чужого сервера %s", other.id)
 
+    async def on_resumed(self) -> None:
+        if self._startup_finished:
+            self.scheduler.start()
+            self.events.start()
+        logger.info("Discord Gateway: сессия восстановлена")
+
     async def on_guild_join(self, guild: discord.Guild) -> None:
         if guild.id != self.config.guild_id:
             logger.warning("Попытка добавления на другой сервер %s", guild.id)
@@ -140,9 +177,11 @@ class NewSqadBot(commands.Bot):
                 logger.exception("Не удалось выйти из чужого сервера")
 
     async def on_disconnect(self) -> None:
-        self._write_health(False)
+        self._write_health(False, phase="discord_disconnected")
 
     async def close(self) -> None:
+        self._startup_finished = False
+        self._write_health(False, phase="stopping")
         if self._heartbeat is not None:
             self._heartbeat.cancel()
             try:
