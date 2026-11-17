@@ -17,7 +17,7 @@ from app.ui.theme import BRAND_BLUE, card, notice, panel_card
 
 
 def test_version_and_role_formatter_are_safe():
-    assert VERSION == "1.3.0"
+    assert VERSION == "1.4.0"
     roles = {
         5: SimpleNamespace(id=5, mention="<@&5>"),
         10: SimpleNamespace(id=10, mention="<@&10>"),
