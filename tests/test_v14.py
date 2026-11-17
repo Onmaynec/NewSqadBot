@@ -118,7 +118,7 @@ async def test_outbox_skips_blocked_first_page_without_losing_events(tmp_path):
         bus.subscribe("known", "handler", handler)
         for index in range(101):
             await bus.publish("unknown", {"i": index}, event_id=f"unknown-{index:04d}")
-        await bus.publish("known", {"value": 42}, event_id="known")
+        await bus.publish("known", {"value": 42}, event_id="zz-known")
         assert await bus.dispatch_pending(scan_limit=200) == 1
         assert received == [42]
         state = await bus.status()
