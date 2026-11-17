@@ -5,14 +5,11 @@ import asyncio
 import sqlite3
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
 
-import discord
 import pytest
 
 from app.config import GUILD_ID, VERSION
 from app.core.database import Database, migrate
-from app.core.scheduler import Scheduler
 from app.modules.announcements import AnnouncementModal, build_announcement
 from app.modules.announcements_manager import AnnouncementManager
 from app.modules.help_center import (
