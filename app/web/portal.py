@@ -15,8 +15,12 @@ from aiohttp import web
 from sqlalchemy import func, select
 
 from app.models import Application, ApplicationEvent, AuditEntry, ModerationCase, Ticket
-from app.services import applications as membership_store
-from app.services import moderation_cases, statistics as stats, tickets as ticket_store
+from app.services import (
+    applications as membership_store,
+    moderation_cases,
+    statistics as stats,
+    tickets as ticket_store,
+)
 from app.web.oauth import site_role
 from app.web.server import guild_for, json_payload, require_auth, require_csrf, require_role, state
 
