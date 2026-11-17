@@ -22,7 +22,11 @@ PANEL_LOCKS: dict[int, asyncio.Lock] = {}
 
 async def owner(request):
     _, actor = await require_role(request, "owner")
-    return state(request).bot, actor
+    # The old localhost password panel has no attributable Discord actor.
+    # Configuration-only operations may use actor 0; Discord publication cannot.
+    from types import SimpleNamespace
+
+    return state(request).bot, actor or SimpleNamespace(id=0)
 
 
 def text_field(payload, key: str, minimum: int, maximum: int) -> str:
@@ -181,7 +185,14 @@ async def role_panel_action(request: web.Request) -> web.Response:
                 await session.execute(update(RolePanel).where(
                     RolePanel.guild_id == bot.config.guild_id, RolePanel.id == pid).values(enabled=False))
             if row.message_id:
-                await cog._refresh_published(pid)
+                guild = guild_for(bot)
+                channel = guild.get_channel(row.channel_id) if guild else None
+                if isinstance(channel, discord.TextChannel):
+                    try:
+                        msg = await channel.fetch_message(row.message_id)
+                        await msg.edit(view=None, allowed_mentions=discord.AllowedMentions.none())
+                    except discord.HTTPException:
+                        log.warning("Панель #%s отключена в SQLite, но Discord-кнопки не сняты", pid)
         elif action == "add":
             if not row.enabled or len(options) >= 25:
                 raise web.HTTPConflict(text="Панель отключена или заполнена (25 ролей).")
@@ -313,6 +324,8 @@ async def announcement_list(request: web.Request) -> web.Response:
 async def announcement_create(request: web.Request) -> web.Response:
     bot, actor = await owner(request)
     require_csrf(request)
+    if actor.id == 0:
+        raise web.HTTPForbidden(text="Для объявления нужен вход через Discord.")
     data = await json_payload(request)
     guild = guild_for(bot)
     cid = identifier(data.get("channel_id"))
@@ -338,6 +351,8 @@ async def announcement_create(request: web.Request) -> web.Response:
 async def announcement_action(request: web.Request) -> web.Response:
     bot, actor = await owner(request)
     require_csrf(request)
+    if actor.id == 0:
+        raise web.HTTPForbidden(text="Для объявления нужен вход через Discord.")
     aid = number(request.match_info["id"])
     data = await json_payload(request)
     action = data.get("action")
@@ -366,8 +381,11 @@ async def announcement_action(request: web.Request) -> web.Response:
             if manager is None:
                 raise web.HTTPServiceUnavailable(text="Модуль объявлений не загружен.")
             result = await manager._deliver(row, scheduled_only=False)
-            await audit_owner(bot, actor.id, "web.announcement.sent", aid)
-            return web.json_response({"ok": True, "message": result})
+            confirmed = result.startswith(f"Объявление #{aid} опубликовано.")
+            await audit_owner(bot, actor.id, "web.announcement.sent" if confirmed
+                              else "web.announcement.send_failed", aid)
+            return web.json_response({"ok": confirmed, "message" if confirmed else "error": result},
+                                     status=200 if confirmed else 503)
         elif action == "template":
             await announcements.save_template(
                 bot.database, guild_id=bot.config.guild_id,
