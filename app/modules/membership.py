@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from app.config import FEMALE_ROLE_ID
-from app.core.durations import nickname
+from app.core.durations import NICKNAME_TEMPLATES, membership_nickname
 from app.core.permissions import can_manage_settings
 from app.services import applications as store
 from app.services.audit import log_event
@@ -45,6 +45,7 @@ def application_embed(app) -> discord.Embed:
         footer="NEW SQUAD  •  Приватная анкета для администрации",
     )
     e.add_field(name="Статус заявки", value=status_map.get(app.status, app.status), inline=True)
+    e.add_field(name="Подана", value=f"<t:{app.created_at}:F>", inline=True)
     if app.reviewer_id:
         e.add_field(name="Рассматривает", value=f"<@{app.reviewer_id}>", inline=True)
     if app.decision_reason:
@@ -88,10 +89,10 @@ class ApplicationForm(LoggedModal, title="NewSquad — заявка на вст�
             candidate_role_id = await self.cog.bot.database.get_setting(
                 interaction.guild_id, "candidate_role_id",
             )
-            if candidate_role_id and not any(
-                role.id == candidate_role_id for role in interaction.user.roles
-            ):
-                raise ValueError("Вы уже являетесь участником NewSquad.")
+            if not candidate_role_id or interaction.guild.get_role(candidate_role_id) is None:
+                raise ValueError("Роль кандидата не настроена: сообщите администрации.")
+            if not any(role.id == candidate_role_id for role in interaction.user.roles):
+                raise ValueError("Подать заявку может только кандидат NewSquad.")
         except ValueError as exc:
             await interaction.response.send_message(str(exc), ephemeral=True)
             return
@@ -378,7 +379,8 @@ class Membership(commands.Cog):
                 return f"Доступ не подтверждён: {detail}. Используйте /membership retry."
             warning = ""
             try:
-                new_nick = nickname(member.name, app.name)
+                nick_template = await self.bot.database.get_setting(app.guild_id, "membership_nickname_template", "default")
+                new_nick = membership_nickname(member.name, app.name, nick_template)
                 if member.nick != new_nick:
                     await member.edit(nick=new_nick, reason=f"[NSB-APPLICATION-{app_id:04d}] Одобрение")
                 await store.step(self.bot.database, app_id, "nickname_status", "done")
