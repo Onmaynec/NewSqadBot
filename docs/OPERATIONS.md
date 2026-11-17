@@ -1,4 +1,4 @@
-# NewSqadBot — эксплуатация v1.0.0
+# NewSqadBot — эксплуатация v1.4.0
 
 Документ для развёртывания и восстановления бота. README и Issues не используются как техническое задание.
 
@@ -162,3 +162,35 @@ sending, также переходят в uncertain.
 
 Миграция: 0013_announcements. Перед обновлением создайте резервную копию SQLite.
 Запуск: git pull origin main; docker compose up -d --build --force-recreate.
+
+
+## v1.4.0 — Core Stability & Reliability
+
+### Старт, восстановление и завершение
+
+Перед миграциями проверяется возможность записи в DATA_DIR реальным созданием временного файла. После миграций выполняются SQLite quick_check и foreign_key_check; некорректная БД блокирует запуск. SIGTERM/SIGINT инициируют bot.close(), остановку Scheduler/EventBus и закрытие соединений SQLite. Повторные Discord on_ready/on_resumed не создают второй экземпляр фоновых процессов.
+
+Ошибки загрузки отдельных модулей сохраняются в module_states и отображаются в диагностике. Состояния основного процесса фиксируются атомарно в /app/data/health.json: ready, timestamp, phase, version, discord, sqlite, scheduler, event_bus, module_errors. Значения phase: starting, ready, degraded, discord_disconnected, stopping. Используйте docker compose ps и docker compose logs --tail=150 bot.
+
+### Scheduler и EventBus
+
+В /botsettings → Диагностика видны просроченные и зависшие задачи, ошибки планировщика, ожидания EventBus, число квитанций и типы событий без обработчика. Scheduler обрабатывает один проход за раз и атомарно захватывает задачи через SQLite. После ошибки обработчик повторяется с задержкой, после пяти неудач задача получает статус failed. Незавершённые задания после остановки повторяются по истечении lease.
+
+Завершённые ключи scheduled_jobs не удаляются автоматически, поскольку это нарушило бы защиту от повторного выполнения. EventBus перескакивает заблокированные старые страницы через сохраняемый курсор сканирования; раз в 30 минут удаляет квитанции старше 30 дней, только если события нет в outbox. Отсутствие подписчика не приводит к потере нестандартного события.
+
+Важно: при неизвестном исходе запроса Discord нельзя гарантировать exactly-once; обработчики внешних действий должны быть идемпотентны. Отложенные объявления с неопределённой отправкой не отправляются автоматически повторно.
+
+### SQLite, volume и восстановление
+
+Для async SQLite установлен 15-секундный timeout блокировок. Транзакции, продолжающиеся более двух секунд, отмечаются в логах. Выполняются тесты повторной миграции заполненной БД, резервирования/restore, одновременных операций и повторного захвата задач.
+
+Один SQLite volume предназначен для одного экземпляра NewSqadBot. Не используйте docker compose down -v. Копии из /app/data/backups нужно дополнительно экспортировать за пределы volume.
+
+Диагностика:
+- docker compose logs --tail=150 bot
+- docker compose ps
+- docker compose run --rm --no-deps --entrypoint python bot -m app.ops.smoke
+- docker compose exec bot python -m app.ops.backup create
+- docker compose exec bot python -m app.ops.backup verify /app/data/backups/ИМЯ.db
+
+На Discord-сервере: /botsettings → Диагностика.
