@@ -146,6 +146,21 @@ class RejectForm(LoggedModal, title="Отклонение заявки"):
         await interaction.followup.send(result, ephemeral=True)
 
 
+class FollowupQuestion(LoggedModal, title="Уточнение по заявке"):
+    question = discord.ui.TextInput(
+        label="Вопрос кандидату", style=discord.TextStyle.paragraph,
+        min_length=5, max_length=500)
+
+    def __init__(self, cog: "Membership", app_id: int):
+        super().__init__(timeout=300)
+        self.cog, self.app_id = cog, app_id
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        result = await self.cog.request_info(interaction, self.app_id, str(self.question))
+        await interaction.followup.send(result, ephemeral=True)
+
+
 class ReviewView(LoggedView):
     def __init__(self, cog: "Membership", app_id: int):
         super().__init__(timeout=None)
@@ -182,13 +197,15 @@ class ReviewView(LoggedView):
 
     @discord.ui.button(label="История", style=discord.ButtonStyle.secondary, custom_id="history", row=1)
     async def history(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        app = await store.get_application(self.cog.bot.database, self.app_id)
-        if app is None:
-            await interaction.response.send_message("Заявка не найдена.", ephemeral=True)
-            return
-        history = await store.past_applications(self.cog.bot.database, app.guild_id, app.user_id)
-        text = "\n".join(f"#{item.id:04d}: {item.status}" for item in history)
-        await interaction.response.send_message(text or "История пуста.", ephemeral=True)
+        items = await store.timeline(self.cog.bot.database, interaction.guild_id, self.app_id)
+        lines = [f"<t:{e.created_at}:f> · <@{e.actor_id}> · {e.old_status} → {e.new_status}\n"
+                 f"{discord.utils.escape_mentions(e.reason[:220])}" for e in items]
+        await interaction.response.send_message("\n\n".join(lines)[:1900] or "История пуста.",
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @discord.ui.button(label="Уточнить", style=discord.ButtonStyle.secondary, custom_id="ask", row=1)
+    async def ask(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await interaction.response.send_modal(FollowupQuestion(self.cog, self.app_id))
 
 
 class Membership(commands.Cog):
@@ -433,6 +450,95 @@ class Membership(commands.Cog):
             title=f"Заявка #{app_id:04d} отклонена", details=f"Кандидат: {app.user_id}\nПричина: {app.decision_reason}",
             actor_id=app.reviewer_id or 0, action="membership.rejected", target_id=app.user_id)
         return "Решение зафиксировано, кандидат исключён."
+
+
+    async def request_info(self, interaction: discord.Interaction, number: int, question: str) -> str:
+        if not await self.can_review(interaction):
+            return "Нет прав."
+        question = question.strip()
+        if not 5 <= len(question) <= 500:
+            return "Вопрос должен содержать 5–500 символов."
+        app = await store.get_application(self.bot.database, number)
+        if not app or app.guild_id != interaction.guild_id:
+            return "Заявка не найдена."
+        done = await store.transition(self.bot.database, number, expected=("pending", "in_review"),
+            target="needs_info", actor_id=interaction.user.id, reason="Уточнение: " + question)
+        if not done:
+            return "Заявка уже закрыта или ожидает ответа."
+        await self.refresh(number)
+        try:
+            user = self.bot.get_user(app.user_id) or await self.bot.fetch_user(app.user_id)
+            await user.send(embed=discord.Embed(title="NewSquad / Уточнение заявки",
+                description=f"Заявка #{number:04d}\n{discord.utils.escape_mentions(question)}\n"
+                            "Ответьте командой /application answer на сервере.",
+                color=BRAND_BLUE), allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            return "Вопрос сохранён, но личное сообщение отправить не удалось."
+        return "Вопрос отправлен кандидату."
+
+    @membership_commands.command(name="request-info", description="Запросить уточнение у кандидата")
+    async def request_info_cmd(self, interaction: discord.Interaction, number: int, question: str) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.followup.send(await self.request_info(interaction, number, question), ephemeral=True)
+
+    @membership_commands.command(name="transfer", description="Передать рассмотрение заявки")
+    async def transfer(self, interaction: discord.Interaction, number: int, reviewer: discord.Member) -> None:
+        if not await self.can_review(interaction):
+            await interaction.response.send_message("Нет доступа.", ephemeral=True)
+            return
+        role_id = await self.bot.database.get_setting(interaction.guild_id, "reviewer_role_id")
+        if reviewer.bot or not (reviewer.guild_permissions.administrator or (
+                role_id and any(r.id == role_id for r in reviewer.roles))):
+            await interaction.response.send_message("У сотрудника нет доступа к рассмотрению.", ephemeral=True)
+            return
+        updated = await store.assign_reviewer(
+            self.bot.database, interaction.guild_id, number, interaction.user.id, reviewer.id)
+        if updated:
+            await self.refresh(number)
+        await interaction.response.send_message(
+            "Ответственный изменён." if updated else "Заявка недоступна для передачи.", ephemeral=True)
+
+    @membership_commands.command(name="timeline", description="Приватная история действий с заявкой")
+    async def timeline_cmd(self, interaction: discord.Interaction, number: int) -> None:
+        if not await self.can_review(interaction):
+            await interaction.response.send_message("Нет доступа.", ephemeral=True)
+            return
+        entries = await store.timeline(self.bot.database, interaction.guild_id, number)
+        lines = [f"<t:{e.created_at}:f> · <@{e.actor_id}> · {e.old_status} → {e.new_status}\n"
+                 f"{discord.utils.escape_mentions(e.reason[:230])}" for e in entries]
+        await interaction.response.send_message("\n\n".join(lines)[:1900] or "История пуста.",
+            ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
+
+    @membership_commands.command(name="nickname", description="Настроить шаблон ника для новых участников")
+    async def nickname_cmd(self, interaction: discord.Interaction, template: str) -> None:
+        if not can_manage_settings(interaction, self.bot.config.owner_ids):
+            await interaction.response.send_message("Только администрация.", ephemeral=True)
+            return
+        if template not in NICKNAME_TEMPLATES:
+            await interaction.response.send_message(
+                "Шаблоны: default, name_first, name_only, username_only.", ephemeral=True)
+            return
+        await self.bot.database.set_setting(interaction.guild_id, "membership_nickname_template",
+            template, actor_id=interaction.user.id)
+        await interaction.response.send_message(
+            f"Новый формат ника: {NICKNAME_TEMPLATES[template]}", ephemeral=True)
+
+    @application_commands.command(name="answer", description="Ответить на запрос уточнения по заявке")
+    async def answer(self, interaction: discord.Interaction, text: str) -> None:
+        app = await store.get_active(self.bot.database, interaction.guild_id, interaction.user.id)
+        if app is None or app.status != "needs_info":
+            await interaction.response.send_message("Сейчас уточнение не запрошено.", ephemeral=True)
+            return
+        try:
+            updated = await store.submit_answer(
+                self.bot.database, interaction.guild_id, app.id, interaction.user.id, text)
+        except ValueError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True)
+            return
+        if updated:
+            await self.refresh(app.id)
+        await interaction.response.send_message(
+            "Ответ сохранён." if updated else "Ответ уже обработан.", ephemeral=True)
 
     @membership_commands.command(name="panel", description="Опубликовать панель подачи заявок")
     async def panel(self, interaction: discord.Interaction) -> None:
