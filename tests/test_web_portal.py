@@ -1,7 +1,6 @@
 """Staff portal: Discord role revocation, OAuth state and privacy of ticket chat."""
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
@@ -11,7 +10,7 @@ from aiohttp import CookieJar
 from aiohttp.test_utils import TestClient, TestServer
 
 from app.core.database import Database, migrate
-from app.services import applications, tickets
+from app.services import tickets
 from app.web.oauth import ADMIN_ROLE, MODER_ROLE, OWNER_ROLE, TICKET_ROLE, site_role
 from app.web.server import STATE, create_app
 
