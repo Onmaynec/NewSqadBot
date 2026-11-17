@@ -11,7 +11,7 @@ from discord.ext import commands
 from app.config import VERSION
 from app.core.permissions import can_manage_settings
 from app.services.membership_access import approved_member
-from app.ui.theme import NO_MENTIONS, LoggedModal, LoggedView, card, notice
+from app.ui.theme import NO_MENTIONS, LoggedModal, LoggedView, card, notice, panel_card
 
 PAGE_SIZE = 8
 CATEGORY_NAMES = {
@@ -151,11 +151,10 @@ def page_embed(pages: list[HelpPage], index: int) -> discord.Embed:
         for item in page.entries
     ]
     title = CATEGORY_NAMES.get(page.category, f"/{page.category}")
-    embed = card(
-        f"NewSquad  /  Команды  /  {title}",
-        "**Справочник NewSqadBot**\n"
-        "Откройте раздел, листайте страницы или воспользуйтесь поиском.\n\n"
-        + "\n\n".join(lines),
+    embed = panel_card(
+        f"NewSquad  /  Справка  /  {title}",
+        "Выберите раздел в меню или найдите нужную команду через поиск.",
+        ("Команды раздела", "\n\n".join(lines)),
     )
     embed.set_footer(text=(
         f"Страница {index + 1} / {len(pages)}  •  Команд: {total}  •  "
@@ -172,7 +171,7 @@ class HelpCategorySelect(discord.ui.Select):
             self.first_pages.setdefault(page.category, i)
         super().__init__(placeholder="Перейти к разделу", options=[
             discord.SelectOption(label="Раздел", value="0"),
-        ], row=1)
+        ], row=2)
         self.rebuild()
 
     def rebuild(self) -> None:
@@ -283,21 +282,21 @@ class HelpView(LoggedView):
             embed=page_embed(self.pages, self.page), view=None, allowed_mentions=NO_MENTIONS,
         )
 
-    @discord.ui.button(label="Пред. разделы", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="Пред. разделы", style=discord.ButtonStyle.secondary, row=1)
     async def previous_categories(self, interaction: discord.Interaction,
                                   _: discord.ui.Button) -> None:
         self.category_offset = max(0, self.category_offset - 25)
         self.page = list(self.jump.first_pages.values())[self.category_offset]
         await self.update(interaction)
 
-    @discord.ui.button(label="След. разделы", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="След. разделы", style=discord.ButtonStyle.secondary, row=1)
     async def next_categories(self, interaction: discord.Interaction,
                               _: discord.ui.Button) -> None:
         self.category_offset += 25
         self.page = list(self.jump.first_pages.values())[self.category_offset]
         await self.update(interaction)
 
-    @discord.ui.button(label="Найти команду", emoji="🔎", style=discord.ButtonStyle.primary, row=3)
+    @discord.ui.button(label="Найти команду", emoji="🔎", style=discord.ButtonStyle.primary, row=1)
     async def search(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.send_modal(HelpSearchModal(self))
 
