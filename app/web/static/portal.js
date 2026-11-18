@@ -406,9 +406,23 @@
     summary.setAttribute("role", "status");
     summary.setAttribute("aria-live", "polite");
     const body = e("div", "ob-queue-items");
-    box.append(toolbar, summary, body);
+    const pager = e("div", "ob-pagination");
+    const previous = button("← Назад", () => { page -= 1; void populate(); });
+    const pageLabel = e("span", "portal-muted", "Страница 1");
+    const following = button("Далее →", () => { page += 1; void populate(); });
+    pager.append(previous, pageLabel, following);
+    box.append(toolbar, summary, body, pager);
     let rows = [];
     let request = 0;
+    let page = 1;
+    let total = 0;
+    let hasNext = false;
+    function updatePager() {
+      pager.hidden = total <= 100 && page === 1;
+      pageLabel.textContent = "Страница " + page + " · всего " + total;
+      previous.disabled = page <= 1 || body.getAttribute("aria-busy") === "true";
+      following.disabled = !hasNext || body.getAttribute("aria-busy") === "true";
+    }
     const statusLabel = {
       pending: "Новая", in_review: "На рассмотрении", needs_info: "Уточнение",
       action_failed: "Ошибка решения", approving: "Одобрение",
@@ -420,7 +434,9 @@
         "#" + item.id + " " + item.name + " " + item.username + " " + item.user_id
       ).toLocaleLowerCase("ru-RU").includes(term));
       summary.textContent = "Показано " + found.length + " из " + rows.length
-        + " загруженных заявок · Сервер возвращает до 100 последних";
+        + " на странице " + page + " · всего " + total
+        + " · Поиск действует в пределах текущей страницы";
+      updatePager();
       body.replaceChildren(cardList(found, (item) => {
         const row = e("article", "portal-list-row ob-queue-row");
         const title = rowTitle("#" + item.id + " · " + (item.name || "Без имени"),
@@ -438,11 +454,15 @@
       reload.disabled = true;
       select.disabled = true;
       body.setAttribute("aria-busy", "true");
+      updatePager();
       body.replaceChildren(e("div", "portal-loader", "Загружаем заявки..."));
       try {
-        const result = await api("/api/portal/applications?status=" + encodeURIComponent(select.value));
+        const result = await api("/api/portal/applications?status="
+          + encodeURIComponent(select.value) + "&page=" + page);
         if (token !== request || !box.isConnected && token > 1) return;
         rows = result.items || [];
+        total = Number(result.total ?? rows.length);
+        hasNext = Boolean(result.has_next);
         paint();
       } catch (error) {
         if (token !== request) return;
@@ -455,10 +475,11 @@
           body.removeAttribute("aria-busy");
           reload.disabled = false;
           select.disabled = false;
+          updatePager();
         }
       }
     }
-    select.addEventListener("change", () => { void populate(); });
+    select.addEventListener("change", () => { page = 1; void populate(); });
     query.addEventListener("input", () => {
       if (body.getAttribute("aria-busy") !== "true") paint();
     });
@@ -623,6 +644,10 @@
     const currentUser = window.portalData()?.viewer?.id || null;
     let activeFilter = "all";
     let rows = [];
+    let page = 1;
+    let total = 0;
+    let hasNext = false;
+    let request = 0;
     const summary = e("div", "ob-queue-summary");
     summary.setAttribute("role", "status");
     summary.setAttribute("aria-live", "polite");
@@ -650,7 +675,9 @@
       const ordered = [...found].sort((a, b) => (b.updated_at || b.opened_at) -
         (a.updated_at || a.opened_at));
       summary.textContent = "Показано " + ordered.length + " из " + rows.length
-        + " загруженных тикетов · Сервер возвращает до 100 последних";
+        + " на странице " + page + " · всего " + total
+        + " · Поиск и фильтры действуют на текущей странице";
+      updatePager();
       body.replaceChildren(cardList(ordered, (item) => {
         const row = e("article", "portal-list-row ob-queue-row");
         row.append(rowTitle("#" + item.id + " · " + (item.subject || "Без темы"),
@@ -686,23 +713,43 @@
       tabs.append(control);
     }
     toolbar.append(tabs, search, reload);
-    box.append(toolbar, summary, body);
+    const pager = e("div", "ob-pagination");
+    const previous = button("← Назад", () => { page -= 1; void populate(); });
+    const pageLabel = e("span", "portal-muted", "Страница 1");
+    const following = button("Далее →", () => { page += 1; void populate(); });
+    pager.append(previous, pageLabel, following);
+    box.append(toolbar, summary, body, pager);
+    function updatePager() {
+      pager.hidden = total <= 100 && page === 1;
+      pageLabel.textContent = "Страница " + page + " · всего " + total;
+      previous.disabled = page <= 1 || body.getAttribute("aria-busy") === "true";
+      following.disabled = !hasNext || body.getAttribute("aria-busy") === "true";
+    }
     async function populate() {
+      const token = ++request;
       reload.disabled = true;
       body.setAttribute("aria-busy", "true");
+      updatePager();
       body.replaceChildren(e("div", "portal-loader", "Загружаем обращения..."));
       try {
-        const data = await api("/api/portal/tickets");
+        const data = await api("/api/portal/tickets?page=" + page);
+        if (token !== request) return;
         rows = data.items || [];
+        total = Number(data.total ?? rows.length);
+        hasNext = Boolean(data.has_next);
         paint();
       } catch (error) {
+        if (token !== request) return;
         const failed = info("Не удалось получить тикеты", error.message);
         failed.append(button("Повторить", () => { void populate(); }));
         body.replaceChildren(failed);
         summary.textContent = "Данные недоступны · Проверьте соединение";
       } finally {
-        body.removeAttribute("aria-busy");
-        reload.disabled = false;
+        if (token === request) {
+          body.removeAttribute("aria-busy");
+          reload.disabled = false;
+          updatePager();
+        }
       }
     }
     search.addEventListener("input", () => {
