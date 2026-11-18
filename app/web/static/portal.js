@@ -608,6 +608,8 @@
     }
   }
   let ticketRefresh = null;
+  let activeReply = null;
+  function hasDraft() { return Boolean(activeReply?.isConnected && activeReply.value.trim()); }
   function stopTicketRefresh() {
     if (ticketRefresh) { clearInterval(ticketRefresh); ticketRefresh = null; }
   }
@@ -717,22 +719,37 @@
     const header = section("Тикет #" + id, "Переписка отображается из Discord и не архивируется на сайте.");
     const actions = e("div", "portal-actions");
     const messages = e("div", "portal-chat");
+    messages.setAttribute("role", "log");
+    messages.setAttribute("aria-label", "Сообщения тикета");
     const form = e("form", "portal-compose");
     const textarea = e("textarea", "portal-textarea");
     textarea.placeholder = "Написать ответ участнику...";
+    textarea.setAttribute("aria-label", "Ответ участнику в Discord");
+    activeReply = textarea;
     textarea.maxLength = 1500;
     textarea.rows = 3;
     const send = button("Отправить в Discord", () => {}, "primary");
     send.type = "submit";
+    send.disabled = true;
+    textarea.addEventListener("input", () => {
+      send.disabled = !textarea.value.trim() || actionPending;
+    });
     form.append(textarea, send);
     const participants = e("div", "portal-participants");
     const foot = e("div", "portal-muted", "Сообщения отправляются от имени бота с подписью сотрудника. Переписка не хранится в SQLite.");
-    wrap.append(header, actions, participants, messages, form, foot);
-    let lastMessages = "";
+    const syncState = e("div", "portal-muted ob-chat-sync", "Загружаем переписку...");
+    syncState.setAttribute("role", "status");
+    syncState.setAttribute("aria-live", "polite");
+    wrap.append(header, actions, participants, messages, form, syncState, foot);
+    let lastMessages = null;
+    let refreshPending = false;
+    let actionPending = false;
     async function refreshMessages() {
-      if (window.portalGroup() !== "Тикеты" || !messages.isConnected) return;
+      if (window.portalGroup() !== "Тикеты" || !messages.isConnected || document.hidden || refreshPending) return;
+      refreshPending = true;
       try {
         const data = await api("/api/portal/tickets/" + id);
+        if (window.portalGroup() !== "Тикеты" || !messages.isConnected) return;
         const ticket = data.ticket;
         participants.replaceChildren(e("span", "portal-muted", "Дополнительные участники: "));
         for (const uid of data.participants || []) participants.append(pill(uid));
@@ -755,14 +772,30 @@
             }
             messages.append(row);
           }
+          if (!data.messages.length) messages.append(info("Сообщений пока нет",
+            "Ответы появятся здесь после получения из Discord."));
           if (nearBottom) messages.scrollTop = messages.scrollHeight;
           lastMessages = signature;
         }
+        syncState.textContent = "Обновлено " + new Date().toLocaleTimeString("ru-RU",
+          {hour: "2-digit", minute: "2-digit"});
+        syncState.classList.remove("ob-sync-error");
       } catch (error) {
-        messages.replaceChildren(info("Чат недоступен", error.message));
+        if (!messages.isConnected || window.portalGroup() !== "Тикеты") return;
+        syncState.textContent = "Связь с Discord прервана: " + error.message
+          + ". Сообщения на экране могут быть неактуальны.";
+        syncState.classList.add("ob-sync-error");
+        if (lastMessages === null) messages.replaceChildren(
+          info("Переписка временно недоступна", "Повторная проверка произойдёт автоматически."));
+      } finally {
+        refreshPending = false;
       }
     }
     async function action(kind, additional = {}) {
+      if (actionPending) return false;
+      actionPending = true;
+      for (const actionButton of actions.querySelectorAll("button")) actionButton.disabled = true;
+      send.disabled = true;
       try {
         const data = await api("/api/portal/tickets/" + id + "/action",
           {method: "POST", body: {action: kind, ...additional}});
@@ -771,8 +804,17 @@
         await refreshMessages();
         return true;
       } catch (error) { window.portalToast(error.message, true); return false; }
+      finally {
+        actionPending = false;
+        for (const actionButton of actions.querySelectorAll("button")) actionButton.disabled = false;
+        send.disabled = !textarea.value.trim();
+      }
     }
-    actions.append(button("← Все обращения", () => { stopTicketRefresh(); void render("Тикеты"); }));
+    actions.append(button("← Все обращения", async () => {
+      if (hasDraft() && !await confirmAction("Покинуть переписку?",
+        "Написанный ответ не будет сохранён. Вы действительно хотите выйти?", "Выйти")) return;
+      stopTicketRefresh(); void render("Тикеты");
+    }));
     actions.append(button("Взять в работу", () => { void action("claim"); }, "success"));
     actions.append(button("Передать", async () => {
       const staffId = await chooseStaff();
@@ -801,14 +843,15 @@
       event.preventDefault();
       const text = textarea.value.trim();
       if (!text) return;
-      send.disabled = true;
       const delivered = await action("reply", {text});
-      if (delivered) textarea.value = "";
-      send.disabled = false;
+      if (delivered && textarea.value.trim() === text) textarea.value = "";
+      send.disabled = !textarea.value.trim();
     });
     host.replaceChildren(wrap);
     await refreshMessages();
-    ticketRefresh = setInterval(() => { void refreshMessages(); }, 12000);
+    if (host.contains(wrap) && window.portalGroup() === "Тикеты") {
+      ticketRefresh = setInterval(() => { void refreshMessages(); }, 12000);
+    }
   }
   async function staff() {
     const data = await api("/api/portal/staff");
@@ -1305,5 +1348,5 @@
     } else if (loaders[group]) await load(group, loaders[group]);
   }
   window.Portal={menu,roleLabels,icon,descriptions,render,stopTicketRefresh,
-    mountOwnerOverview,stopLive,startNotices,stopNotices,refreshNoticeBadge};
+    mountOwnerOverview,stopLive,startNotices,stopNotices,refreshNoticeBadge,hasDraft};
 })();
