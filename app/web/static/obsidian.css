@@ -400,3 +400,6 @@ a { color: #eee; }
   color: #333; border-color: #a9a9ad;
 }
 @media(max-width:620px) { .command-kind { display:none; } }
+
+/* Prevent background scroll while keyboard search is active. */
+body.command-is-open { overflow: hidden; }
