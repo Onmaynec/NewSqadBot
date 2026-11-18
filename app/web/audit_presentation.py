@@ -88,6 +88,11 @@ def describe_value(guild: Any, value: Any, key: str = "") -> str:
     text = str(value)
     if key == "source":
         return SOURCE_LABELS.get(text, text)
+    if key == "key":
+        from app.web.catalog import BY_KEY
+
+        spec = BY_KEY.get(text)
+        return spec.label if spec is not None else text
     if text.isascii() and text.isdecimal() and 15 <= len(text) <= 20:
         name = _lookup(guild, int(text), _kind_for(key))
         if name:
@@ -133,7 +138,7 @@ def present_audit(row: Any, guild: Any) -> dict:
     actor_label = actor or ("Локальная панель" if not row.actor_id and
                             data.get("source") == "local_web" else
                             "Система" if not row.actor_id else
-                            "Участник недоступен")
+                            "Участник недоступен · ID " + str(row.actor_id))
     fields = []
     for key, value in data.items():
         if value is None or value == "":
