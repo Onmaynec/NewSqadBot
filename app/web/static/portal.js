@@ -397,8 +397,9 @@
     }
     const query = e("input", "portal-input ob-queue-search");
     query.type = "search";
-    query.placeholder = "Поиск по имени, Discord или номеру...";
-    query.setAttribute("aria-label", "Поиск по загруженным заявкам");
+    query.placeholder = "Найти заявку по имени, Discord или номеру...";
+    query.maxLength = 80;
+    query.setAttribute("aria-label", "Поиск по всем заявкам");
     const reload = button("Обновить", () => { void populate(); }, "secondary");
     filters.append(caption, select);
     toolbar.append(filters, query, reload);
@@ -414,6 +415,7 @@
     box.append(toolbar, summary, body, pager);
     let rows = [];
     let request = 0;
+    let searchTimer = null;
     let page = 1;
     let total = 0;
     let hasNext = false;
@@ -429,15 +431,10 @@
       rejecting: "Отклонение", approved: "Одобрена", rejected: "Отклонена"
     };
     function paint() {
-      const term = query.value.trim().toLocaleLowerCase("ru-RU");
-      const found = rows.filter((item) => (
-        "#" + item.id + " " + item.name + " " + item.username + " " + item.user_id
-      ).toLocaleLowerCase("ru-RU").includes(term));
-      summary.textContent = "Показано " + found.length + " из " + rows.length
-        + " на странице " + page + " · всего " + total
-        + " · Поиск действует в пределах текущей страницы";
+      summary.textContent = "Найдено " + total + " заявок · показано " + rows.length
+        + " на странице " + page + " · Поиск по всей базе";
       updatePager();
-      body.replaceChildren(cardList(found, (item) => {
+      body.replaceChildren(cardList(rows, (item) => {
         const row = e("article", "portal-list-row ob-queue-row");
         const title = rowTitle("#" + item.id + " · " + (item.name || "Без имени"),
           (item.username || "Discord-пользователь") + " · " + format(item.created_at));
@@ -447,7 +444,7 @@
           item.status === "action_failed" ? "warning" : "neutral"));
         row.append(button("Открыть заявку", () => { void applicationDetails(item.id); }, "secondary"));
         return row;
-      }, term ? "По вашему запросу заявки не найдены." : "Заявок в этой категории нет."));
+      }, query.value.trim() ? "Заявок по вашему запросу нет." : "Заявок в этой категории нет."));
     }
     async function populate() {
       const token = ++request;
@@ -458,7 +455,8 @@
       body.replaceChildren(e("div", "portal-loader", "Загружаем заявки..."));
       try {
         const result = await api("/api/portal/applications?status="
-          + encodeURIComponent(select.value) + "&page=" + page);
+          + encodeURIComponent(select.value) + "&page=" + page
+          + "&q=" + encodeURIComponent(query.value.trim()));
         if (token !== request || !box.isConnected && token > 1) return;
         rows = result.items || [];
         total = Number(result.total ?? rows.length);
@@ -481,7 +479,10 @@
     }
     select.addEventListener("change", () => { page = 1; void populate(); });
     query.addEventListener("input", () => {
-      if (body.getAttribute("aria-busy") !== "true") paint();
+      clearTimeout(searchTimer);
+      request += 1; // Ignore any in-flight response for the previous query.
+      page = 1;
+      searchTimer = setTimeout(() => { void populate(); }, 320);
     });
     await populate();
     return box;
@@ -648,13 +649,15 @@
     let total = 0;
     let hasNext = false;
     let request = 0;
+    let searchTimer = null;
     const summary = e("div", "ob-queue-summary");
     summary.setAttribute("role", "status");
     summary.setAttribute("aria-live", "polite");
     const search = e("input", "portal-input ob-queue-search");
     search.type = "search";
-    search.setAttribute("aria-label", "Поиск среди загруженных тикетов");
+    search.setAttribute("aria-label", "Поиск по всей очереди тикетов");
     search.placeholder = "Поиск по теме или номеру...";
+    search.maxLength = 80;
     const body = e("div", "ob-queue-items");
     const reload = button("Обновить", () => { void populate(); }, "secondary");
     const filters = [
@@ -662,16 +665,10 @@
       ["mine", "Мои"], ["assigned", "В работе"]
     ];
     function paint() {
-      const term = search.value.trim().toLocaleLowerCase("ru-RU");
-      const found = rows.filter((item) => !term ||
-        ("#" + item.id + " " + (item.subject || "")).toLocaleLowerCase("ru-RU").includes(term));
-      const ordered = [...found].sort((a, b) => (b.updated_at || b.opened_at) -
-        (a.updated_at || a.opened_at));
-      summary.textContent = "Показано " + ordered.length + " из " + rows.length
-        + " на странице " + page + " · всего " + total
-        + " · Поиск — по текущей странице, фильтр — по всей очереди";
+      summary.textContent = "Найдено " + total + " тикетов · показано " + rows.length
+        + " на странице " + page + " · Все фильтры и поиск работают по всей очереди";
       updatePager();
-      body.replaceChildren(cardList(ordered, (item) => {
+      body.replaceChildren(cardList(rows, (item) => {
         const row = e("article", "portal-list-row ob-queue-row");
         row.append(rowTitle("#" + item.id + " · " + (item.subject || "Без темы"),
           "Обновлён: " + format(item.updated_at || item.opened_at)));
@@ -686,7 +683,7 @@
           row.append(e("span", "portal-muted", "Действия временно недоступны"));
         }
         return row;
-      }, term || activeFilter !== "all"
+      }, search.value.trim() || activeFilter !== "all"
         ? "По выбранным фильтрам обращений нет." : "Активных тикетов нет."));
     }
     for (const [value, label] of filters) {
@@ -727,7 +724,8 @@
       body.replaceChildren(e("div", "portal-loader", "Загружаем обращения..."));
       try {
         const data = await api("/api/portal/tickets?page=" + page
-          + "&assignment=" + encodeURIComponent(activeFilter));
+          + "&assignment=" + encodeURIComponent(activeFilter)
+          + "&q=" + encodeURIComponent(search.value.trim()));
         if (token !== request) return;
         rows = data.items || [];
         total = Number(data.total ?? rows.length);
@@ -748,7 +746,10 @@
       }
     }
     search.addEventListener("input", () => {
-      if (body.getAttribute("aria-busy") !== "true") paint();
+      clearTimeout(searchTimer);
+      request += 1; // Discard stale search results while debounce is pending.
+      page = 1;
+      searchTimer = setTimeout(() => { void populate(); }, 320);
     });
     await populate();
     return box;
