@@ -202,26 +202,25 @@ function renderNav() {
     if (ui.role === "owner" && ui.data.groups.includes(group)) return "КОНФИГУРАЦИЯ";
     return "УПРАВЛЕНИЕ";
   };
-  let lastSection = "";
-  for (const group of groups) {
-    const section = categorize(group);
-    if (section !== lastSection) {
-      const heading = element("div", "nav-section-label", section);
-      heading.setAttribute("role", "presentation");
-      nav.append(heading);
-      lastSection = section;
+  for (const section of ["РАБОЧАЯ ОБЛАСТЬ", "УПРАВЛЕНИЕ", "АНАЛИТИКА", "КОНФИГУРАЦИЯ", "СИСТЕМА"]) {
+    const items = groups.filter((group) => categorize(group) === section);
+    if (!items.length) continue;
+    const heading = element("div", "nav-section-label", section);
+    heading.setAttribute("role", "presentation");
+    nav.append(heading);
+    for (const group of items) {
+      const selected = ui.group === group;
+      const button = element("button", "nav-item" + (selected ? " active" : ""));
+      button.type = "button";
+      button.dataset.group = group;
+      button.setAttribute("aria-label", group);
+      if (selected) button.setAttribute("aria-current", "page");
+      button.append(Portal.icon(group));
+      button.append(element("span", "nav-text", group));
+      button.append(element("span", "nav-indicator"));
+      button.addEventListener("click", () => { void navigate(group); });
+      nav.append(button);
     }
-    const selected = ui.group === group;
-    const button = element("button", "nav-item" + (selected ? " active" : ""));
-    button.type = "button";
-    button.dataset.group = group;
-    button.setAttribute("aria-label", group);
-    if (selected) button.setAttribute("aria-current", "page");
-    button.append(Portal.icon(group));
-    button.append(element("span", "nav-text", group));
-    button.append(element("span", "nav-indicator"));
-    button.addEventListener("click", () => { void navigate(group); });
-    nav.append(button);
   }
 }
 
