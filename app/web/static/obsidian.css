@@ -391,3 +391,12 @@ a { color: #eee; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important;
     transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Palette result metadata: settings are available to the Owner role only. */
+.command-kind { padding: 4px 6px; border: 1px solid #414247; border-radius: 4px;
+  color: #a7a8ae; font-size: 9px; font-weight: 550; max-width: 150px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-result:hover .command-kind, .command-result[aria-selected="true"] .command-kind {
+  color: #333; border-color: #a9a9ad;
+}
+@media(max-width:620px) { .command-kind { display:none; } }
