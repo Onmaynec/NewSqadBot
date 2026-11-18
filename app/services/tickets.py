@@ -284,12 +284,21 @@ async def history(db, ticket_id: int, limit: int = 25) -> list[TicketEvent]:
 
 
 async def list_tickets(db, guild_id: int, *, statuses: tuple[str, ...] = ("open", "creating", "closing"),
-                       user_id: int | None = None, limit: int = 25) -> list[Ticket]:
+                       user_id: int | None = None, limit: int = 25,
+                       offset: int = 0, assignee_id: int | None = None,
+                       assigned: bool | None = None) -> list[Ticket]:
     async with db.sessions() as session:
         stmt = select(Ticket).where(Ticket.guild_id == guild_id, Ticket.status.in_(statuses))
         if user_id is not None:
             stmt = stmt.where(Ticket.user_id == user_id)
-        return list((await session.scalars(stmt.order_by(Ticket.id.desc()).limit(limit))).all())
+        if assignee_id is not None:
+            stmt = stmt.where(Ticket.assignee_id == assignee_id)
+        if assigned is True:
+            stmt = stmt.where(Ticket.assignee_id.is_not(None))
+        elif assigned is False:
+            stmt = stmt.where(Ticket.assignee_id.is_(None))
+        return list((await session.scalars(stmt.order_by(Ticket.id.desc())
+                                           .limit(limit).offset(offset))).all())
 
 
 async def save_panel(db, guild_id: int, channel_id: int, message_id: int, actor_id: int) -> None:

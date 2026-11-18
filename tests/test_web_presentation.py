@@ -93,3 +93,35 @@ def test_product_pages_keep_existing_api_contracts_and_accessibility():
         assert identifier in html
     assert 'login-mode-label' in app
     assert '[hidden]{display:none!important}' in css
+
+
+def test_obsidian_shell_assets_and_role_aware_search():
+    """The Obsidian layer must preserve backend APIs and restrict UI navigation."""
+    root = Path(__file__).resolve().parents[1]
+    static = root / "app" / "web" / "static"
+    html = (static / "index.html").read_text(encoding="utf-8")
+    css = (static / "obsidian.css").read_text(encoding="utf-8")
+    js = (static / "obsidian.js").read_text(encoding="utf-8")
+    app_js = (static / "app.js").read_text(encoding="utf-8")
+    server = (root / "app" / "web" / "server.py").read_text(encoding="utf-8")
+
+    for asset in ("obsidian.css", "obsidian.js"):
+        assert f'/static/{asset}' in html
+        assert f'"{asset}"' in server
+    for node_id in ("open-command", "command-palette", "command-input",
+                    "command-results", "close-command", "mobile-nav-backdrop"):
+        assert f'id="{node_id}"' in html
+    assert 'role="dialog" aria-modal="true"' in html
+    assert 'aria-controls="command-results"' in html
+    assert 'aria-expanded="false"' in html
+    assert "prefers-reduced-motion: reduce" in css
+    assert ".navigation .nav-item.active" in css
+
+    # The command palette gets destinations from the nav produced for the current role.
+    assert 'querySelectorAll(".nav-item")' in js
+    assert 'window.portalRole?.() !== "owner"' in js
+    assert 'allowed.has(spec.group)' in js
+    assert 'window.portalFindSetting(choice.group, choice.key)' in js
+    assert 'ui.role === "owner" && ui.data?.groups.includes(group)' in app_js
+    assert "if (!exists || !await navigate(group)) return false;" in app_js
+    assert 'if (!await confirmDiscard()) return false;' in app_js

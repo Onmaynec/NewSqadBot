@@ -157,16 +157,40 @@ async function refresh() {
 }
 async function confirmDiscard() {
   if (ui.saving) { toast("Сохранение ещё выполняется.", true); return false; }
-  if (!ui.dirty.size) return true;
+  const hasSettings = ui.dirty.size > 0;
+  const hasReply = window.Portal?.hasDraft?.() || false;
+  if (!hasSettings && !hasReply) return true;
   return new Promise((resolve) => {
     const dialog = $("leave-dialog");
+    $("dialog-title").textContent = hasReply ? "Несохранённый ответ" : "Несохранённые изменения";
+    $("dialog-description").textContent = hasReply
+      ? "В переписке есть неотправленный ответ. При переходе текст будет потерян и не сохранится на сайте."
+      : "На этой странице есть изменения, которые ещё не сохранены. Если продолжить, они будут потеряны.";
+    const previousFocus = document.activeElement;
+    const stay = $("stay-here");
+    const leave = $("leave-anyway");
     dialog.hidden = false;
-    $("stay-here").focus();
+    stay.focus();
+    function handleKeys(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      } else if (event.key === "Tab") {
+        if (event.shiftKey && document.activeElement === stay) {
+          event.preventDefault(); leave.focus();
+        } else if (!event.shiftKey && document.activeElement === leave) {
+          event.preventDefault(); stay.focus();
+        }
+      }
+    }
+    dialog.addEventListener("keydown", handleKeys);
     function finish(value) {
+      dialog.removeEventListener("keydown", handleKeys);
       dialog.hidden = true;
-      $("stay-here").onclick = null;
-      $("leave-anyway").onclick = null;
+      stay.onclick = null;
+      leave.onclick = null;
       if (value) ui.dirty.clear();
+      if (previousFocus?.isConnected) previousFocus.focus();
       resolve(value);
     }
     $("stay-here").onclick = () => finish(false);
@@ -174,8 +198,8 @@ async function confirmDiscard() {
   });
 }
 async function navigate(group) {
-  if (group === ui.group) return;
-  if (!await confirmDiscard()) return;
+  if (group === ui.group) return true;
+  if (!await confirmDiscard()) return false;
   ui.group = group;
   ui.query = "";
   $("search").value = "";
@@ -184,6 +208,7 @@ async function navigate(group) {
   renderPage();
   if (group === "Диагностика" || group === "Обзор") void refreshDiagnostics();
   window.scrollTo({top: 0, behavior: "smooth"});
+  return true;
 }
 function renderNav() {
   const nav = $("navigation");
@@ -192,16 +217,38 @@ function renderNav() {
   const portalGroups = Portal.menu[ui.role] || Portal.menu.support;
   const groups = ui.role === "owner"
     ? [...portalGroups, ...ui.data.groups, "Диагностика"] : portalGroups;
-  for (const group of groups) {
-    const button = element("button", "nav-item" + (ui.group === group ? " active" : ""));
-    button.type = "button";
-    button.append(Portal.icon(group));
-    button.append(element("span", "nav-text", group));
-    button.append(element("span", "nav-indicator"));
-    button.addEventListener("click", () => { void navigate(group); });
-    nav.append(button);
+  const workspace = new Set(["Обзор", "Уведомления", "Заявки", "Тикеты"]);
+  const insights = new Set(["Качество поддержки", "Аналитика", "Рейтинги", "Активность", "Аудит"]);
+  const system = new Set(["Диагностика"]);
+  const categorize = (group) => {
+    if (workspace.has(group)) return "РАБОЧАЯ ОБЛАСТЬ";
+    if (insights.has(group)) return "АНАЛИТИКА";
+    if (system.has(group)) return "СИСТЕМА";
+    if (ui.role === "owner" && ui.data.groups.includes(group)) return "КОНФИГУРАЦИЯ";
+    return "УПРАВЛЕНИЕ";
+  };
+  for (const section of ["РАБОЧАЯ ОБЛАСТЬ", "УПРАВЛЕНИЕ", "АНАЛИТИКА", "КОНФИГУРАЦИЯ", "СИСТЕМА"]) {
+    const items = groups.filter((group) => categorize(group) === section);
+    if (!items.length) continue;
+    const heading = element("div", "nav-section-label", section);
+    heading.setAttribute("role", "presentation");
+    nav.append(heading);
+    for (const group of items) {
+      const selected = ui.group === group;
+      const button = element("button", "nav-item" + (selected ? " active" : ""));
+      button.type = "button";
+      button.dataset.group = group;
+      button.setAttribute("aria-label", group);
+      if (selected) button.setAttribute("aria-current", "page");
+      button.append(Portal.icon(group));
+      button.append(element("span", "nav-text", group));
+      button.append(element("span", "nav-indicator"));
+      button.addEventListener("click", () => { void navigate(group); });
+      nav.append(button);
+    }
   }
 }
+
 function renderPage() {
   if (!ui.data) return;
   const ownerOverview = ui.group === "Обзор" && ui.role === "owner";
@@ -423,6 +470,17 @@ window.portalGroup = () => ui.group;
 window.portalRole = () => ui.role;
 window.portalData = () => ui.data;
 window.portalNavigate = (group) => navigate(group);
+window.portalFindSetting = async (group, key) => {
+  // Only the owner can open settings returned in the authenticated bootstrap.
+  const exists = ui.role === "owner" && ui.data?.groups.includes(group)
+    && ui.data.settings.some((spec) => spec.group === group && spec.key === key);
+  if (!exists || !await navigate(group)) return false;
+  ui.query = key;
+  $("search").value = key;
+  renderSettings();
+  $("search").focus();
+  return true;
+};
 window.portalReload = () => Portal.render(ui.group);
 window.portalToast = (message, error = false) => toast(message, error);
 $("notice-button").addEventListener("click", () => {void navigate("Уведомления");});
@@ -461,7 +519,7 @@ $("discard-changes").addEventListener("click", () => {
   toast("Изменения сброшены.");
 });
 window.addEventListener("beforeunload", (event) => {
-  if (ui.dirty.size || ui.saving) {
+  if (ui.dirty.size || ui.saving || window.Portal?.hasDraft?.()) {
     event.preventDefault();
     event.returnValue = "";
   }
@@ -472,8 +530,9 @@ $("quick-roles").addEventListener("click", () => navigate("Роли"));
 $("search").addEventListener("input", (event) => { ui.query = event.target.value; renderSettings(); });
 $("menu-toggle").addEventListener("click", () => $("sidebar").classList.toggle("open"));
 document.addEventListener("keydown", (event) => {
-  if (event.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)
-      && ui.group !== "Обзор" && ui.group !== "Диагностика") {
+  if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey
+      && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)
+      && !$("settings-section").hidden) {
     event.preventDefault(); $("search").focus();
   }
   if (event.key === "Escape") $("sidebar").classList.remove("open");

@@ -93,18 +93,21 @@
   }
   async function api(path, options) { return window.portalAPI(path, options); }
   const root = () => document.getElementById("portal-section");
+  let latestLoad = 0;
   async function load(group, loader) {
+    const loadId = ++latestLoad;
     const host = root();
     host.replaceChildren(section(group, descriptions[group] || "Данные сообщества."),
                          e("div", "portal-loader", "Получаем данные из Discord..."));
     try {
       const node = await loader();
-      if (window.portalGroup() !== group) return;
+      if (window.portalGroup() !== group || loadId !== latestLoad) return;
       host.replaceChildren(section(group, descriptions[group]), node);
     } catch (error) {
-      if (window.portalGroup() !== group) return;
-      host.replaceChildren(section(group, descriptions[group]),
-                           info("Не удалось загрузить данные", error.message));
+      if (window.portalGroup() !== group || loadId !== latestLoad) return;
+      const failure = info("Не удалось загрузить данные", error.message);
+      failure.append(button("Повторить загрузку", () => { void render(group); }));
+      host.replaceChildren(section(group, descriptions[group]), failure);
     }
   }
   let liveTimer = null;
@@ -125,7 +128,10 @@
       e("p", "portal-muted", "Обновлено " + new Date(result.generated_at * 1000).toLocaleTimeString("ru-RU")
         + " · Автоматическое обновление каждые 20 секунд")
     );
-    top.append(headline, e("span", "portal-live-badge", "СИСТЕМА НА СВЯЗИ"));
+    const healthy = result.discord_connected && result.sqlite_connected
+      && result.scheduler_running && result.events_running && !result.module_errors.length;
+    top.append(headline, e("span", "portal-live-badge" + (healthy ? "" : " ob-health-alert"),
+      healthy ? "СЛУЖБЫ РАБОТАЮТ" : "ТРЕБУЕТСЯ ВНИМАНИЕ"));
     box.append(top);
 
     const metrics = e("div", "portal-metrics overview-kpis");
@@ -146,6 +152,21 @@
       metrics.append(card);
     }
     box.append(metrics);
+
+    const quick = e("nav", "ob-dashboard-actions");
+    quick.setAttribute("aria-label", "Быстрые действия");
+    const actionsToShow = [
+      ["Заявки на рассмотрении", result.pending_applications, "Заявки"],
+      ["Открытые обращения", result.open_tickets, "Тикеты"],
+      ["Уведомления", "Открыть", "Уведомления"]
+    ];
+    for (const [title, count, destination] of actionsToShow) {
+      const control = button(title + " · " + count + "  ↗",
+        () => { void window.portalNavigate(destination); }, "secondary");
+      control.classList.add("ob-dashboard-action");
+      quick.append(control);
+    }
+    box.append(quick);
 
     const cols = e("div", "portal-dashboard-columns");
     const workers = e("section", "portal-panel overview-operations");
@@ -361,29 +382,109 @@
   }
   async function applications() {
     const box = e("div", "portal-stack");
-    const toolbar = e("div", "portal-toolbar");
+    const toolbar = e("div", "portal-toolbar ob-queue-toolbar");
+    const filters = e("div", "ob-filter-pair");
+    const caption = e("label", "sr-only", "Статус заявок");
     const select = e("select", "portal-select");
-    for (const status of ["open", "approved", "rejected", "all"]) {
-      const item = e("option", "", {open: "Открытые", approved: "Одобренные",
-        rejected: "Отклонённые", all: "Все"}[status]);
-      item.value = status; select.append(item);
+    select.setAttribute("aria-label", "Статус заявок");
+    for (const [status, label] of [
+      ["open", "На рассмотрении"], ["approved", "Одобренные"],
+      ["rejected", "Отклонённые"], ["all", "Все"]
+    ]) {
+      const item = e("option", "", label);
+      item.value = status;
+      select.append(item);
     }
-    toolbar.append(e("span", "portal-muted", "Фильтр заявок"), select);
-    const body = e("div");
-    async function populate() {
-      const result = await api("/api/portal/applications?status=" + select.value);
-      body.replaceChildren(cardList(result.items, (item) => {
-        const row = e("div", "portal-list-row");
-        row.append(rowTitle("#" + item.id + " · " + item.name + " · " + item.username,
-          format(item.created_at)));
-        row.append(pill(item.status, item.status === "approved" ? "success" : "neutral"));
-        row.append(button("Рассмотреть", () => { void applicationDetails(item.id); }));
+    const query = e("input", "portal-input ob-queue-search");
+    query.type = "search";
+    query.placeholder = "Найти заявку по имени, Discord или номеру...";
+    query.maxLength = 80;
+    query.setAttribute("aria-label", "Поиск по всем заявкам");
+    const reload = button("Обновить", () => { void populate(); }, "secondary");
+    filters.append(caption, select);
+    toolbar.append(filters, query, reload);
+    const summary = e("div", "ob-queue-summary");
+    summary.setAttribute("role", "status");
+    summary.setAttribute("aria-live", "polite");
+    const body = e("div", "ob-queue-items");
+    const pager = e("div", "ob-pagination");
+    const previous = button("← Назад", () => { page -= 1; void populate(); });
+    const pageLabel = e("span", "portal-muted", "Страница 1");
+    const following = button("Далее →", () => { page += 1; void populate(); });
+    pager.append(previous, pageLabel, following);
+    box.append(toolbar, summary, body, pager);
+    let rows = [];
+    let request = 0;
+    let searchTimer = null;
+    let page = 1;
+    let total = 0;
+    let hasNext = false;
+    function updatePager() {
+      pager.hidden = total <= 100 && page === 1;
+      pageLabel.textContent = "Страница " + page + " · всего " + total;
+      previous.disabled = page <= 1 || body.getAttribute("aria-busy") === "true";
+      following.disabled = !hasNext || body.getAttribute("aria-busy") === "true";
+    }
+    const statusLabel = {
+      pending: "Новая", in_review: "На рассмотрении", needs_info: "Уточнение",
+      action_failed: "Ошибка решения", approving: "Одобрение",
+      rejecting: "Отклонение", approved: "Одобрена", rejected: "Отклонена"
+    };
+    function paint() {
+      summary.textContent = "Найдено " + total + " заявок · показано " + rows.length
+        + " на странице " + page + " · Поиск по всей базе";
+      updatePager();
+      body.replaceChildren(cardList(rows, (item) => {
+        const row = e("article", "portal-list-row ob-queue-row");
+        const title = rowTitle("#" + item.id + " · " + (item.name || "Без имени"),
+          (item.username || "Discord-пользователь") + " · " + format(item.created_at));
+        row.append(title);
+        row.append(pill(statusLabel[item.status] || item.status,
+          item.status === "approved" ? "success" :
+          item.status === "action_failed" ? "warning" : "neutral"));
+        row.append(button("Открыть заявку", () => { void applicationDetails(item.id); }, "secondary"));
         return row;
-      }, "Новых заявок сейчас нет."));
+      }, query.value.trim() ? "Заявок по вашему запросу нет." : "Заявок в этой категории нет."));
     }
-    select.addEventListener("change", () => { void populate(); });
+    async function populate() {
+      const token = ++request;
+      reload.disabled = true;
+      select.disabled = true;
+      body.setAttribute("aria-busy", "true");
+      updatePager();
+      body.replaceChildren(e("div", "portal-loader", "Загружаем заявки..."));
+      try {
+        const result = await api("/api/portal/applications?status="
+          + encodeURIComponent(select.value) + "&page=" + page
+          + "&q=" + encodeURIComponent(query.value.trim()));
+        if (token !== request || !box.isConnected && token > 1) return;
+        rows = result.items || [];
+        total = Number(result.total ?? rows.length);
+        hasNext = Boolean(result.has_next);
+        paint();
+      } catch (error) {
+        if (token !== request) return;
+        const failed = info("Не удалось загрузить заявки", error.message);
+        failed.append(button("Повторить", () => { void populate(); }, "secondary"));
+        body.replaceChildren(failed);
+        summary.textContent = "Данные недоступны · Проверьте соединение";
+      } finally {
+        if (token === request) {
+          body.removeAttribute("aria-busy");
+          reload.disabled = false;
+          select.disabled = false;
+          updatePager();
+        }
+      }
+    }
+    select.addEventListener("change", () => { page = 1; void populate(); });
+    query.addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      request += 1; // Ignore any in-flight response for the previous query.
+      page = 1;
+      searchTimer = setTimeout(() => { void populate(); }, 320);
+    });
     await populate();
-    box.append(toolbar, body);
     return box;
   }
   async function confirmAction(title, description, positive = "Подтвердить") {
@@ -393,12 +494,14 @@
       dialog.setAttribute("role", "alertdialog");
       dialog.setAttribute("aria-modal", "true");
       const footer = e("div", "portal-actions");
-      function done(ok) { overlay.remove(); resolve(ok); }
+      let cleanup = () => overlay.remove();
+      function done(ok) { cleanup(); resolve(ok); }
       footer.append(button("Отмена", () => done(false)),
                     button(positive, () => done(true), "danger"));
       dialog.append(e("h3", "", title), e("p", "", description), footer);
-      overlay.append(dialog); document.body.append(overlay);
-      dialog.querySelector("button").focus();
+      overlay.append(dialog);
+      cleanup = window.ObsidianDialog.mount(
+        overlay, dialog, () => done(false), dialog.querySelector("button"));
     });
   }
   async function inputDialog(title, description, placeholder, minimum = 3) {
@@ -413,7 +516,8 @@
       field.rows = 4;
       const errors = e("div", "portal-field-error");
       const footer = e("div", "portal-actions");
-      function done(value) { overlay.remove(); resolve(value); }
+      let cleanup = () => overlay.remove();
+      function done(value) { cleanup(); resolve(value); }
       footer.append(button("Отмена", () => done(null)));
       footer.append(button("Подтвердить", () => {
         const value = field.value.trim();
@@ -424,7 +528,8 @@
         done(value);
       }, "primary"));
       dialog.append(e("h3", "", title), e("p", "", description), field, errors, footer);
-      overlay.append(dialog);document.body.append(overlay);field.focus();
+      overlay.append(dialog);
+      cleanup = window.ObsidianDialog.mount(overlay, dialog, () => done(null), field);
     });
   }
   async function chooseStaff() {
@@ -444,12 +549,14 @@
         choice.value = item.id;select.append(choice);
       }
       const footer = e("div", "portal-actions");
-      function done(result) {overlay.remove();resolve(result);}
+      let cleanup = () => overlay.remove();
+      function done(result) {cleanup();resolve(result);}
       footer.append(button("Отмена", () => done(null)));
       footer.append(button("Передать", () => done(select.value), "primary"));
       dialog.append(e("h3", "", "Передать обращение"),
         e("p", "", "Выберите сотрудника с действующей ролью NewSqad."),select,footer);
-      overlay.append(dialog);document.body.append(overlay);select.focus();
+      overlay.append(dialog);
+      cleanup = window.ObsidianDialog.mount(overlay, dialog, () => done(null), select);
     });
   }
   async function applicationDetails(id) {
@@ -529,23 +636,129 @@
     }
   }
   let ticketRefresh = null;
+  let activeReply = null;
+  function hasDraft() { return Boolean(activeReply?.isConnected && activeReply.value.trim()); }
   function stopTicketRefresh() {
     if (ticketRefresh) { clearInterval(ticketRefresh); ticketRefresh = null; }
   }
   async function tickets() {
     stopTicketRefresh();
-    const data = await api("/api/portal/tickets");
-    const result = e("div", "portal-stack");
-    result.append(cardList(data.items, (item) => {
-      const row = e("div", "portal-list-row");
-      row.append(rowTitle("#" + item.id + " · " + item.subject,
-        "Создан: " + format(item.opened_at)));
-      row.append(pill(item.assignee_id ? "В работе" : "Не назначен",
-                      item.assignee_id ? "success" : "neutral"));
-      if (item.status === "open") row.append(button("Открыть чат", () => { void ticketChat(item.id); }));
-      return row;
-    }, "Открытых обращений нет."));
-    return result;
+    const box = e("div", "portal-stack");
+    const toolbar = e("div", "portal-toolbar ob-queue-toolbar");
+    const tabs = e("div", "ob-segmented");
+    tabs.setAttribute("role", "group");
+    tabs.setAttribute("aria-label", "Фильтр тикетов");
+    const currentUser = window.portalData()?.viewer?.id || null;
+    let activeFilter = "all";
+    let rows = [];
+    let page = 1;
+    let total = 0;
+    let hasNext = false;
+    let request = 0;
+    let searchTimer = null;
+    const summary = e("div", "ob-queue-summary");
+    summary.setAttribute("role", "status");
+    summary.setAttribute("aria-live", "polite");
+    const search = e("input", "portal-input ob-queue-search");
+    search.type = "search";
+    search.setAttribute("aria-label", "Поиск по всей очереди тикетов");
+    search.placeholder = "Поиск по теме или номеру...";
+    search.maxLength = 80;
+    const body = e("div", "ob-queue-items");
+    const reload = button("Обновить", () => { void populate(); }, "secondary");
+    const filters = [
+      ["all", "Все"], ["unassigned", "Без ответственного"],
+      ["mine", "Мои"], ["assigned", "В работе"]
+    ];
+    function paint() {
+      summary.textContent = "Найдено " + total + " тикетов · показано " + rows.length
+        + " на странице " + page + " · Все фильтры и поиск работают по всей очереди";
+      updatePager();
+      body.replaceChildren(cardList(rows, (item) => {
+        const row = e("article", "portal-list-row ob-queue-row");
+        row.append(rowTitle("#" + item.id + " · " + (item.subject || "Без темы"),
+          "Обновлён: " + format(item.updated_at || item.opened_at)));
+        const status = item.status === "closing" ? "Закрывается" :
+          item.status === "creating" ? "Создаётся" :
+          item.assignee_id ? "В работе" : "Без ответственного";
+        row.append(pill(status, item.status !== "open" ? "warning" :
+          item.assignee_id ? "success" : "neutral"));
+        if (item.status === "open") {
+          row.append(button("Открыть чат", () => { void ticketChat(item.id); }, "secondary"));
+        } else {
+          row.append(e("span", "portal-muted", "Действия временно недоступны"));
+        }
+        return row;
+      }, search.value.trim() || activeFilter !== "all"
+        ? "По выбранным фильтрам обращений нет." : "Активных тикетов нет."));
+    }
+    for (const [value, label] of filters) {
+      const control = button(label, () => {
+        activeFilter = value;
+        for (const tab of tabs.querySelectorAll("button")) {
+          tab.setAttribute("aria-pressed", String(tab.dataset.filter === activeFilter));
+        }
+        page = 1;
+        void populate();
+      });
+      control.dataset.filter = value;
+      control.setAttribute("aria-pressed", String(value === activeFilter));
+      if (value === "mine" && !currentUser) {
+        control.disabled = true;
+        control.title = "Нужен вход через Discord";
+      }
+      tabs.append(control);
+    }
+    toolbar.append(tabs, search, reload);
+    const pager = e("div", "ob-pagination");
+    const previous = button("← Назад", () => { page -= 1; void populate(); });
+    const pageLabel = e("span", "portal-muted", "Страница 1");
+    const following = button("Далее →", () => { page += 1; void populate(); });
+    pager.append(previous, pageLabel, following);
+    box.append(toolbar, summary, body, pager);
+    function updatePager() {
+      pager.hidden = total <= 100 && page === 1;
+      pageLabel.textContent = "Страница " + page + " · всего " + total;
+      previous.disabled = page <= 1 || body.getAttribute("aria-busy") === "true";
+      following.disabled = !hasNext || body.getAttribute("aria-busy") === "true";
+    }
+    async function populate() {
+      const token = ++request;
+      reload.disabled = true;
+      body.setAttribute("aria-busy", "true");
+      updatePager();
+      body.replaceChildren(e("div", "portal-loader", "Загружаем обращения..."));
+      try {
+        const data = await api("/api/portal/tickets?page=" + page
+          + "&assignment=" + encodeURIComponent(activeFilter)
+          + "&q=" + encodeURIComponent(search.value.trim()));
+        if (token !== request) return;
+        rows = data.items || [];
+        total = Number(data.total ?? rows.length);
+        hasNext = Boolean(data.has_next);
+        paint();
+      } catch (error) {
+        if (token !== request) return;
+        const failed = info("Не удалось получить тикеты", error.message);
+        failed.append(button("Повторить", () => { void populate(); }));
+        body.replaceChildren(failed);
+        summary.textContent = "Данные недоступны · Проверьте соединение";
+      } finally {
+        if (token === request) {
+          body.removeAttribute("aria-busy");
+          reload.disabled = false;
+          updatePager();
+        }
+      }
+    }
+    search.addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      request += 1; // Discard stale search results while debounce is pending.
+      page = 1;
+      searchTimer = setTimeout(() => { void populate(); }, 320);
+    });
+    await populate();
+    return box;
   }
   async function ticketChat(id) {
     stopTicketRefresh();
@@ -555,22 +768,37 @@
     const header = section("Тикет #" + id, "Переписка отображается из Discord и не архивируется на сайте.");
     const actions = e("div", "portal-actions");
     const messages = e("div", "portal-chat");
+    messages.setAttribute("role", "log");
+    messages.setAttribute("aria-label", "Сообщения тикета");
     const form = e("form", "portal-compose");
     const textarea = e("textarea", "portal-textarea");
     textarea.placeholder = "Написать ответ участнику...";
+    textarea.setAttribute("aria-label", "Ответ участнику в Discord");
+    activeReply = textarea;
     textarea.maxLength = 1500;
     textarea.rows = 3;
     const send = button("Отправить в Discord", () => {}, "primary");
     send.type = "submit";
+    send.disabled = true;
+    textarea.addEventListener("input", () => {
+      send.disabled = !textarea.value.trim() || actionPending;
+    });
     form.append(textarea, send);
     const participants = e("div", "portal-participants");
     const foot = e("div", "portal-muted", "Сообщения отправляются от имени бота с подписью сотрудника. Переписка не хранится в SQLite.");
-    wrap.append(header, actions, participants, messages, form, foot);
-    let lastMessages = "";
+    const syncState = e("div", "portal-muted ob-chat-sync", "Загружаем переписку...");
+    syncState.setAttribute("role", "status");
+    syncState.setAttribute("aria-live", "polite");
+    wrap.append(header, actions, participants, messages, form, syncState, foot);
+    let lastMessages = null;
+    let refreshPending = false;
+    let actionPending = false;
     async function refreshMessages() {
-      if (window.portalGroup() !== "Тикеты" || !messages.isConnected) return;
+      if (window.portalGroup() !== "Тикеты" || !messages.isConnected || document.hidden || refreshPending) return;
+      refreshPending = true;
       try {
         const data = await api("/api/portal/tickets/" + id);
+        if (window.portalGroup() !== "Тикеты" || !messages.isConnected) return;
         const ticket = data.ticket;
         participants.replaceChildren(e("span", "portal-muted", "Дополнительные участники: "));
         for (const uid of data.participants || []) participants.append(pill(uid));
@@ -593,14 +821,30 @@
             }
             messages.append(row);
           }
+          if (!data.messages.length) messages.append(info("Сообщений пока нет",
+            "Ответы появятся здесь после получения из Discord."));
           if (nearBottom) messages.scrollTop = messages.scrollHeight;
           lastMessages = signature;
         }
+        syncState.textContent = "Обновлено " + new Date().toLocaleTimeString("ru-RU",
+          {hour: "2-digit", minute: "2-digit"});
+        syncState.classList.remove("ob-sync-error");
       } catch (error) {
-        messages.replaceChildren(info("Чат недоступен", error.message));
+        if (!messages.isConnected || window.portalGroup() !== "Тикеты") return;
+        syncState.textContent = "Связь с Discord прервана: " + error.message
+          + ". Сообщения на экране могут быть неактуальны.";
+        syncState.classList.add("ob-sync-error");
+        if (lastMessages === null) messages.replaceChildren(
+          info("Переписка временно недоступна", "Повторная проверка произойдёт автоматически."));
+      } finally {
+        refreshPending = false;
       }
     }
     async function action(kind, additional = {}) {
+      if (actionPending) return false;
+      actionPending = true;
+      for (const actionButton of actions.querySelectorAll("button")) actionButton.disabled = true;
+      send.disabled = true;
       try {
         const data = await api("/api/portal/tickets/" + id + "/action",
           {method: "POST", body: {action: kind, ...additional}});
@@ -609,8 +853,17 @@
         await refreshMessages();
         return true;
       } catch (error) { window.portalToast(error.message, true); return false; }
+      finally {
+        actionPending = false;
+        for (const actionButton of actions.querySelectorAll("button")) actionButton.disabled = false;
+        send.disabled = !textarea.value.trim();
+      }
     }
-    actions.append(button("← Все обращения", () => { stopTicketRefresh(); void render("Тикеты"); }));
+    actions.append(button("← Все обращения", async () => {
+      if (hasDraft() && !await confirmAction("Покинуть переписку?",
+        "Написанный ответ не будет сохранён. Вы действительно хотите выйти?", "Выйти")) return;
+      stopTicketRefresh(); void render("Тикеты");
+    }));
     actions.append(button("Взять в работу", () => { void action("claim"); }, "success"));
     actions.append(button("Передать", async () => {
       const staffId = await chooseStaff();
@@ -639,14 +892,15 @@
       event.preventDefault();
       const text = textarea.value.trim();
       if (!text) return;
-      send.disabled = true;
       const delivered = await action("reply", {text});
-      if (delivered) textarea.value = "";
-      send.disabled = false;
+      if (delivered && textarea.value.trim() === text) textarea.value = "";
+      send.disabled = !textarea.value.trim();
     });
     host.replaceChildren(wrap);
     await refreshMessages();
-    ticketRefresh = setInterval(() => { void refreshMessages(); }, 12000);
+    if (host.contains(wrap) && window.portalGroup() === "Тикеты") {
+      ticketRefresh = setInterval(() => { void refreshMessages(); }, 12000);
+    }
   }
   async function staff() {
     const data = await api("/api/portal/staff");
@@ -1143,5 +1397,5 @@
     } else if (loaders[group]) await load(group, loaders[group]);
   }
   window.Portal={menu,roleLabels,icon,descriptions,render,stopTicketRefresh,
-    mountOwnerOverview,stopLive,startNotices,stopNotices,refreshNoticeBadge};
+    mountOwnerOverview,stopLive,startNotices,stopNotices,refreshNoticeBadge,hasDraft};
 })();

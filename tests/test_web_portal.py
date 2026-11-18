@@ -352,3 +352,112 @@ def test_management_ui_permissions_are_not_only_client_side():
     assert '"/api/portal/moderation"' in portal
     assert "roleLabels" in portal
     assert "beforeunload" in (root / "app.js").read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_staff_queue_pagination_count_order_and_role_scope(tmp_path):
+    """A staff account can navigate past the first 100 entries without cross-guild leaks."""
+    from app.models import Application, Ticket
+
+    url = f"sqlite+aiosqlite:///{tmp_path / 'queue_pages.db'}"
+    migrate(url)
+    db = Database(url)
+    bot = FakeBot(db)
+    try:
+        await tickets.seed_categories(db, 777)
+        category = (await tickets.categories(db, 777))[0]
+        async with db.session() as session:
+            for i in range(103):
+                session.add(Application(
+                    guild_id=777, user_id=20_000 + i, username=f"candidate-{i}",
+                    name="Пользователь", gender="male", age=20, inviter="Никто",
+                    status="pending", created_at=1000 + i,
+                ))
+                session.add(Ticket(
+                    guild_id=777, user_id=30_000 + i, category_id=category.id,
+                    staff_role_id=TICKET_ROLE, subject=f"Вопрос {i}", description="Тест",
+                    status="open", opened_at=1000 + i, updated_at=1000 + i,
+                    assignee_id=14 if i < 3 else (13 if i < 5 else None),
+                ))
+            session.add(Application(
+                guild_id=888, user_id=40000, username="other-server",
+                name="Пользователь", gender="male", age=20, inviter="Никто",
+                status="pending", created_at=1,
+            ))
+            session.add(Ticket(
+                guild_id=888, user_id=40001, category_id=category.id,
+                staff_role_id=TICKET_ROLE, subject="Другой сервер", description="Тест",
+                status="open", opened_at=1, updated_at=1,
+            ))
+        app = create_app(bot, "", discord_client_id="12345678",
+                         discord_client_secret="mock_not_used_secret",
+                         public_url="https://portal.test.ts.net")
+        async with TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True)) as client:
+            for route in ("/api/portal/applications?status=open", "/api/portal/tickets"):
+                unauth = await client.get(route + "&page=1" if "?" in route else route + "?page=1")
+                assert unauth.status == 401
+
+            token, _ = app[STATE].sessions.create(user_id=14)
+            client.session.cookie_jar.update_cookies(
+                {"nsb_session": token}, response_url=client.make_url("/"))
+            for route in ("/api/portal/applications?status=open", "/api/portal/tickets"):
+                separator = "&" if "?" in route else "?"
+                first = await client.get(route + separator + "page=1")
+                second = await client.get(route + separator + "page=2")
+                assert first.status == 200
+                assert second.status == 200
+                a, b = await first.json(), await second.json()
+                assert a["total"] == b["total"] == 103
+                assert a["page_size"] == b["page_size"] == 100
+                assert len(a["items"]) == 100 and len(b["items"]) == 3
+                assert a["has_next"] and not b["has_next"]
+                assert a["items"][-1]["id"] > b["items"][0]["id"]
+                assert all(row["user_id"] != "40000"
+                           and row["user_id"] != "40001"
+                           for row in a["items"] + b["items"])
+                for invalid in ("0", "-1", "abc", "10000", "1.5"):
+                    bad = await client.get(route + separator + "page=" + invalid)
+                    assert bad.status == 400
+            for assignment, expected in (("mine", 3), ("assigned", 5),
+                                         ("unassigned", 98), ("all", 103)):
+                r = await client.get("/api/portal/tickets?assignment=" + assignment)
+                assert r.status == 200
+                content = await r.json()
+                assert content["total"] == expected
+                assert len(content["items"]) == min(expected, 100)
+                if assignment == "mine":
+                    assert all(row["assignee_id"] == "14" for row in content["items"])
+            invalid_filter = await client.get("/api/portal/tickets?assignment=random")
+            assert invalid_filter.status == 400
+
+            # Text search must apply to the complete queue before pagination.
+            for route, term, expected_id in (
+                ("/api/portal/applications", "candidate-102", 103),
+                ("/api/portal/tickets", "Вопрос 102", 103),
+            ):
+                found = await client.get(route, params={"q": term})
+                assert found.status == 200
+                data = await found.json()
+                assert data["total"] == 1
+                assert data["items"][0]["id"] == expected_id
+
+                by_number = await client.get(route, params={"q": "#2"})
+                assert by_number.status == 200
+                match = await by_number.json()
+                assert match["total"] == 1 and match["items"][0]["id"] == 2
+
+                for literal in ("%", "_", "other-server"):
+                    scoped = await client.get(route, params={"q": literal})
+                    assert scoped.status == 200
+                    assert (await scoped.json())["total"] == 0
+
+                invalid_search = await client.get(route, params={"q": "x" * 81})
+                assert invalid_search.status == 400
+
+            # Filtering by assignee and searching by subject combine correctly.
+            mine = await client.get("/api/portal/tickets",
+                                    params={"assignment": "mine", "q": "Вопрос 1"})
+            assert mine.status == 200
+            assert (await mine.json())["total"] == 1
+    finally:
+        await db.close()

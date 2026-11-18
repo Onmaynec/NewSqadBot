@@ -6,12 +6,13 @@ Every endpoint revalidates the viewer's CURRENT guild roles through Discord REST
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import asdict
 
 import discord
 from aiohttp import web
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.models import Application, ApplicationEvent, AuditEntry, ModerationCase, Ticket
 from app.services import applications, moderation_cases, statistics, tickets
@@ -34,6 +35,31 @@ def number(value: str) -> int:
     if not value.isdecimal() or not 1 <= len(value) <= 10:
         raise web.HTTPBadRequest(text="Недопустимый номер.")
     return int(value)
+
+
+PAGE_SIZE = 100
+
+
+def listing_page(request: web.Request) -> int:
+    """Положительный номер страницы, ограниченный числом и длиной."""
+    value = request.query.get("page", "1")
+    if not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]{0,3}", value):
+        raise web.HTTPBadRequest(text="Неверный номер страницы.")
+    return int(value)
+
+
+def listing_search(request: web.Request) -> tuple[str, str]:
+    """Bounded text search; escape SQL LIKE wildcards to keep input literal."""
+    value = request.query.get("q", "").strip()
+    if len(value) > 80 or any(ord(char) < 32 for char in value):
+        raise web.HTTPBadRequest(text="Поиск: не более 80 символов без управляющих знаков.")
+    literal = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return value, f"%{literal}%"
+
+
+def listing_id(query: str) -> int | None:
+    digits = query.removeprefix("#")
+    return int(digits) if digits.isdecimal() and 1 <= len(digits) <= 10 else None
 
 
 def user_card(member: discord.Member) -> dict:
@@ -80,20 +106,41 @@ async def overview(request: web.Request) -> web.Response:
 
 async def applications_list(request: web.Request) -> web.Response:
     await require_role(request)
+    page = listing_page(request)
     bot = state(request).bot
     status = request.query.get("status", "open")
     allowed = {"open", "approved", "rejected", "all"}
     if status not in allowed:
         raise web.HTTPBadRequest(text="Недопустимый статус.")
+    query, pattern = listing_search(request)
     async with bot.database.sessions() as session:
-        q = select(Application).where(Application.guild_id == bot.config.guild_id)
+        conditions = [Application.guild_id == bot.config.guild_id]
+        if query:
+            matches = [
+                Application.name.ilike(pattern, escape="\\"),
+                Application.username.ilike(pattern, escape="\\"),
+            ]
+            app_id = listing_id(query)
+            if app_id is not None:
+                matches.append(Application.id == app_id)
+            if query.isdecimal() and 1 <= len(query) <= 20 and int(query) < 2**64:
+                matches.append(Application.user_id == int(query))
+            conditions.append(or_(*matches))
         if status == "open":
-            q = q.where(Application.status.in_(("pending", "in_review", "needs_info", "action_failed",
-                                                 "approving", "rejecting")))
+            conditions.append(Application.status.in_((
+                "pending", "in_review", "needs_info", "action_failed", "approving", "rejecting")))
         elif status != "all":
-            q = q.where(Application.status == status)
-        values = (await session.scalars(q.order_by(Application.id.desc()).limit(100))).all()
-    return web.json_response({"items": [public_application(row) for row in values]})
+            conditions.append(Application.status == status)
+        total = int(await session.scalar(
+            select(func.count(Application.id)).where(*conditions)) or 0)
+        q = (select(Application).where(*conditions)
+             .order_by(Application.id.desc()).limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE))
+        values = (await session.scalars(q)).all()
+    return web.json_response({
+        "items": [public_application(row) for row in values],
+        "page": page, "page_size": PAGE_SIZE, "total": total,
+        "has_next": page * PAGE_SIZE < total,
+    })
 
 
 async def application_detail(request: web.Request) -> web.Response:
@@ -201,12 +248,44 @@ async def application_action(request: web.Request) -> web.Response:
 
 
 async def ticket_list(request: web.Request) -> web.Response:
-    await require_role(request)
+    _, member = await require_role(request)
+    page = listing_page(request)
+    query, pattern = listing_search(request)
+    assignment = request.query.get("assignment", "all")
+    if assignment not in ("all", "unassigned", "assigned", "mine"):
+        raise web.HTTPBadRequest(text="Недопустимый фильтр ответственного.")
+    if assignment == "mine" and member is None:
+        raise web.HTTPForbidden(text="Для личных тикетов нужен вход через Discord.")
     bot = state(request).bot
-    rows = await tickets.list_tickets(bot.database, bot.config.guild_id,
-                                           statuses=("open", "creating", "closing"), limit=100)
-    return web.json_response({"items": [public_ticket(row) for row in rows]})
-
+    conditions = [
+        Ticket.guild_id == bot.config.guild_id,
+        Ticket.status.in_(("open", "creating", "closing")),
+    ]
+    if assignment == "unassigned":
+        conditions.append(Ticket.assignee_id.is_(None))
+    elif assignment == "assigned":
+        conditions.append(Ticket.assignee_id.is_not(None))
+    elif assignment == "mine":
+        conditions.append(Ticket.assignee_id == member.id)
+    if query:
+        matches = [Ticket.subject.ilike(pattern, escape="\\")]
+        ticket_id = listing_id(query)
+        if ticket_id is not None:
+            matches.append(Ticket.id == ticket_id)
+        conditions.append(or_(*matches))
+    async with bot.database.sessions() as session:
+        total = int(await session.scalar(
+            select(func.count(Ticket.id)).where(*conditions)) or 0)
+        rows = (await session.scalars(
+            select(Ticket).where(*conditions)
+            .order_by(Ticket.updated_at.desc(), Ticket.id.desc())
+            .limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE)
+        )).all()
+    return web.json_response({
+        "items": [public_ticket(row) for row in rows],
+        "page": page, "page_size": PAGE_SIZE, "total": total,
+        "has_next": page * PAGE_SIZE < total,
+    })
 
 async def _ticket_channel(bot, row: Ticket):
     if row.status != "open" or row.channel_id is None:
