@@ -470,3 +470,143 @@ body.ob-modal-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .portal-loader::before { animation: none; border-color: #999ba1; }
 }
+
+
+/* AUTH / OBSIDIAN 1.8.1
+   Match the actual Obsidian control-center reference, not the previous editorial hero. */
+.login-screen {
+  display: grid;
+  grid-template-columns: 252px minmax(0,1fr);
+  min-height: 100svh;
+  background: #090a0b;
+  color: #f4f4f5;
+}
+.login-art {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 0;
+  min-width: 0;
+  min-height: 100svh;
+  padding: 26px 18px 22px;
+  background: #0b0b0d;
+  border-right: 1px solid #25262a;
+  overflow: hidden;
+}
+.login-art::before, .login-art::after {
+  content: none;
+  display: none;
+}
+.login-brand { display:flex; align-items:center; flex-wrap:nowrap; gap: 11px; }
+.login-logo {
+  display:grid; place-items:center; flex-shrink:0;
+  width: 40px; height: 40px; border-radius: 8px; border: 1px solid #eeeef0;
+  background:#f3f3f4; box-shadow: none; color:#121315; font-size:17px;
+  font-weight:800; letter-spacing:-.1em;
+}
+.login-logo span, .login-logo .guild-icon { color:#111; }
+.login-brand-copy { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.login-brand-copy strong { color:#f5f5f6; font-size:11px; letter-spacing:.17em; font-weight:800; }
+.login-brand-label { margin:0; color:#8a8c92; font-size:9px; font-weight:650; letter-spacing:.13em; }
+.login-hero { margin: 66px 0 0; width:100%; }
+.login-art-overline { font-size:9px; letter-spacing:.12em; font-weight:750; color:#818389; gap:8px; margin:0 0 17px; }
+.login-art-dot { width:6px; height:6px; background:#f1f1f2; box-shadow:none; }
+.login-art-line { display:none; }
+.login-statement {
+  font-size:23px; line-height:1.22; letter-spacing:-.035em; font-weight:710;
+  max-width:210px; color:#f4f4f5;
+}
+.login-statement span { display:block; color:#b6b6bd; }
+.login-art-description { font-size:11px; line-height:1.75; color:#999ba1; margin:14px 0 30px; max-width:200px; }
+.login-art-stats {
+  display:flex; flex-direction:column; gap:3px; border:0;
+  margin:0; max-width:none;
+}
+.login-art-stats span, .login-art-stats span:first-child {
+  display:flex; align-items:center; flex-direction:row; gap:11px;
+  padding:13px 10px; border:1px solid transparent; border-radius:7px;
+  font-size:11px; color:#b3b4bb; font-weight:550; letter-spacing:0;
+}
+.login-art-stats span+span { border-left:1px solid transparent; }
+.login-art-stats span:first-child { border-color:#37383d; background:#191a1d; color:#f5f5f6; }
+.login-art-stats strong {
+  font-size:10px; color:#e4e4e6; font-weight:650; letter-spacing:.02em;
+  background:#292a2e; width:28px; height:28px;
+  display:grid; place-items:center; border:1px solid #414247; border-radius:5px;
+}
+.login-art-bottom {
+  margin-top:auto; display:flex; flex-wrap:wrap; gap:8px;
+  justify-content:space-between; padding-top:20px; border-top:1px solid #27282c;
+  color:#76787e; font-size:9px; letter-spacing:.08em; font-weight:600;
+}
+.login-form-area {
+  position:relative; display:flex; align-items:center; justify-content:center;
+  min-width:0; min-height:100svh; padding:60px 32px;
+  background:#090a0b; overflow:visible;
+}
+.login-form-ambient { display:none; }
+.login-card {
+  position:relative; z-index:1;
+  box-sizing:border-box; width:min(100%,438px); max-width:438px;
+  padding:39px 38px; background:#131416; border:1px solid #303136; border-radius:11px;
+  box-shadow:none; margin:0;
+}
+.login-card-symbol {
+  display:grid; place-items:center; width:40px; height:40px;
+  background:#f2f2f3; color:#111215; border:0; border-radius:7px;
+  font-size:15px; font-weight:850; margin:0 0 29px; box-shadow:none;
+  letter-spacing:-.04em;
+}
+.login-card-symbol span { font-size:9px; color:#4c4d52; margin:5px 0 0 2px; }
+.login-kicker { display:block; margin:0 0 10px; color:#96989f; font-size:9px; letter-spacing:.12em; }
+.login-card h1 { font-size:30px; font-weight:720; letter-spacing:-.04em; line-height:1.2; margin:0; color:#f7f7f8; }
+.login-card>p { margin:10px 0 30px; font-size:12px; line-height:1.75; color:#a1a3a9; }
+.login-card label { display:block; margin:0 0 9px; color:#e9e9ec; font-size:11px; font-weight:650; }
+.login-card input {
+  background:#0d0e10; border:1px solid #3a3b40; border-radius:7px;
+  height:46px; width:100%; font-size:12px; color:#f4f4f5; padding:0 13px;
+  outline-color:#e4e4e6;
+}
+.login-card input:focus { border-color:#e3e3e5; }
+.login-submit, .discord-login {
+  min-height:45px; height:45px; border-radius:7px;
+  background:#f0f0f2; color:#101112; border:1px solid #f0f0f2;
+  box-shadow:none; font-size:11px; font-weight:750; margin-top:12px;
+}
+.login-submit:hover, .discord-login:hover {
+  background:#d7d7da; color:#111; border-color:#d7d7da;
+  box-shadow:none; transform:none;
+}
+.login-discord-symbol { color:#151516; background:#d5d5d8; }
+.login-discord-arrow { color:#111; }
+.login-security { margin-top:26px; padding-top:18px; border-top:1px solid #303136; font-size:10px; line-height:1.75; color:#a2a3aa; }
+.login-security-icon {
+  display:grid; place-items:center; flex:0 0 19px; width:19px; height:19px;
+  border-radius:50%; border:1px solid #4b4c52; background:#25262a; color:#eee;
+  font-size:10px; font-weight:750;
+}
+.login-corner { display:none; }
+.login-error { margin-top:10px; color:#ffbdbd; font-size:11px; }
+@media(max-width:900px) {
+  .login-screen { grid-template-columns: 220px minmax(0,1fr); }
+  .login-art { min-height:100svh; padding:22px 13px; }
+  .login-form-area { min-height:100svh; padding:28px 22px; }
+  .login-card { padding:30px 25px; }
+}
+@media(max-width:650px) {
+  .login-screen { display:flex; flex-direction:column; min-height:100svh; }
+  .login-art {
+    min-height:0; flex:none; width:100%; padding:18px 20px;
+    border-right:0; border-bottom:1px solid #292a2f;
+  }
+  .login-hero, .login-art-bottom { display:none; }
+  .login-brand { gap:10px; }
+  .login-logo { width:35px; height:35px; border-radius:6px; }
+  .login-form-area {
+    display:flex; flex:1; min-height:calc(100svh - 75px); height:auto;
+    padding:28px 17px 44px; background:#090a0b;
+  }
+  .login-card { padding:28px 23px; width:100%; max-width:420px; }
+  .login-card h1 { font-size:27px; }
+}
