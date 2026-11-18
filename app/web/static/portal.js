@@ -663,20 +663,13 @@
     ];
     function paint() {
       const term = search.value.trim().toLocaleLowerCase("ru-RU");
-      const found = rows.filter((item) => {
-        const matches = !term ||
-          ("#" + item.id + " " + (item.subject || "")).toLocaleLowerCase("ru-RU").includes(term);
-        const visible = activeFilter === "all" ||
-          activeFilter === "unassigned" && !item.assignee_id && item.status === "open" ||
-          activeFilter === "mine" && currentUser && item.assignee_id === currentUser ||
-          activeFilter === "assigned" && Boolean(item.assignee_id);
-        return matches && visible;
-      });
+      const found = rows.filter((item) => !term ||
+        ("#" + item.id + " " + (item.subject || "")).toLocaleLowerCase("ru-RU").includes(term));
       const ordered = [...found].sort((a, b) => (b.updated_at || b.opened_at) -
         (a.updated_at || a.opened_at));
       summary.textContent = "Показано " + ordered.length + " из " + rows.length
         + " на странице " + page + " · всего " + total
-        + " · Поиск и фильтры действуют на текущей странице";
+        + " · Поиск — по текущей странице, фильтр — по всей очереди";
       updatePager();
       body.replaceChildren(cardList(ordered, (item) => {
         const row = e("article", "portal-list-row ob-queue-row");
@@ -702,7 +695,8 @@
         for (const tab of tabs.querySelectorAll("button")) {
           tab.setAttribute("aria-pressed", String(tab.dataset.filter === activeFilter));
         }
-        paint();
+        page = 1;
+        void populate();
       });
       control.dataset.filter = value;
       control.setAttribute("aria-pressed", String(value === activeFilter));
@@ -732,7 +726,8 @@
       updatePager();
       body.replaceChildren(e("div", "portal-loader", "Загружаем обращения..."));
       try {
-        const data = await api("/api/portal/tickets?page=" + page);
+        const data = await api("/api/portal/tickets?page=" + page
+          + "&assignment=" + encodeURIComponent(activeFilter));
         if (token !== request) return;
         rows = data.items || [];
         total = Number(data.total ?? rows.length);
