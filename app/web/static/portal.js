@@ -206,8 +206,8 @@
       for (const entry of result.recent_actions) {
         const row = e("div", "portal-service");
         const detail = e("div", "portal-staff-name");
-        detail.append(e("strong", "", names[entry.action] || entry.action.replaceAll(".", " / ")),
-          e("span", "", "ID исполнителя: " + entry.actor_id));
+        detail.append(e("strong", "", entry.action_title || names[entry.action] || entry.action.replaceAll(".", " / ")),
+          e("span", "", "Исполнитель: " + (entry.actor_name || ("ID " + entry.actor_id))));
         row.append(detail, e("span", "portal-meta", format(entry.at)));
         timeline.append(row);
       }
