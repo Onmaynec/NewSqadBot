@@ -494,12 +494,14 @@
       dialog.setAttribute("role", "alertdialog");
       dialog.setAttribute("aria-modal", "true");
       const footer = e("div", "portal-actions");
-      function done(ok) { overlay.remove(); resolve(ok); }
+      let cleanup = () => overlay.remove();
+      function done(ok) { cleanup(); resolve(ok); }
       footer.append(button("Отмена", () => done(false)),
                     button(positive, () => done(true), "danger"));
       dialog.append(e("h3", "", title), e("p", "", description), footer);
-      overlay.append(dialog); document.body.append(overlay);
-      dialog.querySelector("button").focus();
+      overlay.append(dialog);
+      cleanup = window.ObsidianDialog.mount(
+        overlay, dialog, () => done(false), dialog.querySelector("button"));
     });
   }
   async function inputDialog(title, description, placeholder, minimum = 3) {
@@ -514,7 +516,8 @@
       field.rows = 4;
       const errors = e("div", "portal-field-error");
       const footer = e("div", "portal-actions");
-      function done(value) { overlay.remove(); resolve(value); }
+      let cleanup = () => overlay.remove();
+      function done(value) { cleanup(); resolve(value); }
       footer.append(button("Отмена", () => done(null)));
       footer.append(button("Подтвердить", () => {
         const value = field.value.trim();
@@ -525,7 +528,8 @@
         done(value);
       }, "primary"));
       dialog.append(e("h3", "", title), e("p", "", description), field, errors, footer);
-      overlay.append(dialog);document.body.append(overlay);field.focus();
+      overlay.append(dialog);
+      cleanup = window.ObsidianDialog.mount(overlay, dialog, () => done(null), field);
     });
   }
   async function chooseStaff() {
@@ -545,12 +549,14 @@
         choice.value = item.id;select.append(choice);
       }
       const footer = e("div", "portal-actions");
-      function done(result) {overlay.remove();resolve(result);}
+      let cleanup = () => overlay.remove();
+      function done(result) {cleanup();resolve(result);}
       footer.append(button("Отмена", () => done(null)));
       footer.append(button("Передать", () => done(select.value), "primary"));
       dialog.append(e("h3", "", "Передать обращение"),
         e("p", "", "Выберите сотрудника с действующей ролью NewSqad."),select,footer);
-      overlay.append(dialog);document.body.append(overlay);select.focus();
+      overlay.append(dialog);
+      cleanup = window.ObsidianDialog.mount(overlay, dialog, () => done(null), select);
     });
   }
   async function applicationDetails(id) {
