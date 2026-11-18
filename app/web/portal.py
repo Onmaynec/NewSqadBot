@@ -222,16 +222,31 @@ async def application_action(request: web.Request) -> web.Response:
 
 
 async def ticket_list(request: web.Request) -> web.Response:
-    await require_role(request)
+    _, member = await require_role(request)
     page = listing_page(request)
+    assignment = request.query.get("assignment", "all")
+    if assignment not in ("all", "unassigned", "assigned", "mine"):
+        raise web.HTTPBadRequest(text="Недопустимый фильтр ответственного.")
+    if assignment == "mine" and member is None:
+        raise web.HTTPForbidden(text="Для личных тикетов нужен вход через Discord.")
     bot = state(request).bot
     statuses = ("open", "creating", "closing")
+    conditions = [Ticket.guild_id == bot.config.guild_id, Ticket.status.in_(statuses)]
+    if assignment == "unassigned":
+        conditions.append(Ticket.assignee_id.is_(None))
+    elif assignment == "assigned":
+        conditions.append(Ticket.assignee_id.is_not(None))
+    elif assignment == "mine":
+        conditions.append(Ticket.assignee_id == member.id)
     async with bot.database.sessions() as session:
-        total = int(await session.scalar(select(func.count(Ticket.id)).where(
-            Ticket.guild_id == bot.config.guild_id, Ticket.status.in_(statuses))) or 0)
-    rows = await tickets.list_tickets(bot.database, bot.config.guild_id,
-                                     statuses=statuses, limit=PAGE_SIZE,
-                                     offset=(page - 1) * PAGE_SIZE)
+        total = int(await session.scalar(
+            select(func.count(Ticket.id)).where(*conditions)) or 0)
+    rows = await tickets.list_tickets(
+        bot.database, bot.config.guild_id, statuses=statuses, limit=PAGE_SIZE,
+        offset=(page - 1) * PAGE_SIZE,
+        assignee_id=member.id if assignment == "mine" else None,
+        assigned=assignment == "assigned" if assignment in ("assigned", "unassigned") else None,
+    )
     return web.json_response({
         "items": [public_ticket(row) for row in rows],
         "page": page, "page_size": PAGE_SIZE, "total": total,
