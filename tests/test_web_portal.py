@@ -377,6 +377,7 @@ async def test_staff_queue_pagination_count_order_and_role_scope(tmp_path):
                     guild_id=777, user_id=30_000 + i, category_id=category.id,
                     staff_role_id=TICKET_ROLE, subject=f"Вопрос {i}", description="Тест",
                     status="open", opened_at=1000 + i, updated_at=1000 + i,
+                    assignee_id=14 if i < 3 else (13 if i < 5 else None),
                 ))
             session.add(Application(
                 guild_id=888, user_id=40000, username="other-server",
@@ -417,5 +418,16 @@ async def test_staff_queue_pagination_count_order_and_role_scope(tmp_path):
                 for invalid in ("0", "-1", "abc", "10000", "1.5"):
                     bad = await client.get(route + separator + "page=" + invalid)
                     assert bad.status == 400
+            for assignment, expected in (("mine", 3), ("assigned", 5),
+                                         ("unassigned", 98), ("all", 103)):
+                r = await client.get("/api/portal/tickets?assignment=" + assignment)
+                assert r.status == 200
+                content = await r.json()
+                assert content["total"] == expected
+                assert len(content["items"]) == min(expected, 100)
+                if assignment == "mine":
+                    assert all(row["assignee_id"] == "14" for row in content["items"])
+            invalid_filter = await client.get("/api/portal/tickets?assignment=random")
+            assert invalid_filter.status == 400
     finally:
         await db.close()
