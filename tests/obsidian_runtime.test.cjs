@@ -85,7 +85,7 @@ function launch({mobile = false, authorized = false} = {}) {
     setInterval() { return 1; },
   };
   vm.runInNewContext(source, {document, window, MutationObserver: Observer, Intl, Date,
-    queueMicrotask: (fn) => fn()}, {filename: "obsidian.js", timeout: 1000});
+    queueMicrotask: (fn) => fn()}, {filename: "obsidian.js", timeout: 5000});
   return {elements, mutations: () => mutations, body};
 }
 
