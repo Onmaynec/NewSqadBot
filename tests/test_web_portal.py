@@ -151,6 +151,11 @@ async def test_oauth_start_requires_public_origin_and_state(tmp_path):
                          discord_client_secret="mock_not_used_secret",
                          public_url="https://portal.test.ts.net")
         async with TestClient(TestServer(app)) as client:
+            # Updated assets must replace the original event-loop-freezing JS.
+            for static_path in ("/", "/static/obsidian.js", "/static/obsidian.css"):
+                asset = await client.get(static_path)
+                assert asset.status == 200
+                assert asset.headers["Cache-Control"] == "no-store"
             local = await client.get("/auth/discord", allow_redirects=False)
             assert local.status == 302
             assert local.headers["Location"] == "https://portal.test.ts.net/auth/discord"
