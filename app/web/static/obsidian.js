@@ -27,10 +27,26 @@
   function availableEntries() {
     // The existing app constructs this list using the authenticated Discord role.
     // Restricted destinations are therefore not added to the search UI.
-    return Array.from(byId("navigation").querySelectorAll(".nav-item")).map((button) => ({
+    const sections = Array.from(byId("navigation").querySelectorAll(".nav-item")).map((button) => ({
       label: button.querySelector(".nav-text")?.textContent?.trim() || "",
+      searchText: button.querySelector(".nav-text")?.textContent?.trim() || "",
       icon: button.querySelector(".nav-svg"),
+      kind: "section",
     })).filter((item) => item.label);
+    if (window.portalRole?.() !== "owner") return sections;
+    const data = window.portalData?.();
+    const allowed = new Set(sections.map((item) => item.label));
+    const settings = (data?.settings || [])
+      .filter((spec) => allowed.has(spec.group))
+      .map((spec) => ({
+        label: spec.label,
+        searchText: spec.label + " " + spec.key + " " + spec.group,
+        group: spec.group,
+        key: spec.key,
+        kind: "setting",
+        icon: null,
+      }));
+    return sections.concat(settings);
   }
 
   function highlight(index) {
@@ -63,7 +79,9 @@
     const choice = filtered[index];
     if (!choice) return;
     close(false);
-    if (typeof window.portalNavigate === "function") {
+    if (choice.kind === "setting" && typeof window.portalFindSetting === "function") {
+      void window.portalFindSetting(choice.group, choice.key);
+    } else if (typeof window.portalNavigate === "function") {
       void window.portalNavigate(choice.label);
     }
     // Navigation may show the existing unsaved-changes confirmation.
@@ -71,12 +89,14 @@
 
   function render() {
     const query = normalize(search.value);
-    const matches = entries.filter((item) => normalize(item.label).includes(query));
+    const matches = entries.filter((item) => (query || item.kind === "section")
+      && normalize(item.searchText).includes(query));
     filtered = matches.sort((a, b) => {
       const aStart = normalize(a.label).startsWith(query) ? 0 : 1;
       const bStart = normalize(b.label).startsWith(query) ? 0 : 1;
-      return aStart - bStart;
-    });
+      if (aStart !== bStart) return aStart - bStart;
+      return a.kind === b.kind ? 0 : (a.kind === "section" ? -1 : 1);
+    }).slice(0, 45);
     selected = 0;
     results.replaceChildren();
     if (!filtered.length) {
@@ -97,11 +117,19 @@
       option.setAttribute("aria-selected", String(index === 0));
 
       const icon = item.icon?.cloneNode(true) || document.createElement("span");
+      icon.classList.add("nav-svg");
       icon.setAttribute("aria-hidden", "true");
+      if (!item.icon) icon.textContent = "⌘";
       option.append(icon);
       const label = document.createElement("span");
       label.textContent = item.label;
       option.append(label);
+      if (item.kind === "setting") {
+        const hint = document.createElement("small");
+        hint.className = "command-kind";
+        hint.textContent = item.group;
+        option.append(hint);
+      }
       const arrow = document.createElement("span");
       arrow.className = "command-arrow";
       arrow.textContent = "↗";
