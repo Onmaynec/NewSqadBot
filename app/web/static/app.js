@@ -174,8 +174,8 @@ async function confirmDiscard() {
   });
 }
 async function navigate(group) {
-  if (group === ui.group) return;
-  if (!await confirmDiscard()) return;
+  if (group === ui.group) return true;
+  if (!await confirmDiscard()) return false;
   ui.group = group;
   ui.query = "";
   $("search").value = "";
@@ -184,6 +184,7 @@ async function navigate(group) {
   renderPage();
   if (group === "Диагностика" || group === "Обзор") void refreshDiagnostics();
   window.scrollTo({top: 0, behavior: "smooth"});
+  return true;
 }
 function renderNav() {
   const nav = $("navigation");
@@ -445,6 +446,17 @@ window.portalGroup = () => ui.group;
 window.portalRole = () => ui.role;
 window.portalData = () => ui.data;
 window.portalNavigate = (group) => navigate(group);
+window.portalFindSetting = async (group, key) => {
+  // Only the owner can open settings returned in the authenticated bootstrap.
+  const exists = ui.role === "owner" && ui.data?.groups.includes(group)
+    && ui.data.settings.some((spec) => spec.group === group && spec.key === key);
+  if (!exists || !await navigate(group)) return false;
+  ui.query = key;
+  $("search").value = key;
+  renderSettings();
+  $("search").focus();
+  return true;
+};
 window.portalReload = () => Portal.render(ui.group);
 window.portalToast = (message, error = false) => toast(message, error);
 $("notice-button").addEventListener("click", () => {void navigate("Уведомления");});
