@@ -403,3 +403,41 @@ a { color: #eee; }
 
 /* Prevent background scroll while keyboard search is active. */
 body.command-is-open { overflow: hidden; }
+
+/* Obsidian operations workflows: queue filters, action shortcuts and transient status. */
+.ob-queue-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 12px; }
+.ob-filter-pair { flex: 0 1 auto; }
+.ob-queue-search { flex: 1 1 210px; min-width: 160px; max-width: none; height: 39px; }
+.ob-segmented { display: flex; flex: 1 1 auto; gap: 3px; flex-wrap: wrap;
+  background: #0e0f11; border: 1px solid #303238; border-radius: 7px; padding: 3px; }
+.ob-segmented > button { border: 1px solid transparent; border-radius: 5px; padding: 9px 11px;
+  background: transparent; color: #a4a5ab; font-size: 10px; font-weight: 600;
+  transition: color .14s,background .14s,border-color .14s; }
+.ob-segmented > button:hover:not(:disabled) { color: #fff; background: #242529; }
+.ob-segmented > button[aria-pressed="true"] { color: #121315; background: #f0f0f1; border-color: #f0f0f1; }
+.ob-segmented > button:disabled { color: #5b5d63; cursor: not-allowed; }
+.ob-queue-summary { color: #a0a2a8; font-size: 10px; padding: 4px 2px; }
+.ob-queue-items { min-height: 66px; }
+.ob-queue-row { min-height: 74px; }
+.ob-queue-row > .portal-list-heading { flex-basis: 220px; }
+.ob-queue-row > .button { margin-left: auto; }
+.ob-dashboard-actions { display: flex; flex-wrap: wrap; gap: 9px; margin: 2px 0 11px; }
+.ob-dashboard-action { flex: 1 1 170px; justify-content: space-between; text-align: left;
+  background: #1b1c1f; border: 1px solid #35363b; min-height: 43px; }
+.ob-dashboard-action:hover { border-color: #5d5f64; }
+.ob-health-alert { border-style: dashed; color: #e4e4e5; }
+.ob-chat-sync { font-size: 10px; padding: 4px 2px; color: #a1a3a9; }
+.ob-chat-sync.ob-sync-error { color: #e1e1e3; border-left: 2px solid #898a90; padding: 6px 10px; }
+.portal-chat[role="log"] { scrollbar-color: #3e4045 #16171a; }
+@media (max-width: 760px) {
+  .ob-queue-toolbar > .ob-segmented { flex-basis: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .ob-queue-toolbar > .ob-segmented > button { flex-shrink: 0; }
+  .ob-queue-toolbar > .ob-queue-search { flex-basis: calc(100% - 110px); }
+}
+@media (max-width: 480px) {
+  .ob-queue-toolbar > .ob-queue-search { flex-basis: 100%; }
+  .ob-queue-toolbar > .button.secondary { width: 100%; }
+  .ob-queue-row > .button { width: 100%; margin: 0; }
+  .ob-queue-row { gap: 9px; }
+  .ob-dashboard-action { flex-basis: 100%; }
+}
