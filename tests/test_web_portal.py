@@ -429,5 +429,35 @@ async def test_staff_queue_pagination_count_order_and_role_scope(tmp_path):
                     assert all(row["assignee_id"] == "14" for row in content["items"])
             invalid_filter = await client.get("/api/portal/tickets?assignment=random")
             assert invalid_filter.status == 400
+
+            # Text search must apply to the complete queue before pagination.
+            for route, term, expected_id in (
+                ("/api/portal/applications", "candidate-102", 103),
+                ("/api/portal/tickets", "Вопрос 102", 103),
+            ):
+                found = await client.get(route, params={"q": term})
+                assert found.status == 200
+                data = await found.json()
+                assert data["total"] == 1
+                assert data["items"][0]["id"] == expected_id
+
+                by_number = await client.get(route, params={"q": "#2"})
+                assert by_number.status == 200
+                match = await by_number.json()
+                assert match["total"] == 1 and match["items"][0]["id"] == 2
+
+                for literal in ("%", "_", "other-server"):
+                    scoped = await client.get(route, params={"q": literal})
+                    assert scoped.status == 200
+                    assert (await scoped.json())["total"] == 0
+
+                invalid_search = await client.get(route, params={"q": "x" * 81})
+                assert invalid_search.status == 400
+
+            # Filtering by assignee and searching by subject combine correctly.
+            mine = await client.get("/api/portal/tickets",
+                                    params={"assignment": "mine", "q": "Вопрос 1"})
+            assert mine.status == 200
+            assert (await mine.json())["total"] == 1
     finally:
         await db.close()
