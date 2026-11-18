@@ -237,4 +237,65 @@
   }
   updateClock();
   window.setInterval(updateClock, 60_000);
+
+  // Shared keyboard/focus management for operational confirmation and form dialogs.
+  let dialogIndex = 0;
+  window.ObsidianDialog = {
+    mount(layer, dialog, onCancel, preferred) {
+      const previous = document.activeElement;
+      const heading = dialog.querySelector("h3");
+      if (heading) {
+        heading.id ||= "ob-dialog-title-" + (++dialogIndex);
+        dialog.setAttribute("aria-labelledby", heading.id);
+      }
+      dialog.tabIndex = -1;
+      let removed = false;
+      const focusables = () => Array.from(dialog.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]),'
+        + ' textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )).filter((element) => element.getClientRects().length > 0);
+      function onKeydown(event) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onCancel();
+          return;
+        }
+        if (event.key !== "Tab") return;
+        const list = focusables();
+        if (!list.length) {
+          event.preventDefault();
+          dialog.focus();
+          return;
+        }
+        const current = document.activeElement;
+        if (event.shiftKey && (current === list[0] || !dialog.contains(current))) {
+          event.preventDefault();
+          list[list.length - 1].focus();
+        } else if (!event.shiftKey && (current === list[list.length - 1] || !dialog.contains(current))) {
+          event.preventDefault();
+          list[0].focus();
+        }
+      }
+      function onBackdrop(event) {
+        if (event.target === layer) onCancel();
+      }
+      layer.addEventListener("keydown", onKeydown);
+      layer.addEventListener("pointerdown", onBackdrop);
+      document.body.append(layer);
+      document.body.classList.add("ob-modal-open");
+      (preferred || focusables()[0] || dialog).focus();
+      return () => {
+        if (removed) return;
+        removed = true;
+        layer.removeEventListener("keydown", onKeydown);
+        layer.removeEventListener("pointerdown", onBackdrop);
+        layer.remove();
+        if (!document.querySelector(".portal-modal-overlay, .dialog-backdrop:not([hidden])")) {
+          document.body.classList.remove("ob-modal-open");
+        }
+        if (previous?.isConnected) previous.focus();
+      };
+    }
+  };
 })();
