@@ -116,63 +116,100 @@
   }
   async function overview() {
     const result = await api("/api/portal/dashboard");
-    const box = e("div", "portal-stack portal-live");
+    const box = e("div", "portal-stack portal-live overview-product");
     const top = e("div", "portal-dashboard-head");
     const headline = e("div");
-    headline.append(e("span", "panel-kicker", "LIVE / NEW SQUAD"),
-      e("h2", "", "Состояние сообщества"),
-      e("p", "portal-muted", "Показатели обновляются каждые 20 секунд · "
-        + new Date(result.generated_at * 1000).toLocaleTimeString("ru-RU")));
-    top.append(headline, e("span", "portal-live-badge", "● В РЕАЛЬНОМ ВРЕМЕНИ"));
+    headline.append(
+      e("span", "panel-kicker", "ЦЕНТР УПРАВЛЕНИЯ / LIVE"),
+      e("h2", "", "Сервер в одном взгляде"),
+      e("p", "portal-muted", "Обновлено " + new Date(result.generated_at * 1000).toLocaleTimeString("ru-RU")
+        + " · Автоматическое обновление каждые 20 секунд")
+    );
+    top.append(headline, e("span", "portal-live-badge", "СИСТЕМА НА СВЯЗИ"));
     box.append(top);
-    const grid = e("div", "portal-metrics");
-    for (const [title, value] of [
-      ["Открытых тикетов", result.open_tickets],
-      ["Заявок в очереди", result.pending_applications],
-      ["Сотрудников онлайн", result.presence_available ? result.online_staff : "—"],
-      ["Моя роль", roleLabels[result.role] || result.role],
-    ]) grid.append(append(e("div", "portal-metric"),
-      e("span", "", title), e("strong", "", value)));
-    box.append(grid);
-    const content = e("div", "portal-dashboard-columns");
-    const workers = e("div", "portal-panel");
-    workers.append(e("h3", "", "Сервисы бота"));
+
+    const metrics = e("div", "portal-metrics overview-kpis");
+    const items = [
+      ["01", "Открытые обращения", result.open_tickets, "Тикеты в работе"],
+      ["02", "Заявки на рассмотрении", result.pending_applications, "Ожидают решения"],
+      ["03", "Сотрудники в сети", result.presence_available ? result.online_staff : "—",
+        result.presence_available ? "С учётом статусов Discord" : "Presence Intent не включён"],
+      ["04", "Ваш уровень доступа", roleLabels[result.role] || result.role, "Права веб-портала"],
+    ];
+    for (const [number, title, value, hint] of items) {
+      const card = e("div", "portal-metric overview-kpi");
+      card.append(
+        e("span", "overview-kpi-index", number),
+        e("span", "overview-kpi-label", title),
+        e("strong", "", value),
+        e("small", "overview-kpi-hint", hint));
+      metrics.append(card);
+    }
+    box.append(metrics);
+
+    const cols = e("div", "portal-dashboard-columns");
+    const workers = e("section", "portal-panel overview-operations");
+    const servicesHead = e("div", "overview-panel-heading");
+    servicesHead.append(e("div", "", ""), pill(
+      result.discord_connected && result.sqlite_connected && result.scheduler_running && result.events_running
+        ? "Все службы доступны" : "Проверка состояния",
+      result.discord_connected && result.sqlite_connected && result.scheduler_running && result.events_running
+        ? "success" : "warning"));
+    servicesHead.firstChild.append(
+      e("span", "panel-kicker", "ИНФРАСТРУКТУРА"),
+      e("h3", "", "Работа сервисов"));
+    workers.append(servicesHead);
     workers.append(serviceStatus("Discord Gateway", result.discord_connected));
-    workers.append(serviceStatus("SQLite", result.sqlite_connected));
-    workers.append(serviceStatus("Фоновые задачи", result.scheduler_running));
-    workers.append(serviceStatus("EventBus", result.events_running));
-    if (result.module_errors.length) workers.append(e("p", "portal-warning-text",
-      "Проблемные модули: " + result.module_errors.join(", ")));
-    const staffPanel = e("div", "portal-panel");
-    staffPanel.append(e("h3", "", "Сотрудники"));
+    workers.append(serviceStatus("База данных SQLite", result.sqlite_connected));
+    workers.append(serviceStatus("Планировщик задач", result.scheduler_running));
+    workers.append(serviceStatus("Очередь событий", result.events_running));
+    if (result.module_errors.length) workers.append(
+      e("p", "portal-warning-text", "Ошибка модулей: " + result.module_errors.join(", ")));
+
+    const staffPanel = e("section", "portal-panel overview-team");
+    const teamHeader = e("div", "overview-panel-heading");
+    teamHeader.append(e("div", "", ""), e("span", "overview-team-count", String(result.staff.length).padStart(2, "0")));
+    teamHeader.firstChild.append(e("span", "panel-kicker", "КОМАНДА СЕРВЕРА"), e("h3", "", "Сотрудники"));
+    staffPanel.append(teamHeader);
     if (!result.presence_available) staffPanel.append(e("p", "portal-muted",
-      "Онлайн-статусы недоступны: включите Presence Intent в Discord и .env."));
+      "Статусы недоступны: включите Presence Intent в настройках бота и Discord."));
     const staffList = e("div", "portal-staff-mini");
     for (const member of result.staff) {
       const row = e("div", "portal-staff-row");
       const avatar = e("img", "portal-person-avatar");
-      avatar.src = member.avatar_url;avatar.alt = "";
+      avatar.src = member.avatar_url;
+      avatar.alt = "";
+      avatar.loading = "lazy";
       const detail = e("div", "portal-staff-name");
-      detail.append(e("strong", "", member.name), e("span", "", roleLabels[member.role]));
-      const label = member.status === "unknown" ? "Неизвестно" : ({
-        online: "В сети", idle: "Неактивен", dnd: "Не беспокоить", offline: "Не в сети"
-      }[member.status] || "Неизвестно");
-      row.append(avatar, detail, pill(label, member.status === "online" ? "success" : "neutral"));
+      detail.append(e("strong", "", member.name), e("span", "", roleLabels[member.role] || member.role));
+      const status = {online: "В сети", idle: "Неактивен", dnd: "Не беспокоить", offline: "Не в сети"};
+      row.append(avatar, detail, pill(status[member.status] || "Статус недоступен",
+        member.status === "online" ? "success" : "neutral"));
       staffList.append(row);
     }
-    if (!result.staff.length) staffList.append(e("p", "portal-muted", "Нет данных о составе сотрудников."));
+    if (!result.staff.length) staffList.append(e("p", "portal-muted", "Сотрудники не найдены."));
     staffPanel.append(staffList);
-    content.append(workers, staffPanel);
-    box.append(content);
+    cols.append(workers, staffPanel);
+    box.append(cols);
+
     if (result.recent_actions.length) {
-      const timeline = e("div", "portal-panel");
-      timeline.append(e("h3", "", "Последние действия администрации"));
+      const timeline = e("section", "portal-panel overview-recent");
+      const header = e("div", "overview-panel-heading");
+      const title = e("div");
+      title.append(e("span", "panel-kicker", "ИСТОРИЯ"), e("h3", "", "Последние действия"));
+      header.append(title, button("Весь аудит", () => {void window.portalNavigate("Аудит");}, "secondary"));
+      timeline.append(header);
+      const names = {"settings.updated": "Изменена настройка",
+        "announcements.published": "Опубликовано объявление",
+        "web.events.created": "Создано мероприятие",
+        "web.shop.created": "Добавлен товар"};
       for (const entry of result.recent_actions) {
-        const node = e("div", "portal-service");
-        node.append(append(e("div", "portal-staff-name"),
-            e("strong", "", entry.action), e("span", "", "Исполнитель " + entry.actor_id)),
-          e("span", "portal-meta", format(entry.at)));
-        timeline.append(node);
+        const row = e("div", "portal-service");
+        const detail = e("div", "portal-staff-name");
+        detail.append(e("strong", "", names[entry.action] || entry.action.replaceAll(".", " / ")),
+          e("span", "", "ID исполнителя: " + entry.actor_id));
+        row.append(detail, e("span", "portal-meta", format(entry.at)));
+        timeline.append(row);
       }
       box.append(timeline);
     }
@@ -809,43 +846,166 @@
     }
   }
   async function statsPage() {
-    const box = e("div", "portal-stack");
-    const toolbar = e("div", "portal-toolbar");
+    const box = e("div", "portal-stack analytics-product");
+    const toolbar = e("div", "portal-toolbar analytics-toolbar");
+    const toolbarText = e("div", "analytics-toolbar-copy");
+    toolbarText.append(e("strong", "", "Период анализа"), e("span", "", "Агрегированные показатели сервера"));
     const periods = e("select", "portal-select");
-    for (const [v, name] of [["7d", "7 дней"], ["30d", "30 дней"], ["90d", "90 дней"]]) {
-      const o = e("option", "", name);o.value=v;periods.append(o);
+    periods.setAttribute("aria-label", "Период статистики");
+    for (const [value, label] of [["7d", "Последние 7 дней"], ["30d", "Последние 30 дней"], ["90d", "Последние 90 дней"]]) {
+      const option = e("option", "", label);
+      option.value = value;
+      periods.append(option);
     }
-    toolbar.append(e("span", "", "Период"), periods);
-    const content = e("div");
+    toolbar.append(toolbarText, periods);
+    const content = e("div", "portal-stack analytics-content");
+
+    function renderTrend(data, metric, destination) {
+      const metrics = {
+        messages: ["Сообщения", "Количество сообщений", "сообщений"],
+        voice: ["Голосовой чат", "Время в голосовых каналах", "минут"],
+        joins: ["Вступления", "Новые участники", "вступлений"]
+      };
+      const rows = data.series || [];
+      const values = rows.map(row => Number(row[metric]) || 0);
+      const max = Math.max(1, ...values);
+      const total = values.reduce((sum, value) => sum + value, 0);
+      const visual = e("div", "analytics-visual");
+      const top = e("div", "analytics-visual-summary");
+      const summary = e("div", "analytics-visual-number");
+      summary.append(e("strong", "", total.toLocaleString("ru-RU")),
+        e("span", "", metrics[metric][2] + " за период"));
+      top.append(summary, e("span", "portal-muted", metrics[metric][1]));
+      visual.append(top);
+
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 900 240");
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", metrics[metric][0] + ": динамика по дням");
+      svg.classList.add("analytics-chart");
+      const make = (tag, attrs) => {
+        const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+        for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+        return node;
+      };
+      for (let step = 0; step <= 4; step++) {
+        const y = 20 + step * 50;
+        svg.append(make("line", {x1: 0, x2: 900, y1: y, y2: y, class: "analytics-grid-line"}));
+      }
+      if (values.length) {
+        const points = values.map((value, index) => {
+          const x = values.length === 1 ? 450 : index * (900 / (values.length - 1));
+          return [x, 220 - (value / max) * 190];
+        });
+        const coords = points.map(point => point[0].toFixed(2) + "," + point[1].toFixed(2));
+        svg.append(make("path", {d: "M0,220 L" + coords.join(" L") + " L900,220 Z", class: "analytics-area"}));
+        svg.append(make("polyline", {points: coords.join(" "), class: "analytics-chart-line"}));
+        if (points.length <= 14) {
+          for (let index = 0; index < points.length; index++) {
+            const point = points[index];
+            const circle = make("circle", {cx: point[0], cy: point[1], r: 4.2, class: "analytics-chart-point"});
+            const label = document.createElementNS("http://www.w3.org/2000/svg", "title");
+            label.textContent = rows[index].date + ": " + values[index];
+            circle.append(label);
+            svg.append(circle);
+          }
+        }
+      } else {
+        svg.append(make("line", {x1: 0, x2: 900, y1: 220, y2: 220, class: "analytics-grid-line"}));
+      }
+      visual.append(svg);
+      const axis = e("div", "analytics-axis");
+      if (rows.length) {
+        const count = Math.min(5, rows.length);
+        for (let index = 0; index < count; index++) {
+          const at = Math.round(index * (rows.length - 1) / Math.max(1, count - 1));
+          axis.append(e("span", "", rows[at].date.slice(5)));
+        }
+      } else axis.append(e("span", "", "Нет данных за период"));
+      visual.append(axis);
+      destination.replaceChildren(visual);
+    }
+
     async function show() {
-      const data=await api("/api/portal/stats?period="+periods.value);
-      const grid=e("div","portal-metrics");
-      for (const [name,value] of Object.entries(data.totals)) {
-        const labels={total:"Список участников",approved:"Одобрены",candidates:"Кандидаты",
-          joins:"Вступления",leaves:"Выходы",approvals:"Принятые заявки",rejections:"Отказы",
-          messages:"Сообщения",voice_minutes:"Голос, мин.",active_users:"Активные участники",
-          events:"Мероприятия",parties:"Группы",tickets:"Обращения"};
-        grid.append(append(e("div","portal-metric"),e("span","",labels[name]||name),e("strong","",value)));
+      content.replaceChildren(e("div", "portal-loader", "Загружаем статистику..."));
+      try {
+        const data = await api("/api/portal/stats?period=" + periods.value);
+        if (window.portalGroup() !== "Аналитика") return;
+        const labels = {total: "Участников", approved: "Одобрены", candidates: "Кандидаты",
+          joins: "Вступления", leaves: "Выходы", approvals: "Принятые заявки", rejections: "Отказы",
+          messages: "Сообщения", voice_minutes: "Голос, минуты", active_users: "Активные участники",
+          events: "Мероприятия", parties: "Группы", tickets: "Обращения"};
+        const groups = [
+          ["Участники", "Состав и движение сообщества", ["total", "approved", "candidates", "joins", "leaves"]],
+          ["Активность", "Общение и вовлечённость", ["messages", "voice_minutes", "active_users"]],
+          ["Работа сервера", "Заявки, события и обращения", ["approvals", "rejections", "events", "parties", "tickets"]]
+        ];
+        const intro = e("div", "analytics-intro");
+        const introCopy = e("div");
+        introCopy.append(e("span", "panel-kicker", "ОБЗОР ПОКАЗАТЕЛЕЙ"),
+          e("strong", "", "Данные, которые имеют значение"),
+          e("p", "", "Сводка за выбранный период без хранения содержимого сообщений."));
+        const dates = data.series || [];
+        intro.append(introCopy, pill(dates.length ?
+          dates[0].date + " — " + dates[dates.length - 1].date : "Нет истории", "neutral"));
+        const containers = [intro];
+        for (const [title, subtitle, keys] of groups) {
+          const section = e("section", "analytics-group");
+          const heading = e("div", "analytics-group-head");
+          heading.append(e("h3", "", title), e("p", "", subtitle));
+          section.append(heading);
+          const grid = e("div", "portal-metrics analytics-metrics");
+          for (const key of keys) {
+            const card = e("div", "portal-metric analytics-metric");
+            const value = data.totals[key];
+            card.append(e("span", "", labels[key] || key),
+              e("strong", "", value == null ? "—" : Number(value).toLocaleString("ru-RU")),
+              e("small", "", key === "total" || key === "approved" || key === "candidates"
+                ? "Текущее состояние" : "За выбранный период"));
+            grid.append(card);
+          }
+          section.append(grid);
+          containers.push(section);
+        }
+
+        const graphPanel = e("section", "portal-panel analytics-panel");
+        const graphHeader = e("div", "analytics-graph-heading");
+        const graphCopy = e("div");
+        graphCopy.append(e("span", "panel-kicker", "ДИНАМИКА"), e("h3", "", "Активность по дням"),
+          e("p", "portal-muted", "Выбери показатель, чтобы посмотреть изменение за период."));
+        const switcher = e("div", "analytics-switcher");
+        switcher.setAttribute("role", "group");
+        switcher.setAttribute("aria-label", "Показатель диаграммы");
+        const chart = e("div", "analytics-chart-wrap");
+        const switches = [
+          ["messages", "Сообщения"], ["voice", "Голос"], ["joins", "Вступления"]
+        ];
+        for (const [metric, title] of switches) {
+          const control = button(title, () => {
+            for (const node of switcher.children) {
+              node.classList.toggle("active", node === control);
+              node.setAttribute("aria-pressed", String(node === control));
+            }
+            renderTrend(data, metric, chart);
+          }, "secondary");
+          control.classList.add("analytics-segment");
+          control.classList.toggle("active", metric === "messages");
+          control.setAttribute("aria-pressed", String(metric === "messages"));
+          switcher.append(control);
+        }
+        graphHeader.append(graphCopy, switcher);
+        graphPanel.append(graphHeader, chart);
+        renderTrend(data, "messages", chart);
+        containers.splice(1, 0, graphPanel);
+        content.replaceChildren(...containers);
+      } catch (error) {
+        content.replaceChildren(info("Не удалось загрузить статистику", error.message));
       }
-      const series=e("div","portal-panel");
-      series.append(e("h3","","Сообщения по дням"));
-      const max=Math.max(1,...data.series.map(x=>x.messages));
-      const graph=e("div","portal-bars");
-      for(const day of data.series) {
-        const row=e("div","portal-bar-row");
-        row.append(e("span","",day.date));
-        const bar=e("div","portal-bar-track");
-        const progress=e("div","portal-bar-fill");
-        progress.style.width=(100*day.messages/max)+"%";
-        bar.append(progress);
-        row.append(bar,e("strong","",day.messages));
-        graph.append(row);
-      }
-      series.append(graph);
-      content.replaceChildren(grid,series);
     }
-    periods.addEventListener("change",()=>{void show();});
-    await show(); box.append(toolbar,content);return box;
+    periods.addEventListener("change", () => {void show();});
+    box.append(toolbar, content);
+    await show();
+    return box;
   }
   async function rankings() {
     const box=e("div","portal-stack");
@@ -868,14 +1028,96 @@
     metric.addEventListener("change",()=>{void show();});period.addEventListener("change",()=>{void show();});
     await show();box.append(toolbar,body);return box;
   }
-  async function audit(){
-    const data=await api("/api/portal/audit");
-    return cardList(data.items,(item)=>{
-      const row=e("div","portal-history-row");
-      row.append(rowTitle(item.action,format(item.at)));
-      row.append(e("p","","Исполнитель "+item.actor_id+" · "+JSON.stringify(item.details)));
-      return row;
-    },"Системных записей нет.");
+  async function audit() {
+    const data = await api("/api/portal/audit");
+    const items = Array.isArray(data.items) ? data.items : [];
+    const box = e("div", "portal-stack audit-product");
+    const intro = e("div", "audit-intro");
+    const introCopy = e("div");
+    introCopy.append(e("span", "panel-kicker", "ИСТОРИЯ ДЕЙСТВИЙ"),
+      e("strong", "", "Каждое событие — на своём месте"),
+      e("p", "", "Кто выполнил действие, что изменилось и когда это произошло."));
+    intro.append(introCopy, pill("Последние " + items.length + " записей"));
+    box.append(intro);
+    const toolbar = e("div", "portal-toolbar audit-toolbar");
+    const search = e("input", "portal-input audit-search");
+    search.type = "search";
+    search.placeholder = "Поиск по событию, сотруднику или объекту";
+    search.setAttribute("aria-label", "Поиск в журнале аудита");
+    const filter = e("select", "portal-select");
+    filter.setAttribute("aria-label", "Категория события");
+    const options = [
+      ["all", "Все события"], ["settings", "Настройки"], ["moderation", "Модерация"],
+      ["communication", "Объявления"], ["roles", "Роли"], ["economy", "Экономика"],
+      ["community", "Сообщество"], ["support", "Поддержка"], ["system", "Система"]
+    ];
+    for (const [value, label] of options) {
+      const opt = e("option", "", label);
+      opt.value = value;
+      filter.append(opt);
+    }
+    const count = e("span", "portal-muted audit-count", "");
+    toolbar.append(search, filter, count);
+    box.append(toolbar);
+    const timeline = e("div", "audit-timeline");
+    box.append(timeline);
+
+    function draw() {
+      const term = search.value.trim().toLocaleLowerCase("ru-RU");
+      const found = items.filter(item => {
+        if (filter.value !== "all" && (item.category || "system") !== filter.value) return false;
+        const searchable = [item.title, item.action, item.actor_name, item.summary,
+          ...(item.fields || []).map(field => field.label + " " + field.value)].join(" ").toLocaleLowerCase("ru-RU");
+        return !term || searchable.includes(term);
+      });
+      count.textContent = found.length + " из " + items.length;
+      timeline.replaceChildren();
+      if (!found.length) {
+        timeline.append(info("Записей не найдено", "Измени поисковый запрос или категорию."));
+        return;
+      }
+      let currentDay = "";
+      for (const item of found) {
+        const date = new Date(item.at * 1000);
+        const day = date.toLocaleDateString("ru-RU", {day: "numeric", month: "long", year: "numeric"});
+        if (day !== currentDay) {
+          timeline.append(e("div", "audit-date-label", day));
+          currentDay = day;
+        }
+        const card = e("article", "audit-event");
+        const marker = e("span", "audit-marker audit-marker-" + (item.category || "system"));
+        marker.setAttribute("aria-hidden", "true");
+        const main = e("div", "audit-event-content");
+        const top = e("div", "audit-event-top");
+        const heading = e("div", "audit-event-title");
+        heading.append(e("strong", "", item.title || item.action),
+          e("span", "", item.summary || "Действие зарегистрировано"));
+        top.append(heading, e("time", "audit-time", date.toLocaleTimeString("ru-RU", {hour: "2-digit", minute: "2-digit"})));
+        const meta = e("div", "audit-event-meta");
+        meta.append(e("span", "audit-actor-avatar", (item.actor_name || "С").slice(0, 1).toUpperCase()),
+          e("strong", "", item.actor_name || "Система"),
+          pill(options.find(([key]) => key === item.category)?.[1] || "Система"));
+        main.append(top, meta);
+        if (item.fields && item.fields.length) {
+          const detail = e("details", "audit-expand");
+          const toggle = e("summary", "", "Детали события");
+          const fields = e("dl", "audit-fields");
+          for (const field of item.fields) {
+            const itemRow = e("div", "audit-field");
+            itemRow.append(e("dt", "", field.label), e("dd", "", field.value));
+            fields.append(itemRow);
+          }
+          detail.append(toggle, fields);
+          main.append(detail);
+        }
+        card.append(marker, main);
+        timeline.append(card);
+      }
+    }
+    search.addEventListener("input", draw);
+    filter.addEventListener("change", draw);
+    draw();
+    return box;
   }
   async function activity(){
     const data=await api("/api/portal/activity");
