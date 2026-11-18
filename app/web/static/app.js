@@ -157,9 +157,15 @@ async function refresh() {
 }
 async function confirmDiscard() {
   if (ui.saving) { toast("Сохранение ещё выполняется.", true); return false; }
-  if (!ui.dirty.size) return true;
+  const hasSettings = ui.dirty.size > 0;
+  const hasReply = window.Portal?.hasDraft?.() || false;
+  if (!hasSettings && !hasReply) return true;
   return new Promise((resolve) => {
     const dialog = $("leave-dialog");
+    $("dialog-title").textContent = hasReply ? "Несохранённый ответ" : "Несохранённые изменения";
+    $("dialog-description").textContent = hasReply
+      ? "В переписке есть неотправленный ответ. При переходе текст будет потерян и не сохранится на сайте."
+      : "На этой странице есть изменения, которые ещё не сохранены. Если продолжить, они будут потеряны.";
     dialog.hidden = false;
     $("stay-here").focus();
     function finish(value) {
@@ -495,7 +501,7 @@ $("discard-changes").addEventListener("click", () => {
   toast("Изменения сброшены.");
 });
 window.addEventListener("beforeunload", (event) => {
-  if (ui.dirty.size || ui.saving) {
+  if (ui.dirty.size || ui.saving || window.Portal?.hasDraft?.()) {
     event.preventDefault();
     event.returnValue = "";
   }
@@ -506,8 +512,9 @@ $("quick-roles").addEventListener("click", () => navigate("Роли"));
 $("search").addEventListener("input", (event) => { ui.query = event.target.value; renderSettings(); });
 $("menu-toggle").addEventListener("click", () => $("sidebar").classList.toggle("open"));
 document.addEventListener("keydown", (event) => {
-  if (event.key === "/" && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)
-      && ui.group !== "Обзор" && ui.group !== "Диагностика") {
+  if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey
+      && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)
+      && !$("settings-section").hidden) {
     event.preventDefault(); $("search").focus();
   }
   if (event.key === "Escape") $("sidebar").classList.remove("open");
