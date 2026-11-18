@@ -140,14 +140,16 @@ async def json_payload(request: web.Request) -> dict:
 
 
 async def index(request: web.Request) -> web.FileResponse:
-    return web.FileResponse(ROOT / "index.html")
+    # Do not reuse an outdated HTML shell after updating the local console.
+    return web.FileResponse(ROOT / "index.html", headers={"Cache-Control": "no-store"})
 
 
 async def static_file(request: web.Request) -> web.FileResponse:
     name = request.match_info["name"]
     if name not in ("app.js", "portal.js", "manage.js", "style.css", "obsidian.css", "obsidian.js"):
         raise web.HTTPNotFound()
-    return web.FileResponse(ROOT / name)
+    # Cached versions of Obsidian JS could still freeze the tab after a fix.
+    return web.FileResponse(ROOT / name, headers={"Cache-Control": "no-store"})
 
 
 async def site_info(request: web.Request) -> web.Response:

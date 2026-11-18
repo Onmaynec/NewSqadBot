@@ -204,11 +204,20 @@
 
   function syncMobileNavigation() {
     const mobile = window.matchMedia("(max-width: 900px)").matches;
-    if (!mobile || !isAuthorized()) sidebar.classList.remove("open");
-    if (!isAuthorized() && isOpen()) close(false);
-    const opened = mobile && sidebar.classList.contains("open") && isAuthorized();
-    backdrop.hidden = !opened;
-    menu.setAttribute("aria-expanded", String(opened));
+    const authorized = isAuthorized();
+    // Do not write the observed 'class' attribute if nothing changed:
+    // DOMTokenList.remove() emits a mutation even when the class is absent.
+    // Unconditional removal inside a MutationObserver callback caused a
+    // self-sustaining microtask loop and froze the entire browser tab.
+    if ((!mobile || !authorized) && sidebar.classList.contains("open")) {
+      sidebar.classList.remove("open");
+    }
+    if (!authorized && isOpen()) close(false);
+    const opened = mobile && authorized && sidebar.classList.contains("open");
+    if (backdrop.hidden !== !opened) backdrop.hidden = !opened;
+    if (menu.getAttribute("aria-expanded") !== String(opened)) {
+      menu.setAttribute("aria-expanded", String(opened));
+    }
   }
   backdrop.addEventListener("click", () => {
     sidebar.classList.remove("open");
