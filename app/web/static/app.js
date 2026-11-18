@@ -192,9 +192,31 @@ function renderNav() {
   const portalGroups = Portal.menu[ui.role] || Portal.menu.support;
   const groups = ui.role === "owner"
     ? [...portalGroups, ...ui.data.groups, "Диагностика"] : portalGroups;
+  const workspace = new Set(["Обзор", "Уведомления", "Заявки", "Тикеты"]);
+  const insights = new Set(["Качество поддержки", "Аналитика", "Рейтинги", "Активность", "Аудит"]);
+  const system = new Set(["Диагностика"]);
+  const categorize = (group) => {
+    if (workspace.has(group)) return "РАБОЧАЯ ОБЛАСТЬ";
+    if (insights.has(group)) return "АНАЛИТИКА";
+    if (system.has(group)) return "СИСТЕМА";
+    if (ui.role === "owner" && ui.data.groups.includes(group)) return "КОНФИГУРАЦИЯ";
+    return "УПРАВЛЕНИЕ";
+  };
+  let lastSection = "";
   for (const group of groups) {
-    const button = element("button", "nav-item" + (ui.group === group ? " active" : ""));
+    const section = categorize(group);
+    if (section !== lastSection) {
+      const heading = element("div", "nav-section-label", section);
+      heading.setAttribute("role", "presentation");
+      nav.append(heading);
+      lastSection = section;
+    }
+    const selected = ui.group === group;
+    const button = element("button", "nav-item" + (selected ? " active" : ""));
     button.type = "button";
+    button.dataset.group = group;
+    button.setAttribute("aria-label", group);
+    if (selected) button.setAttribute("aria-current", "page");
     button.append(Portal.icon(group));
     button.append(element("span", "nav-text", group));
     button.append(element("span", "nav-indicator"));
@@ -202,6 +224,7 @@ function renderNav() {
     nav.append(button);
   }
 }
+
 function renderPage() {
   if (!ui.data) return;
   const ownerOverview = ui.group === "Обзор" && ui.role === "owner";
