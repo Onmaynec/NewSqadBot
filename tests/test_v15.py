@@ -21,7 +21,7 @@ def test_schema_category_upgrade_preserves_data(tmp_path):
     dbfile = tmp_path / "v15.db"
     migrate(url(tmp_path))
     migrate(url(tmp_path))
-    assert VERSION == "1.7.0"
+    assert VERSION == "1.8.0"
     with sqlite3.connect(dbfile) as db:
         assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0015_support_live_ops"
         roles = [r[1] for r in db.execute("PRAGMA table_info(role_panel_options)")]
