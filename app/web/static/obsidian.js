@@ -204,7 +204,8 @@
 
   function syncMobileNavigation() {
     const mobile = window.matchMedia("(max-width: 900px)").matches;
-    if (!mobile) sidebar.classList.remove("open");
+    if (!mobile || !isAuthorized()) sidebar.classList.remove("open");
+    if (!isAuthorized() && isOpen()) close(false);
     const opened = mobile && sidebar.classList.contains("open") && isAuthorized();
     backdrop.hidden = !opened;
     menu.setAttribute("aria-expanded", String(opened));
