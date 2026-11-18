@@ -36,6 +36,17 @@ def number(value: str) -> int:
     return int(value)
 
 
+PAGE_SIZE = 100
+
+
+def listing_page(request: web.Request) -> int:
+    """Положительный номер страницы, ограниченный числом и длиной."""
+    value = request.query.get("page", "1")
+    if not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]{0,3}", value):
+        raise web.HTTPBadRequest(text="Неверный номер страницы.")
+    return int(value)
+
+
 def user_card(member: discord.Member) -> dict:
     return {"id": str(member.id), "name": member.display_name,
             "avatar_url": str(member.display_avatar.url),
@@ -80,20 +91,29 @@ async def overview(request: web.Request) -> web.Response:
 
 async def applications_list(request: web.Request) -> web.Response:
     await require_role(request)
+    page = listing_page(request)
     bot = state(request).bot
     status = request.query.get("status", "open")
     allowed = {"open", "approved", "rejected", "all"}
     if status not in allowed:
         raise web.HTTPBadRequest(text="Недопустимый статус.")
     async with bot.database.sessions() as session:
-        q = select(Application).where(Application.guild_id == bot.config.guild_id)
+        conditions = [Application.guild_id == bot.config.guild_id]
         if status == "open":
-            q = q.where(Application.status.in_(("pending", "in_review", "needs_info", "action_failed",
-                                                 "approving", "rejecting")))
+            conditions.append(Application.status.in_((
+                "pending", "in_review", "needs_info", "action_failed", "approving", "rejecting")))
         elif status != "all":
-            q = q.where(Application.status == status)
-        values = (await session.scalars(q.order_by(Application.id.desc()).limit(100))).all()
-    return web.json_response({"items": [public_application(row) for row in values]})
+            conditions.append(Application.status == status)
+        total = int(await session.scalar(
+            select(func.count(Application.id)).where(*conditions)) or 0)
+        q = (select(Application).where(*conditions)
+             .order_by(Application.id.desc()).limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE))
+        values = (await session.scalars(q)).all()
+    return web.json_response({
+        "items": [public_application(row) for row in values],
+        "page": page, "page_size": PAGE_SIZE, "total": total,
+        "has_next": page * PAGE_SIZE < total,
+    })
 
 
 async def application_detail(request: web.Request) -> web.Response:
@@ -202,10 +222,20 @@ async def application_action(request: web.Request) -> web.Response:
 
 async def ticket_list(request: web.Request) -> web.Response:
     await require_role(request)
+    page = listing_page(request)
     bot = state(request).bot
+    statuses = ("open", "creating", "closing")
+    async with bot.database.sessions() as session:
+        total = int(await session.scalar(select(func.count(Ticket.id)).where(
+            Ticket.guild_id == bot.config.guild_id, Ticket.status.in_(statuses))) or 0)
     rows = await tickets.list_tickets(bot.database, bot.config.guild_id,
-                                           statuses=("open", "creating", "closing"), limit=100)
-    return web.json_response({"items": [public_ticket(row) for row in rows]})
+                                     statuses=statuses, limit=PAGE_SIZE,
+                                     offset=(page - 1) * PAGE_SIZE)
+    return web.json_response({
+        "items": [public_ticket(row) for row in rows],
+        "page": page, "page_size": PAGE_SIZE, "total": total,
+        "has_next": page * PAGE_SIZE < total,
+    })
 
 
 async def _ticket_channel(bot, row: Ticket):
