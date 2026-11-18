@@ -39,21 +39,44 @@ function toast(message, error = false) {
   ui.toastTimer = setTimeout(() => { box.hidden = true; }, 4200);
 }
 async function api(path, options = {}) {
+  const method = options.method || "GET";
   const headers = {"Accept": "application/json"};
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
-  if (options.method && options.method !== "GET" && ui.csrf) headers["X-CSRF-Token"] = ui.csrf;
-  const response = await fetch(path, {
-    method: options.method || "GET", credentials: "same-origin", headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
-  let value;
-  try { value = await response.json(); } catch { value = {}; }
-  if (!response.ok) {
-    const error = new Error(value.error || ("Ошибка сервера, код " + response.status));
-    error.status = response.status;
+  if (method !== "GET" && ui.csrf) headers["X-CSRF-Token"] = ui.csrf;
+  // An unresponsive backend must not leave loaders running indefinitely.
+  // Mutating requests get more time and must never be retried automatically.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), method === "GET" ? 25000 : 45000);
+  try {
+    const response = await fetch(path, {
+      method, credentials: "same-origin", headers, signal: controller.signal,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+    let value;
+    try { value = await response.json(); }
+    catch (error) {
+      if (controller.signal.aborted) throw error;
+      value = {};
+    }
+    if (!response.ok) {
+      const error = new Error(value.error || ("Ошибка сервера, код " + response.status));
+      error.status = response.status;
+      throw error;
+    }
+    return value;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(method === "GET"
+        ? "Сервер не ответил за 25 секунд. Повторите загрузку раздела."
+        : "Ответ сервера не получен. Проверьте результат операции в Discord перед повтором.");
+    }
+    if (error instanceof TypeError) {
+      throw new Error("Не удалось связаться с сервером. Проверьте запуск бота и соединение.");
+    }
     throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  return value;
 }
 function loginScreen(visible) {
   $("login-screen").hidden = !visible;
