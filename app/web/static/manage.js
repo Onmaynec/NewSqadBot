@@ -72,12 +72,15 @@
       const layer = $("div", "portal-modal-overlay");
       const dialog = $("div", "portal-modal");
       dialog.setAttribute("role", "alertdialog");dialog.setAttribute("aria-modal", "true");
-      function done(ok) {layer.remove();resolve(ok);}
+      let cleanup = () => layer.remove();
+      function done(ok) {cleanup();resolve(ok);}
       dialog.append($("h3", "", title), $("p", "", subtitle),
         add($("div", "portal-actions"),
           button("Отмена", () => done(false)),
           button("Подтверждаю", () => done(true), "danger")));
-      layer.append(dialog);document.body.append(layer);dialog.querySelector("button").focus();
+      layer.append(dialog);
+      cleanup = window.ObsidianDialog.mount(
+        layer, dialog, () => done(false), dialog.querySelector("button"));
     });
   }
   async function promptText(title, label, initial = "", rows = 1) {
@@ -88,12 +91,14 @@
         rows > 1 ? "portal-textarea" : "portal-input");
       input.value = initial;input.maxLength = rows > 1 ? 3500 : 400;
       if (rows > 1) input.rows = rows;
-      function done(v) {layer.remove();resolve(v);}
+      let cleanup = () => layer.remove();
+      function done(v) {cleanup();resolve(v);}
       dialog.append($("h3", "", title),control(label,input),
         add($("div", "portal-actions"),
           button("Отмена", () => done(null)),
           button("Применить", () => done(input.value.trim()), "primary")));
-      layer.append(dialog);document.body.append(layer);input.focus();
+      layer.append(dialog);
+      cleanup = window.ObsidianDialog.mount(layer, dialog, () => done(null), input);
     });
   }
   function error(err) {window.portalToast(err.message || "Операция не выполнена", true);}
