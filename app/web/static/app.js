@@ -166,13 +166,31 @@ async function confirmDiscard() {
     $("dialog-description").textContent = hasReply
       ? "В переписке есть неотправленный ответ. При переходе текст будет потерян и не сохранится на сайте."
       : "На этой странице есть изменения, которые ещё не сохранены. Если продолжить, они будут потеряны.";
+    const previousFocus = document.activeElement;
+    const stay = $("stay-here");
+    const leave = $("leave-anyway");
     dialog.hidden = false;
-    $("stay-here").focus();
+    stay.focus();
+    function handleKeys(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      } else if (event.key === "Tab") {
+        if (event.shiftKey && document.activeElement === stay) {
+          event.preventDefault(); leave.focus();
+        } else if (!event.shiftKey && document.activeElement === leave) {
+          event.preventDefault(); stay.focus();
+        }
+      }
+    }
+    dialog.addEventListener("keydown", handleKeys);
     function finish(value) {
+      dialog.removeEventListener("keydown", handleKeys);
       dialog.hidden = true;
-      $("stay-here").onclick = null;
-      $("leave-anyway").onclick = null;
+      stay.onclick = null;
+      leave.onclick = null;
       if (value) ui.dirty.clear();
+      if (previousFocus?.isConnected) previousFocus.focus();
       resolve(value);
     }
     $("stay-here").onclick = () => finish(false);
