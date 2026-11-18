@@ -5,7 +5,6 @@ Every endpoint revalidates the viewer's CURRENT guild roles through Discord REST
 """
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import asdict
@@ -467,10 +466,10 @@ async def audit(request: web.Request) -> web.Response:
         entries = (await session.scalars(select(AuditEntry).where(
             AuditEntry.guild_id == bot.config.guild_id
         ).order_by(AuditEntry.id.desc()).limit(100))).all()
-    return web.json_response({"items": [
-        {"id": r.id, "actor_id": str(r.actor_id), "action": r.action,
-         "details": json.loads(r.data_json), "at": r.created_at}
-        for r in entries]})
+    from app.web.audit_presentation import present_audit
+
+    guild = guild_for(bot)
+    return web.json_response({"items": [present_audit(row, guild) for row in entries]})
 
 
 async def moderation_list(request: web.Request) -> web.Response:

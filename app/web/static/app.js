@@ -60,6 +60,14 @@ function loginScreen(visible) {
   $("shell").hidden = visible;
   $("discord-login").hidden = ui.auth_method !== "discord";
   $("login-form").hidden = ui.auth_method === "discord";
+  $("login-mode-label").textContent = ui.auth_method === "discord"
+    ? "ЗАЩИЩЁННЫЙ ВХОД ЧЕРЕЗ DISCORD" : "ЛОКАЛЬНАЯ ПАНЕЛЬ УПРАВЛЕНИЯ";
+  $("login-security-note").textContent = ui.auth_method === "discord"
+    ? "Доступ определяется вашей ролью на Discord-сервере. Сеанс завершается через 4 часа."
+    : "Доступ только с локального компьютера. Сеанс завершается через 4 часа.";
+  $("sidebar-access-label").textContent = ui.auth_method === "discord"
+    ? "Вход через Discord · доступ по ролям"
+    : "Только локальный доступ · 127.0.0.1";
   if (visible) {
     ui.data = null; ui.csrf = ""; ui.dirty.clear();
     Portal.stopNotices();

@@ -21,7 +21,7 @@
       <div class="sidebar-heading">РАЗДЕЛЫ</div>
       <nav class="navigation" id="navigation" aria-label="Навигация панели"></nav>
       <div class="sidebar-bottom">
-        <div class="sidebar-note"><span class="lock-icon" aria-hidden="true">⌁</span><span>Доступ только локально<br><strong>127.0.0.1</strong></span></div>
+        <div class="sidebar-note"><span class="lock-icon" aria-hidden="true">⌁</span><span id="sidebar-access-label">Только локальный доступ · 127.0.0.1</span></div>
         <button type="button" class="logout" id="logout">Выйти из панели <span>↗</span></button>
       </div>
     </aside>
@@ -44,10 +44,10 @@
 
         <section id="overview" class="section">
           <div class="guild-overview panel">
-            <div id="guild-banner" class="guild-banner"></div>
+            <div id="guild-banner" class="guild-banner"><span class="guild-banner-label">NEW SQUAD <span> / </span> COMMUNITY SPACE</span><span class="guild-banner-corner">CONNECTED WORKSPACE · LIVE</span></div>
             <div class="guild-overview-content">
               <span class="guild-avatar-large"><img id="overview-guild-icon" class="guild-icon" alt="Аватар Discord-сервера" hidden><span id="overview-guild-initials">NS</span></span>
-              <div class="guild-overview-copy"><span class="panel-kicker">ПОДКЛЮЧЁННЫЙ DISCORD-СЕРВЕР</span><h2 id="overview-guild-name">NewSquad</h2><p id="guild-meta">Загрузка данных сервера...</p></div>
+              <div class="guild-overview-copy"><span class="panel-kicker">ВАШЕ СООБЩЕСТВО <span class="guild-status-dot" aria-hidden="true"></span></span><h2 id="overview-guild-name">NewSquad</h2><p id="guild-meta">Загрузка данных сервера...</p></div>
             </div>
           </div>
           <div id="overview-live" class="overview-live"></div>
@@ -84,28 +84,39 @@
           <div class="panel diagnostics-panel"><div class="diag-header"><strong>Проверки окружения</strong><button type="button" class="button secondary small" id="refresh-diagnostics">Повторить проверку</button></div><div id="diagnostics-list"></div></div>
           <div class="panel foot-panel"><div><strong>Проверка на сервере</strong><p>После изменения ролей или каналов проверь реальную работу команд и интерфейсов в Discord. Веб-диагностика не заменяет приёмочные тесты.</p></div></div>
         </section>
-        <footer class="footer"><span>© NewSquad · Локальная консоль</span><span>PRODUCTION / <span id="footer-version">1.7.0</span></span></footer>
+        <footer class="footer"><span>© NewSquad · Панель управления</span><span>PRODUCTION / <span id="footer-version">1.7.0</span></span></footer>
       </div>
     </main>
   </div>
 
   <div id="login-screen" class="login-screen">
-    <div class="login-art"><div class="login-brand"><span class="login-logo"><img id="login-guild-icon" class="guild-icon" alt="Аватар сервера" hidden><span id="login-initials">N·</span></span><strong>NEW SQUAD</strong></div><div class="login-statement">Управление.<br>Без лишнего.</div><div class="login-art-bottom">NEW SQUAD / ADMIN CONSOLE <span>EST. 2026</span></div></div>
+    <div class="login-art">
+      <div class="login-brand"><span class="login-logo"><img id="login-guild-icon" class="guild-icon" alt="Логотип NewSquad" hidden><span id="login-initials">N·</span></span><strong>NEW SQUAD</strong><span class="login-brand-label">УПРАВЛЕНИЕ СООБЩЕСТВОМ</span></div>
+      <div class="login-hero">
+        <div class="login-art-overline"><span class="login-art-dot"></span> CONTROL CENTER <span class="login-art-line"></span> 2026</div>
+        <div class="login-statement">Твой сервер.<br><span>Твои правила.</span></div>
+        <p class="login-art-description">Люди, события и управление сообществом — в одном пространстве. Всё, что важно, всегда перед глазами.</p>
+        <div class="login-art-stats"><span><strong>01</strong>Сообщество</span><span><strong>02</strong>Команда</span><span><strong>03</strong>Контроль</span></div>
+      </div>
+      <div class="login-art-bottom"><span>NEW SQUAD / WEB CONSOLE</span><span>BUILT FOR THE COMMUNITY · 2026</span></div>
+    </div>
     <div class="login-form-area">
+      <div class="login-form-ambient" aria-hidden="true"></div>
       <div class="login-card">
-        <span class="login-kicker">ЛОКАЛЬНАЯ АДМИНИСТРАТИВНАЯ ПАНЕЛЬ</span>
-        <h1>Добро пожаловать.</h1>
-        <p>Войди, чтобы управлять настройками NewSqadBot.</p>
-        <button class="button discord-login" id="discord-login" type="button" hidden>Войти через Discord <span>↗</span></button>
+        <div class="login-card-symbol" aria-hidden="true">NS <span>↗</span></div>
+        <span class="login-kicker" id="login-mode-label">ПАНЕЛЬ УПРАВЛЕНИЯ NEW SQUAD</span>
+        <h1>С возвращением.</h1>
+        <p>Войди в рабочее пространство сервера, чтобы продолжить управление.</p>
+        <button class="button discord-login" id="discord-login" type="button" hidden><span class="login-discord-symbol" aria-hidden="true">◈</span><span>Продолжить через Discord</span><span class="login-discord-arrow" aria-hidden="true">↗</span></button>
         <form id="login-form">
           <label for="password">Пароль администратора</label>
           <input id="password" name="password" type="password" required minlength="14" autocomplete="current-password" placeholder="Введите пароль">
           <button class="button primary login-submit" type="submit" id="login-submit">Войти в панель <span>↗</span></button>
         </form>
-        <div class="login-error" id="login-error" role="alert" aria-live="polite"></div>
-        <div class="login-security">Доступ ограничен локальным компьютером. Сеанс автоматически истекает через 4 часа.</div>
+        <div id="login-error" class="login-error" role="alert" aria-live="polite"></div>
+        <div class="login-security"><span class="login-security-icon" aria-hidden="true">✓</span><span id="login-security-note">Доступ защищён. Сеанс автоматически завершается через 4 часа.</span></div>
       </div>
-      <div class="login-corner">SECURE LOCAL ACCESS · v1.7.0</div>
+      <div class="login-corner">NEW SQUAD <span>·</span> SECURE ACCESS</div>
     </div>
   </div>
   <div id="leave-dialog" class="dialog-backdrop" hidden>

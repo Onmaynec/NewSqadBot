@@ -37,6 +37,14 @@ async def dashboard(request: web.Request) -> web.Response:
             recent = [
                 {"actor_id": str(row.actor_id), "action": row.action, "at": row.created_at}
                 for row in logs]
+    # Resolve only visible staff names from the guild cache; preserve the
+    # original IDs for compatibility without Discord API calls per row.
+    from app.web.audit_presentation import ACTIONS
+
+    for item in recent:
+        member = guild.get_member(int(item["actor_id"])) if guild else None
+        item["actor_name"] = member.display_name if member else "Участник недоступен"
+        item["action_title"] = ACTIONS.get(item["action"], (item["action"].replace(".", " / "),))[0]
     people = []
     presence_available = bool(getattr(getattr(bot, "intents", None), "presences", False))
     if guild is not None:
