@@ -455,3 +455,18 @@ body.command-is-open { overflow: hidden; }
 
 /* Block background scroll only while a confirmation dialog is open. */
 body.ob-modal-open { overflow: hidden; }
+
+/* Loading / feedback states remain monochrome and respect reduced-motion settings. */
+.portal-loader {
+  min-height: 112px; display: flex; gap: 13px; align-items: center;
+  color: #b7b8be; font-size: 12px;
+}
+.portal-loader::before {
+  content: ""; flex: 0 0 18px; width: 18px; height: 18px;
+  border: 2px solid #47484e; border-top-color: #f5f5f6; border-radius: 50%;
+  animation: ob-spin 1s linear infinite;
+}
+@keyframes ob-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .portal-loader::before { animation: none; border-color: #999ba1; }
+}
