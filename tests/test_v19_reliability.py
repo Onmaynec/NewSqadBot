@@ -14,6 +14,7 @@ from app.core.database import Database, migrate
 from app.core.observability import OperationalJournal
 from app.core.scheduler import Scheduler
 from app.models import ScheduledJob
+from app.ops.backup import BackupError
 from app.ops.automatic_backup import (
     BackupSettings, BackupWorker, create_automatic_backup, restore_probe, rotation,
 )
@@ -72,7 +73,7 @@ def test_off_volume_export_must_not_point_inside_active_volume(tmp_path):
     dbfile = tmp_path / "data" / "newsqad.db"
     dbfile.parent.mkdir()
     migrate(url(dbfile))
-    with pytest.raises(ValueError, match="Экспорт должен"):
+    with pytest.raises(BackupError, match="Экспорт должен"):
         create_automatic_backup(dbfile, BackupSettings(export_dir=dbfile.parent / "backups"))
 
 
