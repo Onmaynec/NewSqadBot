@@ -11,7 +11,7 @@ from discord.ext import commands
 
 from app.core.permissions import can_manage_settings
 from app.models import Ticket, TicketCategory
-from app.services import support_quality, tickets
+from app.services import support_quality, support_sla, tickets
 from app.services.membership_access import approved_member
 from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, card, notice, panel_card
 
@@ -46,6 +46,9 @@ def ticket_embed(ticket: Ticket, category: TicketCategory | None = None) -> disc
     e.add_field(name="Категория", value=discord.utils.escape_mentions(category.title) if category
                 else f"#{ticket.category_id}", inline=True)
     e.add_field(name="Статус", value=labels.get(ticket.status, ticket.status), inline=True)
+    e.add_field(name="Приоритет", value={
+        "low": "Низкий", "normal": "Обычный", "high": "Высокий", "urgent": "Срочный",
+    }.get(ticket.priority, ticket.priority), inline=True)
     e.add_field(name="Автор", value=f"<@{ticket.user_id}>", inline=True)
     e.add_field(name="Ответственный", value=f"<@{ticket.assignee_id}>"
                 if ticket.assignee_id else "Не назначен", inline=True)
@@ -271,6 +274,7 @@ class Tickets(commands.Cog):
         bot.scheduler.register("tickets.inactive_warn", self._warn_inactive)
         bot.scheduler.register("tickets.inactive_close", self._close_inactive)
         bot.scheduler.register("tickets.first_reply_alert", self._alert_unanswered)
+        bot.scheduler.register("tickets.sla_idle_alert", self._alert_sla_idle)
 
     async def cog_load(self) -> None:
         await tickets.seed_categories(self.bot.database, self.bot.config.guild_id)
@@ -393,6 +397,7 @@ class Tickets(commands.Cog):
                 try:
                     await self._schedule_inactivity(entry.id)
                     await self._schedule_first_reply_alert(entry.id)
+                    await self._schedule_sla_idle(entry.id)
                     self.bot.add_view(TicketActions(self, entry.id), message_id=message.id)
                 except Exception:
                     log.exception("Кнопки тикета #%s восстановятся при следующем запуске", entry.id)
@@ -495,33 +500,80 @@ class Tickets(commands.Cog):
         ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
         if ticket is None or ticket.status != "open" or ticket.first_response_at is not None:
             return
-        hours = int(await self.bot.database.get_setting(
-            ticket.guild_id, "tickets_reply_alert_hours", 6))
-        if hours <= 0:
-            return
+        rules = await support_sla.get_rules(self.bot.database, ticket.guild_id)
+        minutes = rules[ticket.priority]["first_minutes"]
         await self.bot.scheduler.schedule(
-            job_key=f"tickets:reply-alert:{ticket.id}", handler="tickets.first_reply_alert",
-            due_at=ticket.opened_at + hours * 3600, payload={"ticket_id": ticket.id})
+            job_key=f"tickets:sla:first:{ticket.id}:{ticket.priority}:{minutes}",
+            handler="tickets.first_reply_alert",
+            due_at=ticket.opened_at + minutes * 60,
+            payload={"ticket_id": ticket.id, "priority": ticket.priority, "minutes": minutes})
 
     async def _alert_unanswered(self, payload: dict) -> None:
-        """Не храним сообщения и не раскрываем данные тикета в публичных каналах."""
+        """A scheduled notice is discarded when the priority/rules have changed."""
         ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, int(payload["ticket_id"]))
         if ticket is None or ticket.status != "open" or ticket.first_response_at is not None:
             return
+        if "priority" in payload:
+            rules = await support_sla.get_rules(self.bot.database, ticket.guild_id)
+            if payload["priority"] != ticket.priority or payload["minutes"] != rules[ticket.priority]["first_minutes"]:
+                await self._schedule_first_reply_alert(ticket.id)
+                return
+            if time.time() < ticket.opened_at + rules[ticket.priority]["first_minutes"] * 60:
+                return
         channel = await self.get_channel(ticket)
         if channel is None:
-            return
+            raise RuntimeError("Канал тикета недоступен для уведомления SLA")
         await channel.send(embed=notice(
-            f"Обращение #{ticket.id:05d} ожидает первого ответа сотрудника.", kind="warning"),
+            f"SLA: обращение #{ticket.id:05d} ({ticket.priority}) ожидает первого ответа.", kind="warning"),
             allowed_mentions=discord.AllowedMentions.none())
         if ticket.assignee_id:
             try:
                 user = self.bot.get_user(ticket.assignee_id) or await self.bot.fetch_user(ticket.assignee_id)
                 await user.send(embed=notice(
-                    f"Обращение #{ticket.id:05d} ожидает ответа: {channel.jump_url}", kind="warning"),
+                    f"SLA: обращение #{ticket.id:05d} ожидает ответа: {channel.jump_url}", kind="warning"),
                     allowed_mentions=discord.AllowedMentions.none())
             except discord.HTTPException:
                 log.warning("Не удалось уведомить ответственного за тикет #%s", ticket.id)
+
+    async def _schedule_sla_idle(self, ticket_id: int) -> None:
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, ticket_id)
+        if ticket is None or ticket.status != "open":
+            return
+        rules = await support_sla.get_rules(self.bot.database, ticket.guild_id)
+        minutes = rules[ticket.priority]["idle_minutes"]
+        await self.bot.scheduler.schedule(
+            job_key=f"tickets:sla:idle:{ticket.id}:{ticket.updated_at}:{ticket.priority}:{minutes}",
+            handler="tickets.sla_idle_alert",
+            due_at=ticket.updated_at + minutes * 60,
+            payload={"ticket_id": ticket.id, "activity_at": ticket.updated_at,
+                     "priority": ticket.priority, "minutes": minutes})
+
+    async def _alert_sla_idle(self, payload: dict) -> None:
+        ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, int(payload["ticket_id"]))
+        if ticket is None or ticket.status != "open":
+            return
+        rules = await support_sla.get_rules(self.bot.database, ticket.guild_id)
+        minutes = rules[ticket.priority]["idle_minutes"]
+        if (ticket.updated_at != int(payload["activity_at"]) or
+                ticket.priority != payload["priority"] or minutes != payload["minutes"]):
+            await self._schedule_sla_idle(ticket.id)
+            return
+        if time.time() < ticket.updated_at + minutes * 60:
+            return
+        channel = await self.get_channel(ticket)
+        if channel is None:
+            raise RuntimeError("Канал тикета недоступен для SLA inactivity")
+        await channel.send(embed=notice(
+            f"SLA: обращение #{ticket.id:05d} ({ticket.priority}) без активности.", kind="warning"),
+            allowed_mentions=discord.AllowedMentions.none())
+        if ticket.assignee_id:
+            try:
+                recipient = self.bot.get_user(ticket.assignee_id) or await self.bot.fetch_user(ticket.assignee_id)
+                await recipient.send(
+                    f"NewSqad SLA: нет активности по обращению #{ticket.id:05d}. {channel.jump_url}",
+                    allowed_mentions=discord.AllowedMentions.none())
+            except discord.HTTPException:
+                log.warning("Не удалось уведомить ответственного SLA idle #%s", ticket.id)
 
     async def _schedule_inactivity(self, ticket_id: int) -> None:
         days = int(await self.bot.database.get_setting(self.bot.config.guild_id, "tickets_inactivity_days", 0))
@@ -602,6 +654,7 @@ class Tickets(commands.Cog):
                         reason=f"[NSB-TICKET-{ticket.id}] Проверка приватности после запуска")
                     await self._schedule_inactivity(ticket.id)
                     await self._schedule_first_reply_alert(ticket.id)
+                    await self._schedule_sla_idle(ticket.id)
                 except discord.HTTPException:
                     log.exception("Не удалось проверить приватность тикета #%s", ticket.id)
 
@@ -620,6 +673,7 @@ class Tickets(commands.Cog):
             self._last_message[message.channel.id] = now
             await tickets.touch(self.bot.database, ticket.guild_id, ticket.id, member.id, staff_reply=staff)
             await self._schedule_inactivity(ticket.id)
+            await self._schedule_sla_idle(ticket.id)
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel) -> None:
