@@ -82,6 +82,7 @@ def public_application(row: Application) -> dict:
             "name": row.name, "age": row.age, "gender": row.gender, "inviter": row.inviter,
             "status": row.status, "created_at": row.created_at,
             "form_key": row.form_key, "extra_answer": row.extra_answer,
+            "followup_answer": row.followup_answer,
             "reviewer_id": str(row.reviewer_id) if row.reviewer_id else None,
             "decision": row.decision, "decision_reason": row.decision_reason,
             "error": row.last_error}
