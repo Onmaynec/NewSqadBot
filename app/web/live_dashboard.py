@@ -115,7 +115,7 @@ async def notice_read(request: web.Request) -> web.Response:
     role, member = await require_role(request)
     require_csrf(request)
     if member is None:
-        raise web.HTTPForbidden(text="Для уведомлений нужен вход через Discord.")
+        raise web.HTTPForbidden(text="Не удалось определить локального оператора Discord.")
     identifier = request.match_info["id"]
     if identifier != "all":
         if not identifier.isascii() or not identifier.isdecimal() or len(identifier) > 12:
