@@ -9,7 +9,10 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select, update
 
-from app.config import GUILD_ID
+import discord
+
+from app.bot import NewSqadBot
+from app.config import GUILD_ID, Config
 from app.core.database import Database, migrate
 from app.core.observability import OperationalJournal
 from app.core.scheduler import Scheduler
@@ -180,3 +183,24 @@ async def test_scheduler_failure_retry_and_restart_without_duplicate_job(tmp_pat
             assert row.attempts == 2
     finally:
         await db.close()
+
+
+@pytest.mark.asyncio
+async def test_discord_http_instrumentation_captures_real_exceptions(monkeypatch, tmp_path):
+    async def fail_request(_client, *_args, **_kwargs):
+        response = type("Response", (), {"status": 403, "reason": "Forbidden"})()
+        raise discord.Forbidden(response, "Missing Permissions")
+
+    monkeypatch.setattr(discord.http.HTTPClient, "request", fail_request)
+    config = Config(
+        token="non-production-test-token", guild_id=GUILD_ID,
+        database_url=url(tmp_path / "runtime.db"), data_dir=tmp_path,
+        timezone="UTC", log_level="INFO", owner_ids=frozenset(),
+    )
+    bot = NewSqadBot(config)
+    with pytest.raises(discord.Forbidden):
+        await bot.http.request(object())
+    metrics = bot.operations.snapshot()
+    assert metrics["http_errors"] == 1
+    assert metrics["last_http_status"] == 403
+    assert metrics["http_rate_limits"] == 0
