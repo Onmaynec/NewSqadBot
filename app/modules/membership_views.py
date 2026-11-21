@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import TYPE_CHECKING
 
 import discord
 
 from app.services import applications as store
 from app.services.membership_workflow import form_types, selected_form
 from app.ui.theme import LoggedModal, LoggedView, panel_card
+
+if TYPE_CHECKING:
+    from app.modules.membership import Membership
 
 log = logging.getLogger(__name__)
 
