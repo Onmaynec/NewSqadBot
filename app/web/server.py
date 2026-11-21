@@ -112,11 +112,15 @@ async def require_role(request: web.Request, role: str = "support"):
     guild = bot.get_guild(bot.config.guild_id)
     if guild is None or not bot.is_ready():
         return "owner", None
-    target_id = getattr(bot.config, "web_local_operator_id", 0) or guild.owner_id
-    member = guild.get_member(target_id)
-    if member is None:
+    target_id = getattr(bot.config, "web_local_operator_id", 0) or getattr(guild, "owner_id", 0)
+    if not target_id:
+        return "owner", None
+    lookup = getattr(guild, "get_member", None)
+    member = lookup(target_id) if callable(lookup) else None
+    fetch = getattr(guild, "fetch_member", None)
+    if member is None and callable(fetch):
         try:
-            member = await guild.fetch_member(target_id)
+            member = await fetch(target_id)
         except discord.HTTPException:
             log.warning("Не удалось определить локального оператора Discord")
     return "owner", member
@@ -175,7 +179,7 @@ async def session_info(request: web.Request) -> web.Response:
         role, member = await require_role(request)
     except web.HTTPException:
         return web.json_response({"authenticated": False, "csrf": None,
-                                  "auth_method": "discord" if panel.discord_client_id else "password"})
+                                  "auth_method": "password"})
     return web.json_response({
         "authenticated": True, "csrf": session.csrf, "role": role,
         "user": {"id": str(member.id), "name": member.display_name,
