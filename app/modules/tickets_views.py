@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import discord
 
@@ -9,6 +10,9 @@ from app.models import Ticket, TicketCategory
 from app.services import support_quality, tickets
 from app.services.membership_access import approved_member
 from app.ui.theme import LoggedModal, LoggedView, card, notice, panel_card
+
+if TYPE_CHECKING:
+    from app.modules.tickets import Tickets
 
 log = logging.getLogger(__name__)
 
