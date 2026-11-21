@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import discord
 
@@ -13,6 +14,15 @@ class Diagnostic:
     level: str
     name: str
     description: str
+
+
+def timestamp_utc(value: int | None) -> str:
+    if not value:
+        return "нет"
+    try:
+        return datetime.fromtimestamp(value, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    except (OverflowError, ValueError, OSError):
+        return "неизвестно"
 
 
 async def collect(bot) -> list[Diagnostic]:
@@ -27,15 +37,17 @@ async def collect(bot) -> list[Diagnostic]:
         result.append(Diagnostic(
             "ok" if online else "warning", "Discord Gateway",
             f"Состояние: {'подключён' if online else 'отключён'}; "
-            f"последнее подключение UTC: {connected or 'нет'}; "
-            f"последний обрыв UTC: {disconnected or 'нет'}."))
+            f"последнее подключение: {timestamp_utc(connected)}; "
+            f"последний обрыв: {timestamp_utc(disconnected)}."))
         result.append(Diagnostic(
             "warning" if state["http_errors"] else "ok", "Ошибки Discord HTTP",
             f"Ошибок после начала учёта: {state['http_errors']}; "
             f"HTTP 429 после исчерпания повторов: {state['http_rate_limits']}; "
             f"последний статус: {state['last_http_status'] or 'нет'}."))
         history = state["history"][-6:]
-        description = "; ".join(f"{item['at']} {item['kind']}" for item in history)
+        description = "; ".join(
+            f"{timestamp_utc(item['at'])} {item['kind']}" +
+            (f" ({item['module']})" if item.get("module") else "") for item in history)
         result.append(Diagnostic("ok", "Журнал восстановления", description or "Событий ещё не было."))
     db_metrics = getattr(bot.database, "query_metrics", None) if getattr(bot, "database", None) else None
     if callable(db_metrics):
@@ -53,8 +65,8 @@ async def collect(bot) -> list[Diagnostic]:
         result.append(Diagnostic(
             "ok" if healthy else "warning", "Автоматические копии",
             f"Работает: {backup['running']}; последняя проверенная копия: "
-            f"{backup['last_verified'] or 'нет'}; "
-            f"экспорт вне volume: {backup['last_export'] or 'не выполнен'}; "
+            f"{timestamp_utc(backup['last_verified'])}; "
+            f"экспорт вне volume: {timestamp_utc(backup['last_export'])}; "
             f"ошибок: {backup['failures']}; причина: {backup['last_error'] or 'нет'}."))
     if guild is None:
         result.append(Diagnostic("error", "Сервер", "Бот не видит целевой сервер."))
