@@ -16,6 +16,8 @@ jobs:
           python-version: "3.12"
       - name: Установка зависимостей
         run: python -m pip install -r requirements-dev.txt
+      - name: Debug import order for split modules
+        run: ruff check --diff app/modules/membership.py app/modules/tickets.py app/modules/voice.py app/modules/moderation.py || true
       - name: Синтаксис и стиль
         run: ruff check .
       - name: Проверка компиляции
