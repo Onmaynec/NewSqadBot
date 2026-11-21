@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 import discord
 
 from app.core.permissions import can_manage_settings
 from app.services import voice as store
-from app.ui.theme import LoggedModal, LoggedView, card, notice, panel_card
+from app.ui.theme import LoggedModal, LoggedView, notice, panel_card
+
+if TYPE_CHECKING:
+    from app.modules.voice import Voice
 
 
 def room_name(raw: str) -> str:
