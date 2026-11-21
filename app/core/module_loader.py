@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.core.catalog import MODULES, implemented
+from app.core.module_contracts import validate as validate_module_contracts
 
 if TYPE_CHECKING:
     from app.bot import NewSqadBot
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 async def load_modules(bot: NewSqadBot) -> dict[str, str]:
+    validate_module_contracts()
     results: dict[str, str] = {}
     for module in MODULES:
         if not implemented(module.key):
