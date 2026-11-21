@@ -11,17 +11,15 @@ from discord.ext import commands
 from app.config import FEMALE_ROLE_ID
 from app.core.durations import NICKNAME_TEMPLATES, membership_nickname
 from app.core.permissions import can_manage_settings
-from app.modules.membership_views import (
-    ApplicationForm as ApplicationForm,
-    ApplyPanel as ApplyPanel,
-    FollowupQuestion as FollowupQuestion,
-    FormTypeSelect as FormTypeSelect,
-    NewMemberGuide as NewMemberGuide,
-    RejectForm as RejectForm,
-    ReviewView as ReviewView,
-    application_embed as application_embed,
-    clean as clean,
-)
+from app.modules.membership_views import ApplicationForm as ApplicationForm
+from app.modules.membership_views import ApplyPanel as ApplyPanel
+from app.modules.membership_views import FollowupQuestion as FollowupQuestion
+from app.modules.membership_views import FormTypeSelect as FormTypeSelect
+from app.modules.membership_views import NewMemberGuide as NewMemberGuide
+from app.modules.membership_views import RejectForm as RejectForm
+from app.modules.membership_views import ReviewView as ReviewView
+from app.modules.membership_views import application_embed as application_embed
+from app.modules.membership_views import clean as clean
 from app.services import applications as store
 from app.services.audit import log_event
 from app.services.membership_access import approved_member
