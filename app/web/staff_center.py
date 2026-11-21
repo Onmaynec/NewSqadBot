@@ -13,18 +13,24 @@ from datetime import datetime, timezone
 
 import discord
 from aiohttp import web
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.models import (
-    Application, ApplicationEvent, AuditEntry, ModerationAction, ModerationCase,
-    StaffOperation, StaffTask, StaffTemplate, Ticket, TicketCategory,
+    Application,
+    ApplicationEvent,
+    AuditEntry,
+    ModerationAction,
+    ModerationCase,
+    StaffOperation,
+    StaffTask,
+    StaffTemplate,
+    Ticket,
+    TicketCategory,
 )
 from app.services import applications, tickets
 from app.services.diagnostics import collect
-from app.web.server import (
-    guild_for, json_payload, require_csrf, require_role, state,
-)
+from app.web.server import json_payload, require_csrf, require_role, state
 
 OPEN_APPLICATION = ("pending", "in_review", "needs_info", "approving", "rejecting", "action_failed")
 OPEN_TICKET = ("open", "creating", "closing")
