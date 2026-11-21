@@ -48,7 +48,7 @@ def ticket_embed(ticket: Ticket, category: TicketCategory | None = None) -> disc
     e.add_field(name="Статус", value=labels.get(ticket.status, ticket.status), inline=True)
     e.add_field(name="Приоритет", value={
         "low": "Низкий", "normal": "Обычный", "high": "Высокий", "urgent": "Срочный",
-    }.get(ticket.priority, ticket.priority), inline=True)
+    }.get(getattr(ticket, "priority", "normal"), getattr(ticket, "priority", "normal")), inline=True)
     e.add_field(name="Автор", value=f"<@{ticket.user_id}>", inline=True)
     e.add_field(name="Ответственный", value=f"<@{ticket.assignee_id}>"
                 if ticket.assignee_id else "Не назначен", inline=True)
