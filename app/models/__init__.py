@@ -10,6 +10,7 @@ from app.models.moderation import ModerationAction, ModerationCase
 from app.models.party import PartyListing, PartyMember
 from app.models.progression import ExperienceAward, MemberProfile, MemberProgress
 from app.models.roles import LevelRoleReward, RolePanel, RolePanelOption, TemporaryRole, WelcomeDelivery
+from app.models.staff import StaffOperation, StaffTask, StaffTemplate
 from app.models.statistics import StatsDay, StatsPanel, StatsPresence, StatsReceipt, StatsServerDay
 from app.models.suggestions import (
     Suggestion,
@@ -22,6 +23,7 @@ from app.models.tickets import Ticket, TicketCategory, TicketEvent, TicketPanel,
 from app.models.voice import VoiceRoom, VoiceRoomAccess
 
 __all__ = (
+    "StaffTask", "StaffTemplate", "StaffOperation",
     "Base", "Announcement", "AnnouncementTemplate", "AuditEntry", "EventReceipt", "GuildSetting", "OutboxEvent", "ScheduledJob",
     "Application", "ApplicationEvent", "PartyListing", "PartyMember",
     "SupportSurvey", "WebNotice", "WebNoticeRead",
