@@ -1,5 +1,5 @@
 """v2.1.0: compact membership workflow metadata and privacy-safe review checklist."""
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
