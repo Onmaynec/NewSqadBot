@@ -11,7 +11,7 @@ from app.services import economy as service
 
 
 def test_validation_and_version():
-    assert VERSION == "1.9.0"
+    assert VERSION == "2.0.0"
     assert service.local_day(1_700_000_000, "Europe/Tallinn").isoformat() == "2023-11-15"
     assert service.code_field(" Role_Bronze ") == "role_bronze"
     with pytest.raises(ValueError):
@@ -31,7 +31,7 @@ def test_economy_migration(tmp_path):
     migrate(url)
     with sqlite3.connect(file) as sql:
         sql.execute("PRAGMA foreign_keys=ON")
-        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0015_support_live_ops"
+        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0016_staff_command_center"
         tables = {x[0] for x in sql.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"economy_wallets", "economy_ledger", "economy_shop_items", "economy_inventory"} <= tables
         sql.execute("INSERT INTO economy_wallets(guild_id,user_id,created_at,updated_at) VALUES (?,?,?,?)",
