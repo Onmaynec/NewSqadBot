@@ -101,6 +101,18 @@ docker compose run --rm --no-deps --entrypoint python bot -m app.ops.smoke
 
 Установка и обновление с миграцией базы: [RELEASE_2.0.0.md](docs/RELEASE_2.0.0.md).
 
+## Новое в v2.1.0 — Member Journey / Support / Voice Rooms 2.0
+
+Обновление углубляет работу заявок и поддержки, сохраняя локальную Obsidian Web Console:
+
+- **Кандидаты:** 8 дополнительных настраиваемых типов анкет, персональные чек-листы проверки, напоминания назначенному сотруднику, панель адаптации новичка через `/application guide`.
+- **Поддержка:** четыре приоритета, SLA первого ответа и бездействия с настраиваемыми порогами; сохранены категории, роли поддержки, шаблоны и анонимные оценки.
+- **Voice Rooms:** шаблоны public/private/team, сохранённые параметры владельца, приглашения и ACL через Discord, восстановление после рестарта и статистика без записи разговоров.
+- **Веб-API:** версия `/api/v1/*` и схема контракта `docs/api_contract_v1.json`. Старые `/api/staff` и `/api/portal` сохранены.
+- **UI и архитектура:** устаревшие отдельные файлы `obsidian.js`/`obsidian.css` объединены с основными `app.js`/`style.css`; бизнес-правила вынесены в отдельные сервисы.
+
+**Важное изменение:** миграция Alembic `0017_member_support_voice`. Перед обновлением сделайте резервную копию БД. [Инструкция релиза, тестирования и отката](docs/RELEASE_2.1.0.md).
+
 ## Новое в v1.9.0
 
 Операционная диагностика дополнена историей подключений Discord, ошибками HTTP, измерением запросов SQLite и состоянием фоновых задач. Бот создаёт проверяемые резервные копии каждые 24 часа, хранит 7 последних автоматических снимков и экспортирует копии в папку хоста `./backups` (снаружи Docker volume). **Перед запуском создайте папку и дайте пользователю контейнера право записи.** Подробнее: [RELEASE_1.9.0.md](docs/RELEASE_1.9.0.md).
@@ -137,7 +149,7 @@ python -m pip install -r requirements-dev.txt
 ruff check .
 python -m compileall -q app main.py
 python -m pytest -q
-node --check app/web/static/obsidian.js
+node --check app/web/static/journey.js
 node --test tests/*.test.cjs
 python scripts/check_secrets.py
 ```
@@ -183,6 +195,8 @@ tests/                      Python- и Node-регрессии
 - [Изменения v1.8.0](docs/RELEASE_1.8.0.md)
 - [Reliability & Operations v1.9.0](docs/RELEASE_1.9.0.md)
 - [Staff Command Center v2.0.0](docs/RELEASE_2.0.0.md)
+- [Member Journey, Support & Voice Rooms v2.1.0](docs/RELEASE_2.1.0.md)
+- [API v1 contract](docs/api_contract_v1.json)
 - [Приёмка и релиз v1.8.1](docs/RELEASE_1.8.1.md)
 
 ## Лицензирование
