@@ -1,4 +1,4 @@
-"""Вступление в NewSquad: одна анкета, приватное рассмотрение и восстановимые решения."""
+"""Вступление в NewSquad: типизированные формы, приватное рассмотрение и решения."""
 from __future__ import annotations
 
 import asyncio
@@ -14,6 +14,7 @@ from app.core.durations import NICKNAME_TEMPLATES, membership_nickname
 from app.core.permissions import can_manage_settings
 from app.services import applications as store
 from app.services.audit import log_event
+from app.services.membership_workflow import form_types, review_due_at, selected_form
 from app.ui.mentions import channel_mention, role_mention
 from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, panel_card
 
@@ -65,9 +66,16 @@ class ApplicationForm(LoggedModal, title="NewSquad — заявка на вст�
     inviter_field = discord.ui.Label(text="Кто тебя пригласил?", component=discord.ui.TextInput(
         min_length=1, max_length=120, placeholder="Ник участника или «Не знаю»"))
 
-    def __init__(self, cog: "Membership"):
+    def __init__(self, cog: "Membership", *, form_key: str = "standard", question: str = ""):
         super().__init__(timeout=600)
         self.cog = cog
+        self.form_key = form_key
+        self.extra_field = None
+        if question:
+            self.extra_field = discord.ui.Label(
+                text=question, component=discord.ui.TextInput(
+                    style=discord.TextStyle.paragraph, min_length=2, max_length=240))
+            self.add_item(self.extra_field)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         if not isinstance(interaction.user, discord.Member) or interaction.guild_id != self.cog.bot.config.guild_id:
@@ -100,12 +108,14 @@ class ApplicationForm(LoggedModal, title="NewSquad — заявка на вст�
         try:
             application = await store.submit(self.cog.bot.database, guild_id=interaction.guild_id,
                 user_id=interaction.user.id, username=interaction.user.name, name=name,
-                gender=gender, age=age, inviter=inviter)
+                gender=gender, age=age, inviter=inviter, form_key=self.form_key,
+                extra_answer=self.extra_field.component.value if self.extra_field else "")
         except ValueError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
             return
         try:
             await self.cog.publish(application)
+            await self.cog.schedule_review_reminder(application)
             note = f"Заявка **#{application.id:04d}** отправлена. Ожидайте решения администрации."
         except (discord.HTTPException, RuntimeError):
             log.exception("Не удалось опубликовать заявку #%s", application.id)
@@ -128,7 +138,35 @@ class ApplyPanel(LoggedView):
         if active:
             await interaction.response.send_message(f"У вас уже есть активная заявка #{active.id:04d}.", ephemeral=True)
             return
-        await interaction.response.send_modal(ApplicationForm(self.cog))
+        variants = await form_types(self.cog.bot.database, interaction.guild_id, enabled_only=True)
+        available = [row for row in variants if row["enabled"]]
+        if len(available) == 1:
+            await interaction.response.send_modal(ApplicationForm(self.cog))
+        else:
+            await interaction.response.send_message(
+                "Выберите подходящий тип заявки:", ephemeral=True,
+                view=FormTypeSelect(self.cog, available))
+
+
+class FormTypeSelect(discord.ui.View):
+    def __init__(self, cog: "Membership", forms: list[dict]):
+        super().__init__(timeout=180)
+        choices = [discord.SelectOption(label=item["title"][:100], value=item["key"])
+                   for item in forms[:9]]
+        select = discord.ui.Select(placeholder="Тип заявки", options=choices)
+
+        async def choose(interaction: discord.Interaction) -> None:
+            if interaction.guild_id != cog.bot.config.guild_id:
+                await interaction.response.send_message("Недоступный сервер.", ephemeral=True)
+                return
+            form = await selected_form(cog.bot.database, interaction.guild_id, select.values[0])
+            if form is None:
+                await interaction.response.send_message("Этот тип заявки отключён.", ephemeral=True)
+                return
+            await interaction.response.send_modal(
+                ApplicationForm(cog, form_key=form["key"], question=form["question"]))
+        select.callback = choose
+        self.add_item(select)
 
 
 class RejectForm(LoggedModal, title="Отклонение заявки"):
@@ -216,6 +254,7 @@ class Membership(commands.Cog):
         self.bot = bot
         self._execution_locks: dict[int, asyncio.Lock] = {}
         self._recovered = False
+        bot.scheduler.register("membership.review_reminder", self._send_review_reminder)
 
     async def cog_load(self) -> None:
         self.bot.add_view(ApplyPanel(self))
@@ -233,6 +272,8 @@ class Membership(commands.Cog):
                 await self.publish(app)
             except (discord.HTTPException, RuntimeError):
                 log.exception("Не удалось восстановить карточку заявки %s", app.id)
+        for app in await store.active_reviews(self.bot.database, self.bot.config.guild_id):
+            await self.schedule_review_reminder(app)
         for app in await store.unfinished(self.bot.database, self.bot.config.guild_id):
             if app.decision not in ("approve", "reject"):
                 continue
@@ -242,6 +283,38 @@ class Membership(commands.Cog):
                 await self.refresh(app.id)
             except Exception:
                 log.exception("Не удалось восстановить решение заявки #%s", app.id)
+
+    async def schedule_review_reminder(self, application) -> None:
+        if application.status not in store.REVIEWABLE:
+            return
+        hours = int(await self.bot.database.get_setting(
+            self.bot.config.guild_id, "membership_review_wait_hours", 12))
+        if not 1 <= hours <= 168:
+            return
+        start = application.stage_changed_at or application.created_at
+        await self.bot.scheduler.schedule(
+            job_key=f"membership:review:{application.id}:{start}",
+            handler="membership.review_reminder",
+            due_at=review_due_at(application, waiting_hours=hours),
+            payload={"application_id": application.id, "stage_at": start},
+        )
+
+    async def _send_review_reminder(self, payload: dict) -> None:
+        app = await store.get_application(self.bot.database, int(payload["application_id"]))
+        if app is None or app.guild_id != self.bot.config.guild_id or app.status not in store.REVIEWABLE:
+            return
+        if (app.stage_changed_at or app.created_at) != int(payload["stage_at"]):
+            await self.schedule_review_reminder(app)
+            return
+        if not app.reviewer_id:
+            log.info("Заявка #%s ожидает назначения сотрудника; уведомлять пока некого", app.id)
+            return
+        recipient = self.bot.get_user(app.reviewer_id) or await self.bot.fetch_user(app.reviewer_id)
+        await recipient.send(
+            f"NewSqad: заявка #{app.id:04d} долго ожидает решения ({app.status}). "
+            "Откройте канал рассмотрения. Личные данные кандидата не прикрепляются.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     async def can_review(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id != self.bot.config.guild_id:
