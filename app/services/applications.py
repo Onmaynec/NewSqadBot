@@ -113,7 +113,7 @@ async def transition(db, app_id: int, *, expected: tuple[str, ...], target: str,
         old = application.status
         stmt = update(Application).where(Application.id == app_id, Application.status == old).values(
             status=target, reviewer_id=actor_id, stage_changed_at=now,
-            **({"extra_answer": None} if target in ("approved", "rejected") else {}),
+            **({"extra_answer": None, "followup_answer": None} if target in ("approved", "rejected", "withdrawn") else {}),
             **({"decision": decision, "decision_reason": reason, "decided_at": now} if decision else {}))
         result = await session.execute(stmt)
         if result.rowcount != 1:
@@ -197,10 +197,10 @@ async def submit_answer(db, guild_id: int, app_id: int, user_id: int, answer: st
             return False
         changed = await session.execute(update(Application).where(
             Application.id == app_id, Application.status == "needs_info",
-        ).values(status="in_review", stage_changed_at=int(time.time())))
+        ).values(status="in_review", stage_changed_at=int(time.time()), followup_answer=answer))
         if changed.rowcount != 1:
             return False
         session.add(ApplicationEvent(application_id=app_id, actor_id=user_id,
             old_status="needs_info", new_status="in_review",
-            reason="Ответ кандидата: " + answer, created_at=int(time.time())))
+            reason="Кандидат предоставил ответ на уточнение.", created_at=int(time.time())))
         return True
