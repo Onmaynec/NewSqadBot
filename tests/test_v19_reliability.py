@@ -14,10 +14,14 @@ from app.core.database import Database, migrate
 from app.core.observability import OperationalJournal
 from app.core.scheduler import Scheduler
 from app.models import ScheduledJob
-from app.ops.backup import BackupError
 from app.ops.automatic_backup import (
-    BackupSettings, BackupWorker, create_automatic_backup, restore_probe, rotation,
+    BackupSettings,
+    BackupWorker,
+    create_automatic_backup,
+    restore_probe,
+    rotation,
 )
+from app.ops.backup import BackupError
 from app.services import applications, tickets
 
 
