@@ -18,13 +18,10 @@ from app.core.permissions import can_manage_settings
 from app.models import ModerationAction, ModerationCase, ScheduledJob
 from app.services import moderation_cases as cases_store
 from app.services.audit import log_event
+from app.services.moderation_policy import audit_reason, denied_target
 from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, notice, panel_card
 
 logger = logging.getLogger(__name__)
-
-
-def audit_reason(case_id: int, reason: str) -> str:
-    return f"[NSB-{case_id:05d}] {reason}"[:512]
 
 
 class Moderation(commands.Cog):
@@ -111,11 +108,11 @@ class Moderation(commands.Cog):
             return False
         if target is not None:
             member = interaction.guild.get_member(target.id)
-            if target.id == interaction.guild.owner_id or target.id == interaction.user.id or (
-                member and (member.guild_permissions.administrator or
-                            member.top_role >= interaction.user.top_role and not can_manage_settings(interaction, self.bot.config.owner_ids))
-            ):
-                await interaction.response.send_message("Нельзя наказать этого участника.", ephemeral=True)
+            denial = denied_target(
+                actor=interaction.user, guild=interaction.guild, target_id=target.id,
+                target=member, privileged=can_manage_settings(interaction, self.bot.config.owner_ids))
+            if denial:
+                await interaction.response.send_message(denial, ephemeral=True)
                 return False
         return True
 
@@ -575,11 +572,11 @@ class Moderation(commands.Cog):
             me = guild.me
             if me is None:
                 return "Discord не вернул права бота."
-            if target is not None:
-                if (target.guild_permissions.administrator or
-                    target.top_role >= me.top_role or
-                    (actor.id != guild.owner_id and target.top_role >= actor.top_role)):
-                    return "Недостаточно прав по иерархии ролей участника."
+            denial = denied_target(
+                actor=actor, guild=guild, target_id=target_id, target=target,
+                bot_member=me, privileged=actor.id == guild.owner_id)
+            if denial:
+                return denial
             if kind == "ban" and not me.guild_permissions.ban_members:
                 return "У бота нет разрешения Ban Members."
             if kind == "kick" and not me.guild_permissions.kick_members:
