@@ -15,3 +15,6 @@ data/
 *.db-shm
 *.db-wal
 .DS_Store
+
+# Off-volume SQLite snapshots (do not commit)
+backups/
