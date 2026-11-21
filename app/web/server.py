@@ -56,7 +56,6 @@ def local_host(value: str) -> bool:
 @web.middleware
 async def security_headers(request: web.Request, handler):
     host = request.headers.get("Host", "")
-    panel = state(request)
     if not local_host(host):
         response = web.json_response({"error": "Недопустимый адрес сайта."}, status=421)
     elif request.method not in ("GET", "HEAD"):
