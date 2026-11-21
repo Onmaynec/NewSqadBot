@@ -175,7 +175,7 @@ async function refresh() {
 async function confirmDiscard() {
   if (ui.saving) { toast("Сохранение ещё выполняется.", true); return false; }
   const hasSettings = ui.dirty.size > 0;
-  const hasReply = Boolean(window.Portal?.hasDraft?.() || window.StaffCenter?.hasDraft?.());
+  const hasReply = Boolean(window.Portal?.hasDraft?.() || window.StaffCenter?.hasDraft?.() || window.MemberSupportVoice?.hasDraft?.());
   if (!hasSettings && !hasReply) return true;
   return new Promise((resolve) => {
     const dialog = $("leave-dialog");
@@ -234,9 +234,9 @@ function renderNav() {
   const portalGroups = Portal.menu[ui.role] || Portal.menu.support;
   const groups = ui.role === "owner"
     ? [...portalGroups, ...ui.data.groups, "Диагностика"] : portalGroups;
-  const workspace = new Set(["Обзор", "Единая очередь", "Мои задачи", "Уведомления", "Заявки", "Тикеты", "Шаблоны ответов"]);
+  const workspace = new Set(["Обзор", "Единая очередь", "Кандидаты и адаптация", "SLA поддержки", "Мои задачи", "Уведомления", "Заявки", "Тикеты", "Шаблоны ответов"]);
   const insights = new Set(["Качество поддержки", "Аналитика", "Аналитика команды", "История сотрудников", "Рейтинги", "Активность", "Аудит"]);
-  const system = new Set(["Диагностика", "Центр состояния"]);
+  const system = new Set(["Диагностика", "Центр состояния", "Голосовые 2.0"]);
   const categorize = (group) => {
     if (workspace.has(group)) return "РАБОЧАЯ ОБЛАСТЬ";
     if (insights.has(group)) return "АНАЛИТИКА";
