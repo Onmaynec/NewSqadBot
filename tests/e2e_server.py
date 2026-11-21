@@ -28,6 +28,7 @@ class Guild:
     banner = None
     roles = ()
     channels = ()
+    members = ()
     me = None
 
     def get_role(self, _id):
