@@ -18,8 +18,47 @@ class Diagnostic:
 async def collect(bot) -> list[Diagnostic]:
     result: list[Diagnostic] = []
     guild = bot.get_guild(bot.config.guild_id)
+    journal = getattr(bot, "operations", None)
+    if journal is not None:
+        state = journal.snapshot()
+        connected = state["last_connected_at"]
+        disconnected = state["last_disconnected_at"]
+        online = bool(getattr(bot, "is_ready", lambda: False)() and guild)
+        result.append(Diagnostic(
+            "ok" if online else "warning", "Discord Gateway",
+            f"Состояние: {'подключён' if online else 'отключён'}; "
+            f"последнее подключение UTC: {connected or 'нет'}; "
+            f"последний обрыв UTC: {disconnected or 'нет'}."))
+        result.append(Diagnostic(
+            "warning" if state["http_errors"] else "ok", "Ошибки Discord HTTP",
+            f"Ошибок после начала учёта: {state['http_errors']}; "
+            f"HTTP 429 после исчерпания повторов: {state['http_rate_limits']}; "
+            f"последний статус: {state['last_http_status'] or 'нет'}."))
+        history = state["history"][-6:]
+        description = "; ".join(f"{item['at']} {item['kind']}" for item in history)
+        result.append(Diagnostic("ok", "Журнал восстановления", description or "Событий ещё не было."))
+    db_metrics = getattr(bot.database, "query_metrics", None) if getattr(bot, "database", None) else None
+    if callable(db_metrics):
+        values = db_metrics()
+        result.append(Diagnostic(
+            "warning" if values["slow_queries"] or values["failed_queries"] else "ok",
+            "SQLite: время запросов",
+            f"Запросов: {values['queries']}; медленных (от 500 мс): {values['slow_queries']}; "
+            f"ошибок: {values['failed_queries']}; последний: {values['last_ms']} мс; "
+            f"максимум: {values['max_ms']} мс."))
+    backups = getattr(bot, "backups", None)
+    if backups is not None:
+        backup = backups.status()
+        healthy = backup["running"] and backup["last_success"] and not backup["last_error"]
+        result.append(Diagnostic(
+            "ok" if healthy else "warning", "Автоматические копии",
+            f"Работает: {backup['running']}; последняя проверенная копия: "
+            f"{backup['last_verified'] or 'нет'}; "
+            f"экспорт вне volume: {backup['last_export'] or 'не выполнен'}; "
+            f"ошибок: {backup['failures']}; причина: {backup['last_error'] or 'нет'}."))
     if guild is None:
-        return [Diagnostic("error", "Сервер", "Бот не видит целевой сервер.")]
+        result.append(Diagnostic("error", "Сервер", "Бот не видит целевой сервер."))
+        return result
     try:
         ready = await bot.database.ping()
     except Exception:
