@@ -106,7 +106,7 @@ async def inbox(request: web.Request) -> web.Response:
                     "kind": "application", "id": app.id, "title": app.name,
                     "status": app.status, "assigned_to": str(app.reviewer_id) if app.reviewer_id else None,
                     "user_id": str(app.user_id), "created_at": app.created_at,
-                    "link": "Заявки", "details": app.username,
+                    "link": "Заявки", "details": app.username, "form_key": app.form_key,
                 })
         if kind in ("all", "ticket", "complaint"):
             rows = (await session.execute(select(Ticket, TicketCategory.key).join(
@@ -122,6 +122,7 @@ async def inbox(request: web.Request) -> web.Response:
                     "status": ticket.status, "assigned_to": str(ticket.assignee_id) if ticket.assignee_id else None,
                     "user_id": str(ticket.user_id), "created_at": ticket.updated_at,
                     "link": "Тикеты", "details": "Жалоба" if ticket_kind == "complaint" else "Поддержка",
+                    "priority": ticket.priority,
                 })
         if kind in ("all", "moderation"):
             cases = (await session.scalars(select(ModerationCase).where(
@@ -141,7 +142,9 @@ async def inbox(request: web.Request) -> web.Response:
     if query:
         items = [item for item in items if query in
                  (" ".join(str(item[k]) for k in ("id", "title", "user_id", "details"))).casefold()]
-    items.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
+    rank = {"urgent": 4, "high": 3, "normal": 2, "low": 1}
+    items.sort(key=lambda item: (rank.get(item.get("priority"), 0),
+                                 item["created_at"], item["id"]), reverse=True)
     return web.json_response({"items": items[:200], "total": len(items),
                               "operator_id": str(operator_id) if operator_id else None,
                               "counts": {key: sum(row["kind"] == key for row in items)
