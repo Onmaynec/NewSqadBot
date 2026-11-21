@@ -15,6 +15,7 @@ from app.core.permissions import can_manage_settings
 from app.services import applications as store
 from app.services.audit import log_event
 from app.services.membership_workflow import form_types, review_due_at, selected_form
+from app.services.membership_access import approved_member
 from app.ui.mentions import channel_mention, role_mention
 from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, panel_card
 
@@ -244,6 +245,53 @@ class ReviewView(LoggedView):
     @discord.ui.button(label="Уточнить", style=discord.ButtonStyle.secondary, custom_id="ask", row=1)
     async def ask(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await interaction.response.send_modal(FollowupQuestion(self.cog, self.app_id))
+
+
+class NewMemberGuide(discord.ui.View):
+    """Ephemeral onboarding navigator; visible channels checked against Discord ACL."""
+    def __init__(self, bot, owner_id: int):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.owner_id = owner_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Эта панель принадлежит другому участнику.", ephemeral=True)
+            return False
+        return True
+
+    async def _configuration(self, interaction: discord.Interaction):
+        from app.web.v21 import ONBOARDING_DEFAULT
+
+        return await self.bot.database.get_setting(
+            interaction.guild_id, "membership_onboarding", ONBOARDING_DEFAULT)
+
+    @discord.ui.button(label="Правила", style=discord.ButtonStyle.primary)
+    async def rules(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        cfg = await self._configuration(interaction)
+        await interaction.response.send_message(
+            discord.utils.escape_mentions(cfg["rules"]), ephemeral=True)
+
+    @discord.ui.button(label="Каналы", style=discord.ButtonStyle.secondary)
+    async def channels(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        cfg = await self._configuration(interaction)
+        channels = []
+        for channel_id in cfg["channel_ids"]:
+            channel = interaction.guild.get_channel(channel_id)
+            if channel and channel.permissions_for(interaction.user).view_channel:
+                channels.append(channel.mention)
+        await interaction.response.send_message(
+            "Доступные каналы: " + (", ".join(channels) if channels else
+            "Администратор пока не настроил список."), ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none())
+
+    @discord.ui.button(label="Первые задания", style=discord.ButtonStyle.secondary)
+    async def tasks(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        cfg = await self._configuration(interaction)
+        await interaction.response.send_message(
+            "**Начните здесь:**\\n" + "\\n".join(
+                f"{i}. {discord.utils.escape_mentions(item)}"
+                for i, item in enumerate(cfg["tasks"], 1)), ephemeral=True)
 
 
 class Membership(commands.Cog):
@@ -723,6 +771,20 @@ class Membership(commands.Cog):
                 ("Каналы", "\n".join(places)),
             ), ephemeral=True,
         )
+
+    @application_commands.command(name="guide", description="Панель адаптации нового участника")
+    async def guide_command(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id != self.bot.config.guild_id or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Команда доступна на NewSqad.", ephemeral=True)
+            return
+        candidate_id = await self.bot.database.get_setting(interaction.guild_id, "candidate_role_id")
+        if not await approved_member(self.bot.database, interaction.user, candidate_id):
+            await interaction.response.send_message(
+                "Панель адаптации появится после одобрения заявки.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            "**Добро пожаловать в NewSqad!** Выберите раздел:",
+            view=NewMemberGuide(self.bot, interaction.user.id), ephemeral=True)
 
     @application_commands.command(name="status", description="Статус вашей анкеты")
     async def own_status(self, interaction: discord.Interaction) -> None:
