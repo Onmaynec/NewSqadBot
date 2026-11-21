@@ -10,6 +10,9 @@ services:
     environment:
       WEB_ADMIN_BIND: 0.0.0.0
       WEB_ADMIN_PORT: "8787"
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_KEEP: ${BACKUP_KEEP:-7}
+      BACKUP_EXPORT_DIR: /app/backup-export
     ports:
       - "127.0.0.1:${WEB_ADMIN_PORT:-8787}:8787"
     restart: unless-stopped
@@ -23,6 +26,11 @@ services:
       - no-new-privileges:true
     volumes:
       - newsqad_data:/app/data
+      # Backups are additionally exported to this host directory, outside the SQLite volume.
+      # The unprivileged bot user must be able to write into it.
+      - type: bind
+        source: ${BACKUP_EXPORT_HOST_DIR:-./backups}
+        target: /app/backup-export
     healthcheck:
       test: ["CMD", "python", "-m", "app.healthcheck"]
       interval: 30s
