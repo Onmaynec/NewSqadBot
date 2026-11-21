@@ -14,8 +14,8 @@ from app.core.durations import NICKNAME_TEMPLATES, membership_nickname
 from app.core.permissions import can_manage_settings
 from app.services import applications as store
 from app.services.audit import log_event
-from app.services.membership_workflow import form_types, review_due_at, selected_form
 from app.services.membership_access import approved_member
+from app.services.membership_workflow import form_types, review_due_at, selected_form
 from app.ui.mentions import channel_mention, role_mention
 from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, panel_card
 
