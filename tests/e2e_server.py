@@ -31,6 +31,15 @@ class Guild:
     members = ()
     me = None
 
+    def get_member(self, _id):
+        if _id == self.owner_id:
+            return SimpleNamespace(id=self.owner_id, display_name="Локальный владелец",
+                display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/embed/avatars/0.png"))
+        return None
+
+    async def fetch_member(self, _id):
+        return self.get_member(_id)
+
     def get_role(self, _id):
         return None
 

@@ -14,8 +14,9 @@ from sqlalchemy import func, select, update
 from app.core.database import Database, migrate
 from app.models import Application, SupportSurvey, TemporaryRole, Ticket, WebNotice
 from app.services import support_quality, tickets, web_notifications
-from app.web.oauth import ADMIN_ROLE, MODER_ROLE, OWNER_ROLE, TICKET_ROLE
+from app.web.auth import hash_password
 from app.web.server import STATE, create_app
+from app.web.staff_roles import ADMIN_ROLE, MODER_ROLE, OWNER_ROLE, TICKET_ROLE
 
 
 class Member:
@@ -54,7 +55,7 @@ class Guild:
 class FakeBot:
     def __init__(self, db):
         self.database = db
-        self.config = SimpleNamespace(guild_id=777, timezone="Europe/Tallinn")
+        self.config = SimpleNamespace(guild_id=777, timezone="Europe/Tallinn", web_local_operator_id=14)
         self.module_states = {"moderation": "active", "tickets": "active"}
         self.guild = Guild()
         self.intents = SimpleNamespace(presences=False)
@@ -77,7 +78,7 @@ def test_schema_migrates_to_v17_without_ticket_text_storage(tmp_path):
     migrate(url)
     migrate(url)
     with sqlite3.connect(tmp_path / "v17.db") as sql:
-        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0015_support_live_ops"
+        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0016_staff_command_center"
         columns = {row[1] for row in sql.execute("PRAGMA table_info(support_surveys)")}
         assert {"requester_id", "staff_id", "response_seconds", "rating"} <= columns
         assert "subject" not in columns and "message" not in columns and "ticket_id" not in columns
@@ -169,31 +170,28 @@ async def test_dashboard_quality_and_notice_http_permissions(tmp_path):
     migrate(url)
     db = Database(url)
     bot = FakeBot(db)
-    app = create_app(bot, "", discord_client_id="1234567890",
-                     discord_client_secret="fake_secret_for_test",
-                     public_url="https://portal.example.ts.net")
+    app = create_app(bot, hash_password("Local admin password is long"))
     try:
         async with TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True)) as client:
-            for uid, role in ((11, "owner"), (12, "admin"), (13, "moder"), (14, "support")):
-                token, record = app[STATE].sessions.create(user_id=uid)
-                client.session.cookie_jar.update_cookies(
-                    {"nsb_session": token}, response_url=client.make_url("/"))
-                dashboard = await client.get("/api/portal/dashboard")
-                assert dashboard.status == 200, await dashboard.text()
-                data = await dashboard.json()
-                assert data["role"] == role and data["discord_connected"]
-                assert not data["presence_available"] and data["online_staff"] is None
-                quality = await client.get("/api/portal/support-quality?days=30")
-                assert quality.status == (200 if uid in (11, 12) else 403)
-                inbox = await client.get("/api/portal/notifications")
-                assert inbox.status == 200
-                headers = {"Origin": str(client.make_url("/")).rstrip("/"),
-                           "X-CSRF-Token": record.csrf}
-                no_csrf = await client.post("/api/portal/notifications/all/read",
-                                            json={}, headers={"Origin": headers["Origin"]})
-                assert no_csrf.status == 403
-                assert (await client.post("/api/portal/notifications/all/read",
-                                          json={}, headers=headers)).status == 200
+            token, record = app[STATE].sessions.create()
+            client.session.cookie_jar.update_cookies(
+                {"nsb_session": token}, response_url=client.make_url("/"))
+            dashboard = await client.get("/api/portal/dashboard")
+            assert dashboard.status == 200, await dashboard.text()
+            data = await dashboard.json()
+            assert data["role"] == "owner" and data["discord_connected"]
+            assert not data["presence_available"] and data["online_staff"] is None
+            quality = await client.get("/api/portal/support-quality?days=30")
+            assert quality.status == 200
+            inbox = await client.get("/api/portal/notifications")
+            assert inbox.status == 200
+            headers = {"Origin": str(client.make_url("/")).rstrip("/"),
+                       "X-CSRF-Token": record.csrf}
+            no_csrf = await client.post("/api/portal/notifications/all/read",
+                                        json={}, headers={"Origin": headers["Origin"]})
+            assert no_csrf.status == 403
+            assert (await client.post("/api/portal/notifications/all/read",
+                                      json={}, headers=headers)).status == 200
     finally:
         await db.close()
 

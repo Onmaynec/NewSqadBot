@@ -88,7 +88,7 @@ def test_product_pages_keep_existing_api_contracts_and_accessibility():
                      "overview-kpi"):
         assert fragment in portal and fragment in css
     for identifier in ('id="login-guild-icon"', 'id="login-mode-label"',
-                       'id="login-security-note"', 'id="discord-login"',
+                       'id="login-security-note"',
                        'id="overview-guild-name"', 'id="overview-live"'):
         assert identifier in html
     assert 'login-mode-label' in app

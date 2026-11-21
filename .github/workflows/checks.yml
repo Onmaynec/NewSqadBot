@@ -28,6 +28,7 @@ jobs:
           node --check app/web/static/portal.js
           node --check app/web/static/manage.js
           node --check app/web/static/obsidian.js
+          node --check app/web/static/staff.js
       - name: Проверка поведения Obsidian в браузерной модели
         run: node --test tests/*.test.cjs
   docker:

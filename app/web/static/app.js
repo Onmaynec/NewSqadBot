@@ -81,16 +81,10 @@ async function api(path, options = {}) {
 function loginScreen(visible) {
   $("login-screen").hidden = !visible;
   $("shell").hidden = visible;
-  $("discord-login").hidden = ui.auth_method !== "discord";
-  $("login-form").hidden = ui.auth_method === "discord";
-  $("login-mode-label").textContent = ui.auth_method === "discord"
-    ? "ЗАЩИЩЁННЫЙ ВХОД ЧЕРЕЗ DISCORD" : "ЛОКАЛЬНАЯ ПАНЕЛЬ УПРАВЛЕНИЯ";
-  $("login-security-note").textContent = ui.auth_method === "discord"
-    ? "Доступ определяется вашей ролью на Discord-сервере. Сеанс завершается через 4 часа."
-    : "Доступ только с локального компьютера. Сеанс завершается через 4 часа.";
-  $("sidebar-access-label").textContent = ui.auth_method === "discord"
-    ? "Вход через Discord · доступ по ролям"
-    : "Только локальный доступ · 127.0.0.1";
+  $("login-form").hidden = false;
+  $("login-mode-label").textContent = "ЛОКАЛЬНАЯ ПАНЕЛЬ УПРАВЛЕНИЯ";
+  $("login-security-note").textContent = "Локальный доступ по паролю. Сеанс завершается через 4 часа.";
+  $("sidebar-access-label").textContent = "Только локальный доступ · 127.0.0.1";
   if (visible) {
     ui.data = null; ui.csrf = ""; ui.dirty.clear();
     Portal.stopNotices();
@@ -109,7 +103,7 @@ async function initialize() {
       $("login-initials").textContent = (branding.name || "NS").slice(0, 2).toUpperCase();
     }
     const session = await api("/api/session");
-    ui.auth_method = session.auth_method || "password";
+    ui.auth_method = "password";
     if (session.authenticated) {
       ui.csrf = session.csrf;
       ui.role = session.role || "owner";
@@ -181,7 +175,7 @@ async function refresh() {
 async function confirmDiscard() {
   if (ui.saving) { toast("Сохранение ещё выполняется.", true); return false; }
   const hasSettings = ui.dirty.size > 0;
-  const hasReply = window.Portal?.hasDraft?.() || false;
+  const hasReply = Boolean(window.Portal?.hasDraft?.() || window.StaffCenter?.hasDraft?.());
   if (!hasSettings && !hasReply) return true;
   return new Promise((resolve) => {
     const dialog = $("leave-dialog");
@@ -240,9 +234,9 @@ function renderNav() {
   const portalGroups = Portal.menu[ui.role] || Portal.menu.support;
   const groups = ui.role === "owner"
     ? [...portalGroups, ...ui.data.groups, "Диагностика"] : portalGroups;
-  const workspace = new Set(["Обзор", "Уведомления", "Заявки", "Тикеты"]);
-  const insights = new Set(["Качество поддержки", "Аналитика", "Рейтинги", "Активность", "Аудит"]);
-  const system = new Set(["Диагностика"]);
+  const workspace = new Set(["Обзор", "Единая очередь", "Мои задачи", "Уведомления", "Заявки", "Тикеты", "Шаблоны ответов"]);
+  const insights = new Set(["Качество поддержки", "Аналитика", "Аналитика команды", "История сотрудников", "Рейтинги", "Активность", "Аудит"]);
+  const system = new Set(["Диагностика", "Центр состояния"]);
   const categorize = (group) => {
     if (workspace.has(group)) return "РАБОЧАЯ ОБЛАСТЬ";
     if (insights.has(group)) return "АНАЛИТИКА";
@@ -287,7 +281,8 @@ function renderPage() {
     : isDiagnostic ? "МОНИТОРИНГ" : isPortal ? "УПРАВЛЕНИЕ СООБЩЕСТВОМ" : "КОНФИГУРАЦИЯ / NEW SQUAD";
   $("page-title").textContent = ownerOverview ? "Обзор системы" : ui.group === "Обзор"
     ? "Панель управления" : ui.group;
-  $("page-subtitle").textContent = window.Management?.descriptions?.[ui.group]
+  $("page-subtitle").textContent = window.StaffCenter?.descriptions?.[ui.group]
+    || window.Management?.descriptions?.[ui.group]
     || Portal.descriptions[ui.group] || blurbs[ui.group]
     || "Настройки и инструменты NewSqad.";
   if (isConfig) renderSettings();
@@ -507,9 +502,6 @@ window.portalFindSetting = async (group, key) => {
 window.portalReload = () => Portal.render(ui.group);
 window.portalToast = (message, error = false) => toast(message, error);
 $("notice-button").addEventListener("click", () => {void navigate("Уведомления");});
-$("discord-login").addEventListener("click", () => {
-  window.location.assign("/auth/discord");
-});
 $("login-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const submit = $("login-submit");
@@ -542,7 +534,7 @@ $("discard-changes").addEventListener("click", () => {
   toast("Изменения сброшены.");
 });
 window.addEventListener("beforeunload", (event) => {
-  if (ui.dirty.size || ui.saving || window.Portal?.hasDraft?.()) {
+  if (ui.dirty.size || ui.saving || window.Portal?.hasDraft?.() || window.StaffCenter?.hasDraft?.()) {
     event.preventDefault();
     event.returnValue = "";
   }

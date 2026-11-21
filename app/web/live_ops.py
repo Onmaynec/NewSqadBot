@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 async def admin(request: web.Request):
     _, actor = await require_role(request, "admin")
     if actor is None:
-        raise web.HTTPForbidden(text="Для изменения Discord нужен OAuth-вход.")
+        raise web.HTTPForbidden(text="Не удалось определить локального оператора Discord.")
     bot = state(request).bot
     guild = guild_for(bot)
     if guild is None:

@@ -1,6 +1,6 @@
 """Однопроцессная web-консоль: локальный порт, пароль, CSRF, whitelist настроек.
 
-Поддерживает отдельный Discord OAuth на публичном HTTPS и локальный пароль без OAuth.
+Только localhost + пароль с PBKDF2; публичные OAuth-маршруты отключены.
 Discord данные берутся из работающего бота; секреты из .env никогда не возвращаются.
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ import hmac
 import json
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -24,7 +24,6 @@ from app.services.diagnostics import collect
 from app.services.role_rules import DANGEROUS_PERMISSION_NAMES
 from app.web.auth import SessionStore, validate_hash, verify_password
 from app.web.catalog import BY_KEY, GROUPS, SETTINGS, Setting
-from app.web.oauth import authorize_url, consume_state, exchange_code, new_state, permission
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).parent / "static"
@@ -37,10 +36,6 @@ class PanelState:
     bot: object
     password_hash: str
     sessions: SessionStore
-    discord_client_id: str = ""
-    discord_client_secret: str = ""
-    public_url: str = ""
-    pending_states: dict[str, float] = field(default_factory=dict)
 
 
 STATE = web.AppKey("state", PanelState)
@@ -61,13 +56,11 @@ def local_host(value: str) -> bool:
 @web.middleware
 async def security_headers(request: web.Request, handler):
     host = request.headers.get("Host", "")
-    panel = state(request)
-    public_host = urlsplit(panel.public_url).netloc if panel.public_url else ""
-    if not local_host(host) and host != public_host:
+    if not local_host(host):
         response = web.json_response({"error": "Недопустимый адрес сайта."}, status=421)
     elif request.method not in ("GET", "HEAD"):
         # Никакой обработки POST от произвольных интернет-сайтов.
-        expected = panel.public_url if host == public_host else f"http://{host}"
+        expected = f"http://{host}"
         if request.headers.get("Origin") != expected:
             response = web.json_response({"error": "Запрос с другого сайта запрещён."}, status=403)
         else:
@@ -107,15 +100,30 @@ def require_auth(request: web.Request):
 
 
 async def require_role(request: web.Request, role: str = "support"):
+    """Single local password grants owner rights; optional Discord actor is for API effects.
+
+    The operator identity is NOT authentication. The audit source is local_password;
+    when no member can be resolved, mutating Discord endpoints must fail closed.
+    """
     session = require_auth(request)
-    if session.user_id is None:
-        if state(request).discord_client_id:
-            raise web.HTTPUnauthorized(text="Войдите через Discord.")
-        # Пароль для localhost является локальным владельцем.
-        if not local_host(request.headers.get("Host", "")):
-            raise web.HTTPForbidden(text="Парольный вход разрешён только локально.")
+    if session.user_id is not None or not local_host(request.headers.get("Host", "")):
+        raise web.HTTPForbidden(text="Разрешён только локальный вход по паролю.")
+    bot = state(request).bot
+    guild = bot.get_guild(bot.config.guild_id)
+    if guild is None or not bot.is_ready():
         return "owner", None
-    return await permission(state(request).bot, session.user_id, role)
+    target_id = getattr(bot.config, "web_local_operator_id", 0) or getattr(guild, "owner_id", 0)
+    if not target_id:
+        return "owner", None
+    lookup = getattr(guild, "get_member", None)
+    member = lookup(target_id) if callable(lookup) else None
+    fetch = getattr(guild, "fetch_member", None)
+    if member is None and callable(fetch):
+        try:
+            member = await fetch(target_id)
+        except discord.HTTPException:
+            log.warning("Не удалось определить локального оператора Discord")
+    return "owner", member
 
 
 def require_csrf(request: web.Request) -> None:
@@ -146,7 +154,7 @@ async def index(request: web.Request) -> web.FileResponse:
 
 async def static_file(request: web.Request) -> web.FileResponse:
     name = request.match_info["name"]
-    if name not in ("app.js", "portal.js", "manage.js", "style.css", "obsidian.css", "obsidian.js"):
+    if name not in ("app.js", "portal.js", "manage.js", "staff.js", "style.css", "obsidian.css", "staff.css", "obsidian.js"):
         raise web.HTTPNotFound()
     # Cached versions of Obsidian JS could still freeze the tab after a fix.
     return web.FileResponse(ROOT / name, headers={"Cache-Control": "no-store"})
@@ -166,24 +174,22 @@ async def session_info(request: web.Request) -> web.Response:
     session = panel.sessions.get(request.cookies.get(COOKIE))
     if session is None:
         return web.json_response({"authenticated": False, "csrf": None,
-                                  "auth_method": "discord" if panel.discord_client_id else "password"})
+                                  "auth_method": "password"})
     try:
         role, member = await require_role(request)
     except web.HTTPException:
         return web.json_response({"authenticated": False, "csrf": None,
-                                  "auth_method": "discord" if panel.discord_client_id else "password"})
+                                  "auth_method": "password"})
     return web.json_response({
         "authenticated": True, "csrf": session.csrf, "role": role,
         "user": {"id": str(member.id), "name": member.display_name,
                  "avatar_url": str(member.display_avatar.url)} if member else None,
-        "auth_method": "discord" if panel.discord_client_id else "password",
+        "auth_method": "password",
     })
 
 
 async def login(request: web.Request) -> web.Response:
     panel = state(request)
-    if panel.discord_client_id:
-        raise web.HTTPForbidden(text="Вход по паролю выключен. Используйте Discord.")
     if not local_host(request.headers.get("Host", "")):
         raise web.HTTPForbidden(text="Пароль доступен только локально.")
     peer = request.remote or "unknown"
@@ -203,52 +209,6 @@ async def login(request: web.Request) -> web.Response:
     log.info("Успешный вход в локальную административную панель")
     return response
 
-
-
-async def oauth_start(request: web.Request) -> web.Response:
-    panel = state(request)
-    if not panel.discord_client_id:
-        raise web.HTTPNotFound()
-    # Cookie must be issued from public HTTPS origin: localhost cookie cannot
-    # return to a distinct ts.net callback host.
-    host = request.headers.get("Host", "")
-    if host != urlsplit(panel.public_url).netloc:
-        return web.Response(status=302, headers={"Location": panel.public_url + "/auth/discord"})
-    ticket = new_state(panel.pending_states)
-    redirect = panel.public_url + "/auth/callback"
-    location = authorize_url(panel.discord_client_id, redirect, ticket)
-    response = web.Response(status=302, headers={"Location": location})
-    response.set_cookie("nsb_oauth_state", ticket, httponly=True, secure=True,
-                        samesite="Lax", max_age=300, path="/auth")
-    return response
-
-
-async def oauth_callback(request: web.Request) -> web.Response:
-    panel = state(request)
-    if not panel.discord_client_id:
-        raise web.HTTPNotFound()
-    oauth_state = request.query.get("state")
-    code = request.query.get("code")
-    if not consume_state(panel.pending_states, oauth_state,
-                         request.cookies.get("nsb_oauth_state")):
-        raise web.HTTPForbidden(text="Сессия авторизации устарела или не совпадает.")
-    if not isinstance(code, str) or not 1 <= len(code) <= 1024:
-        raise web.HTTPBadRequest(text="Discord не прислал код авторизации.")
-    try:
-        uid = await exchange_code(panel.discord_client_id, panel.discord_client_secret,
-                                  panel.public_url + "/auth/callback", code)
-        await permission(panel.bot, uid, "support")
-    except web.HTTPException:
-        raise
-    except (OSError, TimeoutError) as exc:
-        log.warning("Discord OAuth временно недоступен")
-        raise web.HTTPBadGateway(text="Discord временно недоступен.") from exc
-    token, _ = panel.sessions.create(user_id=uid)
-    response = web.Response(status=302, headers={"Location": panel.public_url + "/"})
-    response.set_cookie(COOKIE, token, httponly=True, secure=True,
-                        samesite="Lax", max_age=4 * 3600, path="/")
-    response.del_cookie("nsb_oauth_state", path="/auth")
-    return response
 
 
 async def logout(request: web.Request) -> web.Response:
@@ -518,21 +478,16 @@ async def diagnostics(request: web.Request) -> web.Response:
         return web.json_response({"error": "Ошибка диагностики. Смотрите Docker-логи."}, status=503)
 
 
-def create_app(bot, password_hash: str, *, discord_client_id: str = "",
-               discord_client_secret: str = "", public_url: str = "") -> web.Application:
-    if not discord_client_id and not validate_hash(password_hash):
-        raise ValueError("WEB_ADMIN_PASSWORD_HASH некорректен: выполните python -m app.web.auth hash")
+def create_app(bot, password_hash: str) -> web.Application:
+    if not validate_hash(password_hash):
+        raise ValueError("WEB_ADMIN_PASSWORD_HASH обязателен: python -m app.web.auth hash")
     app = web.Application(middlewares=[security_headers], client_max_size=MAX_JSON)
-    app[STATE] = PanelState(bot=bot, password_hash=password_hash, sessions=SessionStore(),
-                            discord_client_id=discord_client_id,
-                            discord_client_secret=discord_client_secret, public_url=public_url)
+    app[STATE] = PanelState(bot=bot, password_hash=password_hash, sessions=SessionStore())
     app.router.add_get("/", index)
     app.router.add_get("/static/{name}", static_file)
     app.router.add_get("/api/site", site_info)
     app.router.add_get("/api/session", session_info)
     app.router.add_post("/api/login", login)
-    app.router.add_get("/auth/discord", oauth_start)
-    app.router.add_get("/auth/callback", oauth_callback)
     app.router.add_post("/api/logout", logout)
     app.router.add_get("/api/bootstrap", bootstrap)
     app.router.add_get("/api/diagnostics", diagnostics)
@@ -543,15 +498,10 @@ def create_app(bot, password_hash: str, *, discord_client_id: str = "",
     return app
 
 
-async def start_server(bot, *, password_hash: str, bind: str, port: int,
-                       discord_client_id: str = "", discord_client_secret: str = "",
-                       public_url: str = "") -> web.AppRunner:
+async def start_server(bot, *, password_hash: str, bind: str, port: int) -> web.AppRunner:
     if bind not in ("127.0.0.1", "0.0.0.0") or not 1 <= port <= 65535:
         raise ValueError("Неверный локальный адрес или порт панели.")
-    runner = web.AppRunner(create_app(bot, password_hash,
-                                  discord_client_id=discord_client_id,
-                                  discord_client_secret=discord_client_secret,
-                                  public_url=public_url), access_log=None)
+    runner = web.AppRunner(create_app(bot, password_hash), access_log=None)
     await runner.setup()
     try:
         site = web.TCPSite(runner, host=bind, port=port)

@@ -1,9 +1,8 @@
-"""Staff portal: Discord role revocation, OAuth state and privacy of ticket chat."""
+"""Staff portal: local password security, access scope and ticket privacy."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from aiohttp import CookieJar
@@ -11,8 +10,9 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from app.core.database import Database, migrate
 from app.services import tickets
-from app.web.oauth import ADMIN_ROLE, MODER_ROLE, OWNER_ROLE, TICKET_ROLE, site_role
+from app.web.auth import hash_password
 from app.web.server import STATE, create_app
+from app.web.staff_roles import ADMIN_ROLE, MODER_ROLE, OWNER_ROLE, TICKET_ROLE, site_role
 
 
 class Member:
@@ -62,7 +62,7 @@ class Guild:
 class FakeBot:
     def __init__(self, db):
         self.database = db
-        self.config = SimpleNamespace(guild_id=777, timezone="Europe/Tallinn")
+        self.config = SimpleNamespace(guild_id=777, timezone="Europe/Tallinn", web_local_operator_id=14)
         self.module_states = {"tickets": "active", "membership": "active"}
         self.guild = Guild()
         self.intents = SimpleNamespace(presences=False)
@@ -89,93 +89,66 @@ def test_role_priority_and_no_access_without_role():
 
 
 @pytest.mark.asyncio
-async def test_oauth_roles_cannot_access_owner_settings_or_audit(tmp_path):
+async def test_local_password_grants_owner_only_with_valid_session(tmp_path):
     url = f"sqlite+aiosqlite:///{tmp_path / 'roles.db'}"
     migrate(url)
     db = Database(url)
     bot = FakeBot(db)
     try:
-        app = create_app(bot, "", discord_client_id="12345678",
-                         discord_client_secret="mock_not_used_secret",
-                         public_url="https://portal.test.ts.net")
+        app = create_app(bot, hash_password("Local admin password 12345!"))
         async with TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True)) as client:
-            cookie_jar = client.session.cookie_jar
-            for uid, expected_role in ((11, "owner"), (12, "admin"), (13, "moder"), (14, "support")):
-                token, session = app[STATE].sessions.create(user_id=uid)
-                cookie_jar.update_cookies({"nsb_session": token}, response_url=client.make_url("/"))
-                me = await client.get("/api/session")
-                assert (await me.json())["role"] == expected_role
-                bootstrap = await (await client.get("/api/bootstrap")).json()
-                assert bootstrap["viewer_role"] == expected_role
-                if uid == 11:
-                    assert len(bootstrap["settings"]) > 10
-                else:
-                    assert bootstrap["settings"] == []
-                    assert bootstrap["roles"] == []
-
-                headers = {"Origin": str(client.make_url("/")).rstrip("/"),
-                           "X-CSRF-Token": session.csrf}
-                config = await client.post("/api/settings/batch", json={
-                    "group": "Экономика", "changes": {"economy_enabled": False},
-                }, headers=headers)
-                assert config.status == (200 if uid == 11 else 403)
-                audit = await client.get("/api/portal/audit")
-                assert audit.status == (200 if uid in (11, 12) else 403)
-                members = await client.get("/api/portal/members")
-                assert members.status == (200 if uid in (11, 12, 13) else 403)
-                staff = await client.get("/api/portal/staff")
-                assert staff.status == (200 if uid in (11, 12, 13) else 403)
-                picker = await client.get("/api/portal/tickets/staff")
-                assert picker.status == 200
-                tickets_result = await client.get("/api/portal/tickets")
-                assert tickets_result.status == 200
-                applications_result = await client.get("/api/portal/applications")
-                assert applications_result.status == 200
-
-            token, session = app[STATE].sessions.create(user_id=14)
-            cookie_jar.update_cookies({"nsb_session": token}, response_url=client.make_url("/"))
-            bot.guild.members_by_id[14].roles = []
-            me = await client.get("/api/session")
-            assert not (await me.json())["authenticated"]
-            forbidden = await client.get("/api/portal/tickets")
-            assert forbidden.status == 403
+            origin = str(client.make_url("/")).rstrip("/")
+            assert (await client.get("/api/bootstrap")).status == 401
+            assert (await client.get("/auth/discord")).status == 404
+            assert (await client.get("/auth/callback")).status == 404
+            wrong = await client.post("/api/login", json={"password": "invalid"},
+                                      headers={"Origin": origin})
+            assert wrong.status == 401
+            valid = await client.post("/api/login",
+                                      json={"password": "Local admin password 12345!"},
+                                      headers={"Origin": origin})
+            assert valid.status == 200
+            token = (await valid.json())["csrf"]
+            session = await (await client.get("/api/session")).json()
+            assert session["authenticated"] and session["role"] == "owner"
+            assert session["auth_method"] == "password"
+            bootstrap = await (await client.get("/api/bootstrap")).json()
+            assert bootstrap["viewer_role"] == "owner"
+            assert len(bootstrap["settings"]) > 10
+            assert (await client.get("/api/portal/audit")).status == 200
+            denied = await client.post("/api/settings/batch", json={
+                "group": "Экономика", "changes": {"economy_enabled": False},
+            }, headers={"Origin": origin})
+            assert denied.status == 403
+            allowed = await client.post("/api/settings/batch", json={
+                "group": "Экономика", "changes": {"economy_enabled": False},
+            }, headers={"Origin": origin, "X-CSRF-Token": token})
+            assert allowed.status == 200
+            invalid = app[STATE].sessions.create(user_id=14)[0]
+            client.session.cookie_jar.update_cookies({"nsb_session": invalid},
+                                                       response_url=client.make_url("/"))
+            assert (await client.get("/api/bootstrap")).status == 403
+            assert not (await (await client.get("/api/session")).json())["authenticated"]
     finally:
         await db.close()
 
 
 @pytest.mark.asyncio
-async def test_oauth_start_requires_public_origin_and_state(tmp_path):
-    bot = FakeBot(Database(f"sqlite+aiosqlite:///{tmp_path / 'nodb.db'}"))
+async def test_public_and_oauth_endpoints_are_not_exposed(tmp_path):
+    db = Database(f"sqlite+aiosqlite:///{tmp_path / 'web.db'}")
     try:
-        app = create_app(bot, "", discord_client_id="12345678",
-                         discord_client_secret="mock_not_used_secret",
-                         public_url="https://portal.test.ts.net")
+        app = create_app(FakeBot(db), hash_password("Local admin password 12345!"))
         async with TestClient(TestServer(app)) as client:
-            # Updated assets must replace the original event-loop-freezing JS.
-            for static_path in ("/", "/static/obsidian.js", "/static/obsidian.css"):
-                asset = await client.get(static_path)
+            for path in ("/", "/static/obsidian.js", "/static/staff.js",
+                         "/static/obsidian.css", "/static/staff.css"):
+                asset = await client.get(path)
                 assert asset.status == 200
                 assert asset.headers["Cache-Control"] == "no-store"
-            local = await client.get("/auth/discord", allow_redirects=False)
-            assert local.status == 302
-            assert local.headers["Location"] == "https://portal.test.ts.net/auth/discord"
-            public = await client.get("/auth/discord", headers={"Host": "portal.test.ts.net"},
-                                      allow_redirects=False)
-            assert public.status == 302
-            assert public.headers["Location"].startswith("https://discord.com/oauth2/authorize?")
-            query = parse_qs(urlsplit(public.headers["Location"]).query)
-            assert query["scope"] == ["identify"]
-            assert query["redirect_uri"] == ["https://portal.test.ts.net/auth/callback"]
-            assert query["state"][0]
-            assert "nsb_oauth_state" in public.headers["Set-Cookie"]
-            bad = await client.get("/auth/callback?state=bad&code=fake",
-                                   headers={"Host": "portal.test.ts.net"})
-            assert bad.status == 403
-            denied = await client.post("/api/login", json={"password": "any"},
-                                       headers={"Origin": str(client.make_url("/")).rstrip("/")})
-            assert denied.status == 403
+            for path in ("/auth/discord", "/auth/callback"):
+                assert (await client.get(path)).status == 404
+            assert (await client.get("/", headers={"Host": "portal.test.ts.net"})).status == 421
     finally:
-        await bot.database.close()
+        await db.close()
 
 
 @pytest.mark.asyncio
@@ -209,12 +182,10 @@ async def test_ticket_messages_are_live_only_and_staff_can_reply(tmp_path, monke
         return Channel()
 
     monkeypatch.setattr(portal, "_ticket_channel", fake_channel)
-    app = create_app(bot, "", discord_client_id="12345678",
-                     discord_client_secret="mock_not_used_secret",
-                     public_url="https://portal.test.ts.net")
+    app = create_app(bot, hash_password("Local admin password 12345!"))
     try:
         async with TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True)) as client:
-            token, record = app[STATE].sessions.create(user_id=14)
+            token, record = app[STATE].sessions.create()
             client.session.cookie_jar.update_cookies({"nsb_session": token},
                                                       response_url=client.make_url("/"))
             detail = await client.get(f"/api/portal/tickets/{ticket.id}")
@@ -241,103 +212,47 @@ async def test_ticket_messages_are_live_only_and_staff_can_reply(tmp_path, monke
 
 
 
-@pytest.mark.asyncio
-async def test_oauth_callback_issues_secure_cookie_and_has_no_access_token(tmp_path, monkeypatch):
-    import app.web.server as server
-
-    async def mock_exchange(*args):
-        return 12
-
-    monkeypatch.setattr(server, "exchange_code", mock_exchange)
-    bot = FakeBot(Database(f"sqlite+aiosqlite:///{tmp_path / 'state.db'}"))
-    try:
-        app = create_app(bot, "", discord_client_id="12345678",
-                         discord_client_secret="mock_not_used_secret",
-                         public_url="https://portal.test.ts.net")
-        async with TestClient(TestServer(app)) as client:
-            response = await client.get("/auth/discord", headers={
-                "Host": "portal.test.ts.net"}, allow_redirects=False)
-            assert response.status == 302
-            generated_state = parse_qs(urlsplit(response.headers["Location"]).query)["state"][0]
-            bad = await client.get("/auth/callback?state=wrong&code=fake", headers={
-                "Host": "portal.test.ts.net",
-                "Cookie": "nsb_oauth_state=" + generated_state}, allow_redirects=False)
-            assert bad.status == 403
-            redirect = await client.get(
-                "/auth/callback?state=" + generated_state + "&code=fake",
-                headers={"Host": "portal.test.ts.net",
-                         "Cookie": "nsb_oauth_state=" + generated_state},
-                allow_redirects=False)
-            assert redirect.status == 302
-            assert redirect.headers["Location"] == "https://portal.test.ts.net/"
-            cookie = redirect.headers["Set-Cookie"]
-            assert "nsb_session=" in cookie
-            assert "Secure" in cookie and "HttpOnly" in cookie
-            assert "mock_not_used_secret" not in cookie
-            # OAuth state is single-use and cannot be replayed.
-            second = await client.get(
-                "/auth/callback?state=" + generated_state + "&code=fake",
-                headers={"Host": "portal.test.ts.net",
-                         "Cookie": "nsb_oauth_state=" + generated_state},
-                allow_redirects=False)
-            assert second.status == 403
-            site = await client.get("/api/site")
-            assert site.status == 200
-            assert (await site.json()) == {"name": "NewSqad", "icon_url": None}
-    finally:
-        await bot.database.close()
-
-
 def test_presence_unavailable_is_not_falsely_offline():
     assert Guild().members_by_id[14].status == "online"
 
 
 @pytest.mark.asyncio
-async def test_complete_staff_and_owner_editor_permissions(tmp_path):
-    """Pages, REST actions and configuration cannot be accessed beyond user's live guild role."""
+async def test_local_owner_can_access_staff_and_owner_pages_with_csrf(tmp_path):
     url = f"sqlite+aiosqlite:///{tmp_path / 'complete.db'}"
     migrate(url)
     db = Database(url)
     bot = FakeBot(db)
-    app = create_app(bot, "", discord_client_id="12345678",
-                     discord_client_secret="mock_not_used_secret",
-                     public_url="https://portal.test.ts.net")
-    owner_paths = ("/api/owner/shop", "/api/owner/role-panels",
-                   "/api/owner/ticket-categories", "/api/owner/announcements")
-    admin_paths = ("/api/portal/events", "/api/portal/giveaways",
-                   "/api/portal/suggestions", "/api/portal/activity", "/api/portal/audit",
-                   "/api/portal/voice-rooms", "/api/portal/parties")
-    moder_paths = ("/api/portal/moderation", "/api/portal/members")
-    support_paths = ("/api/portal/tickets", "/api/portal/applications",
-                     "/api/portal/tickets/staff")
+    app = create_app(bot, hash_password("Local admin password 12345!"))
+    paths = ("/api/owner/shop", "/api/owner/role-panels",
+             "/api/owner/ticket-categories", "/api/owner/announcements",
+             "/api/portal/events", "/api/portal/giveaways",
+             "/api/portal/suggestions", "/api/portal/activity", "/api/portal/audit",
+             "/api/portal/voice-rooms", "/api/portal/parties",
+             "/api/portal/moderation", "/api/portal/members",
+             "/api/portal/tickets", "/api/portal/applications",
+             "/api/portal/tickets/staff", "/api/staff/inbox", "/api/staff/tasks")
     try:
         async with TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True)) as client:
             origin = str(client.make_url("/")).rstrip("/")
-            for uid in (11, 12, 13, 14):
-                token, session = app[STATE].sessions.create(user_id=uid)
-                client.session.cookie_jar.update_cookies(
-                    {"nsb_session": token}, response_url=client.make_url("/"))
-                for path in owner_paths + admin_paths + moder_paths + support_paths:
-                    response = await client.get(path)
-                    expected = (200 if path in support_paths or
-                                uid in (11, 12, 13) and path in moder_paths or
-                                uid in (11, 12) and path in admin_paths or
-                                uid == 11 and path in owner_paths else 403)
-                    assert response.status == expected, (uid, path, response.status, await response.text())
-                payload = {"code": "staff_test", "title": "Staff title",
-                           "kind": "title", "price": 45, "description": "", "stock": None,
-                           "role_id": None}
-                # No CSRF = deny even Owner.
-                no_csrf = await client.post("/api/owner/shop", json=payload, headers={"Origin": origin})
-                assert no_csrf.status == 403
-                with_csrf = await client.post("/api/owner/shop", json=payload, headers={
-                    "Origin": origin, "X-CSRF-Token": session.csrf})
-                assert with_csrf.status == (200 if uid == 11 else 403)
-                denied_moderation = await client.post("/api/portal/moderation", json={
-                    "user_id": "1440528514318073999", "kind": "warn",
-                    "reason": "Test warning", "duration": ""},
-                    headers={"Origin": origin, "X-CSRF-Token": session.csrf})
-                assert denied_moderation.status == (503 if uid in (11, 12, 13) else 403)
+            token, session = app[STATE].sessions.create()
+            client.session.cookie_jar.update_cookies(
+                {"nsb_session": token}, response_url=client.make_url("/"))
+            for path in paths:
+                response = await client.get(path)
+                assert response.status == 200, (path, response.status, await response.text())
+            payload = {"code": "staff_test", "title": "Staff title",
+                       "kind": "title", "price": 45, "description": "", "stock": None,
+                       "role_id": None}
+            assert (await client.post("/api/owner/shop", json=payload,
+                                     headers={"Origin": origin})).status == 403
+            success = await client.post("/api/owner/shop", json=payload, headers={
+                "Origin": origin, "X-CSRF-Token": session.csrf})
+            assert success.status == 200
+            moderation = await client.post("/api/portal/moderation", json={
+                "user_id": "1440528514318073999", "kind": "warn",
+                "reason": "Test warning", "duration": ""},
+                headers={"Origin": origin, "X-CSRF-Token": session.csrf})
+            assert moderation.status == 503
     finally:
         await db.close()
 
@@ -394,15 +309,13 @@ async def test_staff_queue_pagination_count_order_and_role_scope(tmp_path):
                 staff_role_id=TICKET_ROLE, subject="Другой сервер", description="Тест",
                 status="open", opened_at=1, updated_at=1,
             ))
-        app = create_app(bot, "", discord_client_id="12345678",
-                         discord_client_secret="mock_not_used_secret",
-                         public_url="https://portal.test.ts.net")
+        app = create_app(bot, hash_password("Local admin password 12345!"))
         async with TestClient(TestServer(app), cookie_jar=CookieJar(unsafe=True)) as client:
             for route in ("/api/portal/applications?status=open", "/api/portal/tickets"):
                 unauth = await client.get(route + "&page=1" if "?" in route else route + "?page=1")
                 assert unauth.status == 401
 
-            token, _ = app[STATE].sessions.create(user_id=14)
+            token, _ = app[STATE].sessions.create()
             client.session.cookie_jar.update_cookies(
                 {"nsb_session": token}, response_url=client.make_url("/"))
             for route in ("/api/portal/applications?status=open", "/api/portal/tickets"):

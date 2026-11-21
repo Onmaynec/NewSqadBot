@@ -343,7 +343,7 @@ async def announcement_create(request: web.Request) -> web.Response:
     bot, actor = await owner(request)
     require_csrf(request)
     if actor.id == 0:
-        raise web.HTTPForbidden(text="Для объявления нужен вход через Discord.")
+        raise web.HTTPForbidden(text="Не удалось определить локального оператора Discord.")
     data = await json_payload(request)
     guild = guild_for(bot)
     cid = identifier(data.get("channel_id"))
@@ -370,7 +370,7 @@ async def announcement_action(request: web.Request) -> web.Response:
     bot, actor = await owner(request)
     require_csrf(request)
     if actor.id == 0:
-        raise web.HTTPForbidden(text="Для объявления нужен вход через Discord.")
+        raise web.HTTPForbidden(text="Не удалось определить локального оператора Discord.")
     aid = number(request.match_info["id"])
     data = await json_payload(request)
     action = data.get("action")

@@ -23,7 +23,7 @@ async def admin(request: web.Request):
 
 def require_actor(actor) -> None:
     if actor is None:
-        raise web.HTTPForbidden(text="Для действий с Discord нужен вход через Discord OAuth.")
+        raise web.HTTPForbidden(text="Не удалось определить локального оператора Discord.")
 
 
 async def record_action(bot, actor_id: int, action: str, entry_id: int) -> None:

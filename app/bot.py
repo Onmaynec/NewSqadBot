@@ -98,18 +98,12 @@ class NewSqadBot(commands.Bot):
         self.backups.start()
         self._startup_finished = True
         self._heartbeat = asyncio.create_task(self._health_loop(), name="newsqad-health")
-        if self.config.web_admin_password_hash or self.config.web_discord_client_id:
-            from app.web.server import start_server
+        from app.web.server import start_server
 
-            self._web_runner = await start_server(
-                self, password_hash=self.config.web_admin_password_hash,
-                bind=self.config.web_admin_bind, port=self.config.web_admin_port,
-                discord_client_id=self.config.web_discord_client_id,
-                discord_client_secret=self.config.web_discord_client_secret,
-                public_url=self.config.web_public_url,
-            )
-        else:
-            logger.info("Локальная web-панель выключена: WEB_ADMIN_PASSWORD_HASH не задан.")
+        self._web_runner = await start_server(
+            self, password_hash=self.config.web_admin_password_hash,
+            bind=self.config.web_admin_bind, port=self.config.web_admin_port,
+        )
 
     @staticmethod
     def _asyncio_error(loop: asyncio.AbstractEventLoop, context: dict) -> None:
