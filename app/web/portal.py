@@ -16,8 +16,8 @@ from sqlalchemy import func, or_, select
 
 from app.models import Application, ApplicationEvent, AuditEntry, ModerationCase, Ticket
 from app.services import applications, moderation_cases, statistics, tickets
-from app.web.staff_roles import site_role
 from app.web.server import guild_for, json_payload, require_csrf, require_role, state
+from app.web.staff_roles import site_role
 
 log = logging.getLogger(__name__)
 
