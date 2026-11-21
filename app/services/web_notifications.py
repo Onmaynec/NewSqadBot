@@ -98,14 +98,14 @@ async def sync_sources(db, guild_id: int, *, now: int | None = None) -> int:
 
 
 def permitted(role: str, notice: WebNotice, user_id: int) -> bool:
-    from app.web.oauth import RANK
+    from app.web.staff_roles import RANK
 
     return (RANK.get(role, 0) >= RANK.get(notice.minimum_role, 99)
             and (notice.recipient_id is None or notice.recipient_id == user_id))
 
 
 async def inbox(db, guild_id: int, user_id: int, role: str):
-    from app.web.oauth import RANK
+    from app.web.staff_roles import RANK
 
     async with db.sessions() as session:
         # Filter recipient AND staff role in SQL; no cross-user leakage.
@@ -144,7 +144,7 @@ async def inbox(db, guild_id: int, user_id: int, role: str):
 async def mark_read(db, guild_id: int, user_id: int, role: str,
                     *, notice_id: int | None = None, now: int | None = None) -> int:
     now = int(time.time()) if now is None else now
-    from app.web.oauth import RANK
+    from app.web.staff_roles import RANK
 
     allowed = [key for key, rank in RANK.items() if rank <= RANK.get(role, 0)]
     async with db.session() as session:
