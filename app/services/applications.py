@@ -202,5 +202,5 @@ async def submit_answer(db, guild_id: int, app_id: int, user_id: int, answer: st
             return False
         session.add(ApplicationEvent(application_id=app_id, actor_id=user_id,
             old_status="needs_info", new_status="in_review",
-            reason="Кандидат предоставил ответ на уточнение.", created_at=int(time.time())))
+            reason="Ответ кандидата получен (текст сохранён отдельно).", created_at=int(time.time())))
         return True
