@@ -617,6 +617,7 @@ class Membership(commands.Cog):
             self.bot.database, interaction.guild_id, number, interaction.user.id, reviewer.id)
         if updated:
             await self.refresh(number)
+            await self.schedule_review_reminder(await store.get_application(self.bot.database, number))
         await interaction.response.send_message(
             "Ответственный изменён." if updated else "Заявка недоступна для передачи.", ephemeral=True)
 
