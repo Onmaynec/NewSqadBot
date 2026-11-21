@@ -423,6 +423,9 @@ async def _application_action(bot, aid: int, action: str, actor: int, reason: st
         return False, "Заявка не найдена."
     if action == "claim":
         ok = await applications.assign_reviewer(bot.database, bot.config.guild_id, aid, actor, actor)
+        cog = bot.get_cog("Membership")
+        if ok and cog is not None:
+            await cog.schedule_review_reminder(await applications.get_application(bot.database, aid))
         return ok, "Назначен ответственный." if ok else "Заявка недоступна для назначения."
     if action not in ("approve", "reject"):
         return False, "Недопустимое действие."
