@@ -7,7 +7,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const pathToApp = path.join(__dirname, "..", "app", "web", "static", "app.js");
-const app = fs.readFileSync(pathToApp, "utf8");
+const app = fs.readFileSync(pathToApp, "utf8").split("/* BEGIN CONSOLE_SHELL_JS */")[0];
 // Do not call the async site bootstrap: these tests exercise the actual
 // unsaved-change navigation code in isolation, not a fake reimplementation.
 assert.match(app, /void initialize\(\);\s*$/);
