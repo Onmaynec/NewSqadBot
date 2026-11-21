@@ -10,6 +10,7 @@ from pathlib import Path
 
 import discord
 from discord.ext import commands
+from sqlalchemy.engine import make_url
 
 from app.config import VERSION, Config
 from app.core.database import Database, migrate
@@ -17,9 +18,8 @@ from app.core.errors import GuildCommandTree
 from app.core.event_bus import EventBus
 from app.core.module_loader import load_modules
 from app.core.observability import OperationalJournal
-from app.ops.automatic_backup import BackupSettings, BackupWorker
-from sqlalchemy.engine import make_url
 from app.core.scheduler import Scheduler
+from app.ops.automatic_backup import BackupSettings, BackupWorker
 
 logger = logging.getLogger(__name__)
 
