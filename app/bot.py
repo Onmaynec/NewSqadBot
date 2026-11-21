@@ -80,7 +80,7 @@ class NewSqadBot(commands.Bot):
         for name, state in self.module_states.items():
             if state == "error":
                 logger.error("Модуль не загружен: %s", name)
-                self.operations.record("module.load_failed")
+                self.operations.record("module.load_failed", module=name)
         # Системные команды загружаются отдельно от 16 модулей сообщества.
         # Справка собирает их вместе с командами всех активных модулей.
         for extension in ("app.modules.announcements", "app.modules.announcements_manager", "app.modules.help_center"):
