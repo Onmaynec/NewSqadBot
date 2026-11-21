@@ -547,6 +547,8 @@ class Voice(commands.Cog):
                  room.owner_id, new.id)
 
     async def _remember(self, guild_id: int, channel_id: int) -> None:
+        if not hasattr(self.bot.database, "sessions"):
+            return  # Unit-test adapters without an SQLAlchemy session do not store preferences.
         room = await store.by_channel(self.bot.database, guild_id, channel_id)
         if room is None:
             return
