@@ -65,3 +65,45 @@ test("real Chromium mobile: menu and palette do not hang after toggles", async (
   await page.keyboard.press("Escape");
   await expect(page.locator("#command-palette")).toBeHidden();
 });
+
+
+test("real Chromium: local password Staff Center inbox, tasks and templates", async ({page}) => {
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("response", response => {
+    if (response.url().includes("/api/") && response.status() >= 500)
+      errors.push("HTTP " + response.status() + " " + response.url());
+  });
+  await login(page);
+  await page.locator('#navigation .nav-item[aria-label="Единая очередь"]').click();
+  await expect(page.locator("#breadcrumb")).toHaveText("Единая очередь");
+  await expect(page.locator("#portal-section .staff-kpis")).toBeVisible();
+  await expect(page.locator('#portal-section select[aria-label="Тип обращений"]')).toBeVisible();
+
+  await page.locator('#navigation .nav-item[aria-label="Мои задачи"]').click();
+  await expect(page.locator("#portal-section .staff-card").first()).toBeVisible();
+  await page.locator('#portal-section input[aria-label="Заголовок"]').fill("Проверить тестовую заявку");
+  await page.locator('#portal-section textarea[aria-label="Описание задачи"]').fill("Проверить перед одобрением");
+  await page.locator("#portal-section").getByRole("button", {name: "Добавить задачу"}).click();
+  await expect(page.locator("#portal-section")).toContainText("Проверить тестовую заявку");
+
+  await page.locator('#navigation .nav-item[aria-label="Шаблоны ответов"]').click();
+  await expect(page.locator("#portal-section")).toContainText("Шаблоны ответов");
+  await page.locator('#portal-section input[aria-label="Название шаблона"]').fill("Ответ администратора");
+  await page.locator('#portal-section textarea[aria-label="Текст шаблона"]').fill("Здравствуйте, ваша заявка на рассмотрении.");
+  await page.locator("#portal-section").getByRole("button", {name: "Сохранить шаблон"}).click();
+  await expect(page.locator("#portal-section")).toContainText("Ответ администратора");
+  expect(errors).toEqual([]);
+});
+
+test("real Chromium: local-only authentication removes OAuth entry points", async ({page}) => {
+  await page.goto("/");
+  await expect(page.locator("#login-form")).toBeVisible();
+  await expect(page.locator("#discord-login")).toHaveCount(0);
+  const oauth = await page.request.get("/auth/discord");
+  const callback = await page.request.get("/auth/callback");
+  const protectedApi = await page.request.get("/api/staff/inbox");
+  expect(oauth.status()).toBe(404);
+  expect(callback.status()).toBe(404);
+  expect(protectedApi.status()).toBe(401);
+});
