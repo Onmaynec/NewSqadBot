@@ -204,6 +204,7 @@ async def application_action(request: web.Request) -> web.Response:
         ok = await applications.assign_reviewer(bot.database, bot.config.guild_id, aid, actor, actor)
         if ok:
             await cog.refresh(aid)
+            await cog.schedule_review_reminder(await applications.get_application(bot.database, aid))
         return web.json_response({"ok": ok, "message": "Ответственный назначен." if ok else "Заявка уже закрыта."},
                                  status=200 if ok else 409)
     if action == "transfer":
