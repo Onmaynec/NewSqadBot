@@ -10,15 +10,13 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from app.core.permissions import can_manage_settings
-from app.modules.voice_views import (
-    CloseRoomConfirm as CloseRoomConfirm,
-    LimitRoomModal as LimitRoomModal,
-    RenameRoomModal as RenameRoomModal,
-    RoomControls as RoomControls,
-    RoomInvitePicker as RoomInvitePicker,
-    describe_room as describe_room,
-    room_name as room_name,
-)
+from app.modules.voice_views import CloseRoomConfirm as CloseRoomConfirm
+from app.modules.voice_views import LimitRoomModal as LimitRoomModal
+from app.modules.voice_views import RenameRoomModal as RenameRoomModal
+from app.modules.voice_views import RoomControls as RoomControls
+from app.modules.voice_views import RoomInvitePicker as RoomInvitePicker
+from app.modules.voice_views import describe_room as describe_room
+from app.modules.voice_views import room_name as room_name
 from app.services import voice as store
 from app.services import voice_preferences as presets
 from app.services.membership_access import approved_member
