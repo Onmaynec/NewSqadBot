@@ -16,6 +16,7 @@ def upgrade():
     op.add_column("membership_applications", sa.Column(
         "form_key", sa.String(32), nullable=False, server_default="standard"))
     op.add_column("membership_applications", sa.Column("extra_answer", sa.String(240)))
+    op.add_column("membership_applications", sa.Column("followup_answer", sa.String(900)))
     op.add_column("membership_applications", sa.Column("stage_changed_at", sa.BigInteger()))
     op.add_column("tickets", sa.Column(
         "priority", sa.String(10), nullable=False, server_default="normal"))
@@ -78,5 +79,6 @@ def downgrade():
     op.drop_index("ix_tickets_priority", table_name="tickets")
     op.drop_column("tickets", "priority")
     op.drop_column("membership_applications", "stage_changed_at")
+    op.drop_column("membership_applications", "followup_answer")
     op.drop_column("membership_applications", "extra_answer")
     op.drop_column("membership_applications", "form_key")
