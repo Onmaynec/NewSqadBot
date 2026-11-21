@@ -9,11 +9,11 @@ from app.core.database import migrate
 
 
 def test_version_and_ticket_storage_tables(tmp_path):
-    assert VERSION == "2.0.0"
+    assert VERSION == "2.1.0"
     url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
     migrate(url)
     with sqlite3.connect(tmp_path / "test.db") as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0016_staff_command_center"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0017_member_support_voice"
 
 
 def test_console_formatter_redacts_token(monkeypatch):
