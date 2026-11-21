@@ -16,7 +16,6 @@ from app.services import tickets
 from app.web.auth import hash_password
 from app.web.server import create_app
 
-
 PASSWORD = "Local staff owner secret 2026"
 
 
