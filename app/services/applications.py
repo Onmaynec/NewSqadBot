@@ -8,27 +8,42 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
-from app.models import Application, ApplicationEvent, OutboxEvent
+from app.models import Application, ApplicationChecklistItem, ApplicationEvent, OutboxEvent
+from app.services.membership_workflow import DEFAULT_CHECKS, selected_form
 
 OPEN = ("pending", "in_review", "needs_info", "approving", "rejecting", "action_failed")
 REVIEWABLE = ("pending", "in_review", "needs_info")
 
 
 async def submit(db, *, guild_id: int, user_id: int, username: str, name: str,
-                 gender: str, age: int, inviter: str) -> Application:
+                 gender: str, age: int, inviter: str, form_key: str = "standard",
+                 extra_answer: str = "") -> Application:
     if gender not in ("male", "female") or not 1 <= age <= 120:
         raise ValueError("Некорректные данные анкеты.")
     if not inviter or len(inviter) > 120 or len(name) > 24:
         raise ValueError("Некорректная длина поля анкеты.")
+    form = await selected_form(db, guild_id, form_key)
+    if form is None:
+        raise ValueError("Выбранный тип анкеты отключён или не существует.")
+    extra_answer = extra_answer.strip()
+    if form["question"] and not 2 <= len(extra_answer) <= 240:
+        raise ValueError("Дополнительный ответ: 2–240 символов.")
+    if not form["question"]:
+        extra_answer = ""
+    now = int(time.time())
     try:
         async with db.session() as session:
             application = Application(guild_id=guild_id, user_id=user_id,
                 username=username[:64], name=name, gender=gender, age=age, inviter=inviter,
-                status="pending", created_at=int(time.time()))
+                status="pending", form_key=form_key, extra_answer=extra_answer or None,
+                created_at=now, stage_changed_at=now)
             session.add(application)
             await session.flush()
             session.add(ApplicationEvent(application_id=application.id, actor_id=user_id,
                 old_status="new", new_status="pending", reason="Заявка отправлена", created_at=int(time.time())))
+            for key, title in DEFAULT_CHECKS:
+                session.add(ApplicationChecklistItem(
+                    application_id=application.id, item_key=key, title=title, completed=False))
             result_id = application.id
     except IntegrityError as exc:
         raise ValueError("У вас уже есть активная заявка.") from exc
@@ -97,7 +112,8 @@ async def transition(db, app_id: int, *, expected: tuple[str, ...], target: str,
             return False
         old = application.status
         stmt = update(Application).where(Application.id == app_id, Application.status == old).values(
-            status=target, reviewer_id=actor_id,
+            status=target, reviewer_id=actor_id, stage_changed_at=now,
+            **({"extra_answer": None} if target in ("approved", "rejected") else {}),
             **({"decision": decision, "decision_reason": reason, "decided_at": now} if decision else {}))
         result = await session.execute(stmt)
         if result.rowcount != 1:
@@ -158,7 +174,7 @@ async def assign_reviewer(db, guild_id: int, app_id: int, actor_id: int, reviewe
             Application.id == app_id, Application.guild_id == guild_id,
             Application.status == row.status, Application.reviewer_id == previous
             if previous is not None else Application.reviewer_id.is_(None),
-        ).values(reviewer_id=reviewer_id, status="in_review"))
+        ).values(reviewer_id=reviewer_id, status="in_review", stage_changed_at=int(time.time())))
         if changed.rowcount != 1:
             return False
         session.add(ApplicationEvent(application_id=app_id, actor_id=actor_id,
@@ -181,7 +197,7 @@ async def submit_answer(db, guild_id: int, app_id: int, user_id: int, answer: st
             return False
         changed = await session.execute(update(Application).where(
             Application.id == app_id, Application.status == "needs_info",
-        ).values(status="in_review"))
+        ).values(status="in_review", stage_changed_at=int(time.time())))
         if changed.rowcount != 1:
             return False
         session.add(ApplicationEvent(application_id=app_id, actor_id=user_id,
