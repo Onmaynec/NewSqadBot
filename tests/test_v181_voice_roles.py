@@ -39,7 +39,7 @@ def forbidden():
 @pytest.mark.asyncio
 async def test_voice_join_manage_handoff_and_delete(monkeypatch):
     """Entry to generator -> creation -> owner controls -> handoff -> deletion."""
-    guild = SimpleNamespace(id=GUILD_ID, owner_id=999)
+    guild = SimpleNamespace(id=GUILD_ID, owner_id=999, default_role=object())
     lobby = MagicMock(spec=discord.VoiceChannel)
     lobby.id = 100
     category = MagicMock(spec=discord.CategoryChannel)
