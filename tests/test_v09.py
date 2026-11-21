@@ -75,7 +75,7 @@ def test_voice_discord_controls_and_commands():
 
     assert ChannelPicker(None, 1, "voice_lobby_channel_id").channel_types == [discord.ChannelType.voice]
     assert ChannelPicker(None, 1, "voice_category_channel_id").channel_types == [discord.ChannelType.category]
-    assert len(RoomControls(object(), 100).children) == 6
+    assert len(RoomControls(object(), 100).children) == 7
     commands = {c.name for c in Voice.voice_commands.commands}
     assert {"setup", "settings", "configure", "panel", "info", "name", "limit", "lock", "hide",
             "allow", "deny", "reset-access", "transfer", "claim", "close", "kick"} <= commands
