@@ -14,6 +14,10 @@ async function login(page) {
 test("real Chromium: Ctrl+K opens palette, searches and navigates by keyboard", async ({page}) => {
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
+  page.on("response", response => {
+    if (response.url().startsWith("http://127.0.0.1:9876/api/") && response.status() >= 500)
+      errors.push("HTTP " + response.status() + " " + response.url());
+  });
   await login(page);
   await page.keyboard.press("Control+k");
   await expect(page.locator("#command-palette")).toBeVisible();
