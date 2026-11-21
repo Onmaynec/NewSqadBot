@@ -31,7 +31,7 @@ def test_version_and_command_registration():
     assert Announcements.ann.name == "ann"
     assert HelpCenter.help.name == "help"
     options = {p.name for p in Announcements.ann.parameters}
-    assert options == {"вид", "канал", "цвет"}
+    assert options == {"вид", "цвет"}
 
 
 def test_color_validation_default_and_explicit():
