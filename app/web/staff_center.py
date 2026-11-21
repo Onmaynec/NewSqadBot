@@ -16,6 +16,7 @@ from aiohttp import web
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from app.core.module_contracts import describe as describe_module_contracts
 from app.models import (
     Application,
     ApplicationEvent,
@@ -377,6 +378,7 @@ async def health_center(request: web.Request) -> web.Response:
     return web.json_response({
         "items": values, "operations": operations.snapshot() if operations else {},
         "modules": bot.module_states,
+        "module_contracts": describe_module_contracts(bot.module_states),
         "gateway_ready": bot.is_ready(),
     })
 
