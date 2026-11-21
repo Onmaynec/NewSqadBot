@@ -477,8 +477,35 @@ class Voice(commands.Cog):
             for room in await store.all_rooms(self.bot.database, guild.id):
                 try:
                     await self._handoff(guild, room.channel_id)
+                    active = await store.by_channel(self.bot.database, guild.id, room.channel_id)
+                    if active is not None:
+                        await self._restore_permissions(guild, active)
                 except Exception:
                     log.exception("Не удалось восстановить комнату guild=%s channel=%s", guild.id, room.channel_id)
+
+    async def _restore_permissions(self, guild: discord.Guild, room) -> None:
+        """Restore only fields owned by Voice; preserve unrelated Discord ACL bits."""
+        channel = guild.get_channel(room.channel_id)
+        if not isinstance(channel, discord.VoiceChannel):
+            return
+        baseline = channel.overwrites_for(guild.default_role)
+        if baseline.view_channel is not (not room.hidden) or baseline.connect is not (not room.locked):
+            baseline.view_channel = not room.hidden
+            baseline.connect = not room.locked
+            await channel.set_permissions(guild.default_role, overwrite=baseline,
+                                          reason="NewSqad: восстановление разрешений голосовой комнаты")
+        for entry in await store.access_entries(self.bot.database, room.id):
+            member = guild.get_member(entry.user_id)
+            if member is None:
+                continue  # Cannot reconcile a missing member safely; retain the DB ACL.
+            current = channel.overwrites_for(member)
+            expected = entry.mode == "allow"
+            if current.view_channel is expected and current.connect is expected:
+                continue
+            current.view_channel = expected
+            current.connect = expected
+            await channel.set_permissions(member, overwrite=current,
+                                          reason="NewSqad: восстановление персонального доступа")
 
     @tasks.loop(minutes=2)
     async def sweep(self) -> None:
