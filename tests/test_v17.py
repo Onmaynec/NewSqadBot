@@ -14,7 +14,7 @@ from sqlalchemy import func, select, update
 from app.core.database import Database, migrate
 from app.models import Application, SupportSurvey, TemporaryRole, Ticket, WebNotice
 from app.services import support_quality, tickets, web_notifications
-from app.web.oauth import ADMIN_ROLE, MODER_ROLE, OWNER_ROLE, TICKET_ROLE
+from app.web.staff_roles import ADMIN_ROLE, MODER_ROLE, OWNER_ROLE, TICKET_ROLE
 from app.web.server import STATE, create_app
 
 
