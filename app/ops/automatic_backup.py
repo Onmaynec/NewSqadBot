@@ -64,17 +64,20 @@ def create_automatic_backup(source: Path, settings: BackupSettings) -> tuple[Pat
     local = snapshot(source, folder / name)
     restore_probe(local)
     exported = None
-    if settings.export_dir is not None:
-        destination = settings.export_dir.resolve()
-        if destination == folder.resolve() or destination.is_relative_to(source.parent):
-            raise BackupError("Экспорт должен находиться вне каталога активной SQLite базы.")
-        if not destination.is_dir():
-            raise BackupError("BACKUP_EXPORT_DIR отсутствует. Создайте каталог и предоставьте права пользователю bot.")
-        exported = snapshot(local, destination / name)
-        restore_probe(exported)
-        rotation(destination, keep=settings.keep)
-    rotation(folder, keep=settings.keep)
-    return local, exported
+    try:
+        if settings.export_dir is not None:
+            destination = settings.export_dir.resolve()
+            if destination == folder.resolve() or destination.is_relative_to(source.parent):
+                raise BackupError("Экспорт должен находиться вне каталога активной SQLite базы.")
+            if not destination.is_dir():
+                raise BackupError("BACKUP_EXPORT_DIR отсутствует. Создайте каталог и предоставьте права пользователю bot.")
+            exported = snapshot(local, destination / name)
+            restore_probe(exported)
+            rotation(destination, keep=settings.keep)
+        return local, exported
+    finally:
+        # Retain local copies even when off-volume export fails; cap their count.
+        rotation(folder, keep=settings.keep)
 
 
 class BackupWorker:
