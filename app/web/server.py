@@ -154,7 +154,7 @@ async def index(request: web.Request) -> web.FileResponse:
 
 async def static_file(request: web.Request) -> web.FileResponse:
     name = request.match_info["name"]
-    if name not in ("app.js", "portal.js", "manage.js", "staff.js", "style.css", "obsidian.css", "staff.css", "obsidian.js"):
+    if name not in ("app.js", "portal.js", "manage.js", "staff.js", "journey.js", "style.css", "obsidian.css", "staff.css", "obsidian.js"):
         raise web.HTTPNotFound()
     # Cached versions of Obsidian JS could still freeze the tab after a fix.
     return web.FileResponse(ROOT / name, headers={"Cache-Control": "no-store"})
