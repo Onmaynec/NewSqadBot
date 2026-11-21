@@ -16,14 +16,12 @@ from sqlalchemy.exc import IntegrityError
 from app.core.durations import parse_duration
 from app.core.permissions import can_manage_settings
 from app.models import ModerationAction, ModerationCase, ScheduledJob
-from app.modules.moderation_views import (
-    CaseActions as CaseActions,
-    CaseLookupForm as CaseLookupForm,
-    CaseOperationForm as CaseOperationForm,
-    ConfirmClear as ConfirmClear,
-    MemberCasesForm as MemberCasesForm,
-    ModerationPanel as ModerationPanel,
-)
+from app.modules.moderation_views import CaseActions as CaseActions
+from app.modules.moderation_views import CaseLookupForm as CaseLookupForm
+from app.modules.moderation_views import CaseOperationForm as CaseOperationForm
+from app.modules.moderation_views import ConfirmClear as ConfirmClear
+from app.modules.moderation_views import MemberCasesForm as MemberCasesForm
+from app.modules.moderation_views import ModerationPanel as ModerationPanel
 from app.services import moderation_cases as cases_store
 from app.services.audit import log_event
 from app.services.moderation_policy import audit_reason, denied_target
