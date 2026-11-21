@@ -302,7 +302,8 @@ class Membership(commands.Cog):
         self.bot = bot
         self._execution_locks: dict[int, asyncio.Lock] = {}
         self._recovered = False
-        bot.scheduler.register("membership.review_reminder", self._send_review_reminder)
+        if getattr(bot, "scheduler", None) is not None:
+            bot.scheduler.register("membership.review_reminder", self._send_review_reminder)
 
     async def cog_load(self) -> None:
         self.bot.add_view(ApplyPanel(self))
@@ -333,7 +334,7 @@ class Membership(commands.Cog):
                 log.exception("Не удалось восстановить решение заявки #%s", app.id)
 
     async def schedule_review_reminder(self, application) -> None:
-        if application.status not in store.REVIEWABLE:
+        if application.status not in store.REVIEWABLE or getattr(self.bot, "scheduler", None) is None:
             return
         hours = int(await self.bot.database.get_setting(
             self.bot.config.guild_id, "membership_review_wait_hours", 12))
