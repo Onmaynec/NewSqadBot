@@ -39,7 +39,7 @@ def url(tmp_path):
 def test_schema_migration_and_components(tmp_path):
     migrate(url(tmp_path))
     migrate(url(tmp_path))
-    assert VERSION == "1.8.0"
+    assert VERSION == "1.8.1"
     with sqlite3.connect(tmp_path / "ann.db") as conn:
         assert conn.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0015_support_live_ops"
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}

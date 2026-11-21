@@ -20,7 +20,7 @@ def test_v010_schema(tmp_path):
     url = f"sqlite+aiosqlite:///{tmp_path / 'schema.db'}"
     migrate(url)
     migrate(url)
-    assert VERSION == "1.8.0"
+    assert VERSION == "1.8.1"
     assert implemented("party_finder")
     with sqlite3.connect(tmp_path / "schema.db") as db:
         db.execute("PRAGMA foreign_keys=ON")

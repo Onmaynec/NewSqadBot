@@ -78,7 +78,9 @@
   function goTo(index) {
     const choice = filtered[index];
     if (!choice) return;
-    close(false);
+    // Return focus to the palette opener before an unsaved-changes dialog appears.
+    // Otherwise cancelling navigation may leave keyboard focus on a hidden input.
+    close();
     if (choice.kind === "setting" && typeof window.portalFindSetting === "function") {
       void window.portalFindSetting(choice.group, choice.key);
     } else if (typeof window.portalNavigate === "function") {

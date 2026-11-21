@@ -1,1 +1,180 @@
+# NewSqadBot
 
+Discord-бот и веб-консоль управления сообществом **NEW SQAD**. Проект предназначен для одного Discord-сервера, использует Python 3.12, `discord.py`, SQLite и Docker Compose. Веб-панель Obsidian работает в том же процессе, что и бот.
+
+> Бот привязан к целевому Discord Guild ID, указанному в `app/config.py`. Изменение переменной `DISCORD_GUILD_ID` не превращает приложение в универсального многосерверного бота. Не устанавливайте его в чужие сообщества.
+
+## Возможности
+
+| Раздел | Реализованные функции |
+| --- | --- |
+| Вступление | Заявки, рассмотрение, уточнение, выдача доступа |
+| Модерация | Инструменты сотрудников, история действий, аудит |
+| Поддержка | Приватные тикеты, назначение сотрудников, ответы через веб-портал, оценка качества |
+| Роли | Панели самостоятельного выбора, автороли, временные и уровневые награды |
+| Голосовые | Временные комнаты из канала-генератора, передача владельца, права доступа |
+| Сообщество | Поиск компании, предложения, мероприятия и розыгрыши |
+| Прогресс | Профили, уровни, задания, достижения и статистика |
+| Экономика | Внутренняя валюта, покупки, роли и инвентарь |
+| Коммуникации | Объявления, справочник команд `/help` |
+| Веб-панель | Discord OAuth / локальный вход, очередь заявок и тикетов, роли персонала, уведомления, диагностика |
+
+Полный состав переключаемых модулей — `app/core/catalog.py`. Системные команды объявлений и справки загружаются отдельно. Доступность функций зависит от прав бота и настроек сервера.
+
+## Требования
+
+- Docker Desktop (Windows 10/11, режим **Linux containers**) либо Docker Engine с Compose v2.
+- Доступ в интернет для скачивания образа и соединения с Discord.
+- Discord Application и Bot Token из [Discord Developer Portal](https://discord.com/developers/applications).
+- Права управления сервером NEW SQAD, чтобы настроить каналы, роли и разрешения бота.
+- Для локального запуска без Docker: Python **3.12**, зависимости из `requirements.txt`.
+
+Не размещайте токен, пароль, OAuth Client Secret или реальный `.env` в GitHub, в issue, в логе или в чате.
+
+## Быстрый запуск (Docker)
+
+1. Склонируйте репозиторий и перейдите в каталог:
+   ```powershell
+   git clone https://github.com/Onmaynec/NewSqadBot.git
+   cd NewSqadBot
+   ```
+2. Создайте локальный `.env`:
+   ```powershell
+   Copy-Item .env.example .env
+   notepad .env
+   ```
+3. В `.env` заполните **`DISCORD_TOKEN`**, оставьте штатный Guild ID, выберите корректный часовой пояс. Значение `DATABASE_URL` по умолчанию подходит для Docker.
+4. Для локальной веб-консоли с паролем **до первого запуска** получите хеш:
+   ```powershell
+   docker compose build
+   docker compose run --rm --no-deps --entrypoint python bot -m app.web.auth hash
+   ```
+   Вставьте выданную строку в `WEB_ADMIN_PASSWORD_HASH` файла `.env`. Хранится хеш, а не сам пароль. Минимальная длина пароля — 14 символов.
+5. Запустите:
+   ```powershell
+   docker compose up -d --build
+   docker compose ps
+   docker compose logs --tail=150 bot
+   ```
+6. Откройте `http://127.0.0.1:8787` для входа в локальную панель. Если задан только токен без пароля/OAuth, бот запустится, но сайт будет выключен.
+
+**Важно:** образ публикует веб-порт только на `127.0.0.1` компьютера с Docker. Не меняйте его на `0.0.0.0` для прямого доступа из интернета. Не запускайте `docker compose down -v`: это удалит volume с базой данных.
+
+### Первый запуск на чистой базе
+
+При первом старте приложение автоматически создаёт базу SQLite в Docker volume `newsqad_data`, выполняет Alembic-миграции и проверяет целостность SQLite. Затем загружает модули и синхронизирует серверные slash-команды.
+
+Проверить тот же путь **без реального подключения к Discord** можно командой:
+
+```powershell
+docker compose run --rm --no-deps --entrypoint python bot -m app.ops.smoke
+```
+
+После запуска настройте роли и каналы через `/botsettings` или локальную веб-консоль. У бота должна быть роль выше выдаваемых ролей Discord. Для голосовых комнат нужны Manage Channels и Move Members в нужных каналах/категориях; для ролей — Manage Roles, для тикетов — доступ к приватным текстовым каналам.
+
+## Конфигурация
+
+Все секреты и настройки запуска задаются окружением (`.env`); детальный образец — [`.env.example`](.env.example).
+
+| Переменная | Назначение |
+| --- | --- |
+| `DISCORD_TOKEN` | **Обязателен**. Секрет Discord-бота |
+| `DISCORD_GUILD_ID` | ID сервера NEW SQAD (жёстко проверяется кодом) |
+| `DATABASE_URL` | URL `sqlite+aiosqlite`; по умолчанию `/app/data/newsqad.db` |
+| `DATA_DIR` | Каталог данных, резервных копий и `health.json` |
+| `TIMEZONE` | IANA timezone, пример `Europe/Tallinn` |
+| `LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `BOT_OWNER_IDS` | Дополнительные владельцы, перечисленные через запятую |
+| `ENABLE_MESSAGE_CONTENT_INTENT` | Для чтения текста Discord-сообщений и функций, которым он нужен |
+| `ENABLE_PRESENCE_INTENT` | Для отображения доступных Discord Presence-статусов |
+| `WEB_ADMIN_PASSWORD_HASH` | Хеш локального пароля (сайт не включается без него или OAuth) |
+| `WEB_ADMIN_PORT` | Порт на локальном компьютере, по умолчанию `8787` |
+| `WEB_DISCORD_CLIENT_ID` | Client ID Discord OAuth |
+| `WEB_DISCORD_CLIENT_SECRET` | Client Secret Discord OAuth |
+| `WEB_PUBLIC_URL` | HTTPS-адрес сайта для Discord OAuth, без пути |
+
+В OAuth-режиме три переменные `WEB_DISCORD_*`/`WEB_PUBLIC_URL` должны быть заполнены вместе. OAuth отключает парольный вход, права на каждый API-запрос повторно проверяются по Discord-роли.
+
+### Доступ сотрудников из интернета
+
+В проекте документирован режим **Discord OAuth + Tailscale Funnel**. Сначала настройте OAuth, Redirect URI, HTTPS-адрес и роли, затем включайте публичный Funnel. **Не открывайте парольную панель в интернет.** Подробная инструкция: [docs/WEB_PORTAL.md](docs/WEB_PORTAL.md).
+
+## Обновление и откат
+
+До изменения версии сделайте резервную копию базы:
+
+```powershell
+docker compose exec bot python -m app.ops.backup create
+docker compose logs --tail=80 bot
+git pull origin main
+docker compose up -d --build --force-recreate
+docker compose ps
+docker compose logs --tail=150 bot
+```
+
+Проверка копии (внутри работающего контейнера):
+
+```powershell
+docker compose exec bot python -m app.ops.backup verify /app/data/backups/ИМЯ_КОПИИ.db
+```
+
+Файлы в `/app/data/backups` остаются **в том же Docker volume**, что и основная база. Экспортируйте резервные копии за пределы Docker для защиты от потери диска/volume. Восстановление выполняют **только при остановленном основном боте**; оно не отменяет роли, сообщения или каналы, уже изменённые в Discord. Процедура — [docs/OPERATIONS.md](docs/OPERATIONS.md).
+
+## Разработка и тесты
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-dev.txt
+ruff check .
+python -m compileall -q app main.py
+python -m pytest -q
+node --check app/web/static/obsidian.js
+node --test tests/*.test.cjs
+python scripts/check_secrets.py
+```
+
+Команда `node --test` требует установленного Node.js, но production-контейнер Node.js **не требует**. Проверка зависимостей в CI выполняется через `pip-audit -r requirements.txt`; отсутствие находок не гарантирует отсутствие неизвестных уязвимостей.
+
+Браузерные/DOM-тесты в репозитории моделируют взаимодействия, но не заменяют проверку в настоящем браузере и на тестовом Discord-сервере. Ручной чек-лист v1.8.1: [docs/RELEASE_1.8.1.md](docs/RELEASE_1.8.1.md).
+
+## Архитектура
+
+```text
+main.py
+  └── app/bot.py             Discord Gateway, жизненный цикл, загрузка команд
+       ├── app/core/        SQLite, EventBus, Scheduler, права, диагностика
+       ├── app/models/      SQLAlchemy-модели
+       ├── app/services/    Операции над данными и бизнес-правила
+       ├── app/modules/     16 Discord-модулей + системные команды
+       ├── app/panels/      Панель настроек Discord
+       └── app/web/         aiohttp API, OAuth и статическая Obsidian-консоль
+migrations/                 Alembic-миграции
+app/ops/                    Backup, restore, smoke
+tests/                      Python- и Node-регрессии
+```
+
+Все основные подсистемы используют **одну SQLite-базу**. `Scheduler` выполняет отложенные задания с повторами и leases, `EventBus` связывает события модулей. Повторное выполнение операций при сбоях нужно учитывать при разработке обработчиков Discord API.
+
+Веб-API проверяет аутентификацию и права на стороне сервера. Отсутствие пункта в интерфейсе **не является** защитой маршрута.
+
+## Устранение типичных проблем
+
+- **Docker не скачивает базовый образ:** проверьте сеть и Docker Hub; по умолчанию используется официальное зеркало Python на Amazon ECR. Подробности в `docs/OPERATIONS.md`.
+- **Сайт не запускается:** убедитесь, что задан `WEB_ADMIN_PASSWORD_HASH` или полный набор Discord OAuth-переменных.
+- **Голосовые комнаты не создаются:** проверьте роль кандидата, генератор, категорию, Manage Channels/Move Members, затем `/voice diagnose`.
+- **Роли не выдаются:** проверьте Manage Roles, иерархию ролей и запрет назначения административных ролей.
+- **Не виден текст тикета:** проверьте Message Content Intent и разрешения Discord в приватном канале.
+- **Контейнер unhealthy:** проверьте `docker compose logs --tail=200 bot` и диагностику Discord/SQLite/Scheduler/EventBus.
+
+## Документация
+
+- [Эксплуатация и восстановление](docs/OPERATIONS.md)
+- [Discord OAuth и удалённая веб-панель](docs/WEB_PORTAL.md)
+- [Obsidian Console и ручная приёмка](docs/WEB_OBSIDIAN.md)
+- [Изменения v1.8.0](docs/RELEASE_1.8.0.md)
+- [Приёмка и релиз v1.8.1](docs/RELEASE_1.8.1.md)
+
+## Лицензирование
+
+В текущем репозитории не опубликован файл `LICENSE`. Это означает, что право использовать, изменять и распространять исходный код **не предоставлено автоматически** только фактом публичного размещения репозитория. Для стороннего использования запросите разрешение правообладателя.
