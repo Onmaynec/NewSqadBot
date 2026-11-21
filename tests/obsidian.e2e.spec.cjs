@@ -107,3 +107,32 @@ test("real Chromium: local-only authentication removes OAuth entry points", asyn
   expect(callback.status()).toBe(404);
   expect(protectedApi.status()).toBe(401);
 });
+
+test("real Chromium: v2.1 candidate forms, SLA and voice pages load and remain navigable", async ({page}) => {
+  const errors = [];
+  page.on("pageerror", err => errors.push(err.message));
+  page.on("response", response => {
+    if (response.url().includes("/api/") && response.status() >= 500)
+      errors.push("HTTP " + response.status() + " " + response.url());
+  });
+  await login(page);
+
+  await page.locator('#navigation .nav-item[aria-label="Кандидаты и адаптация"]').click();
+  await expect(page.locator("#breadcrumb")).toHaveText("Кандидаты и адаптация");
+  await expect(page.locator("#portal-section")).toContainText("Типы заявок");
+  await page.locator('#portal-section input[aria-label="Ключ типа (латиница)"]').fill("squad");
+  await page.locator('#portal-section input[aria-label="Название типа"]').fill("Командная");
+  await page.locator('#portal-section textarea[aria-label="Дополнительный вопрос"]').fill("Какой у вас игровой опыт?");
+  await page.locator("#portal-section").getByRole("button", {name: "Сохранить тип"}).click();
+  await expect(page.locator("#portal-section")).toContainText("Командная");
+
+  await page.locator('#navigation .nav-item[aria-label="SLA поддержки"]').click();
+  await expect(page.locator("#breadcrumb")).toHaveText("SLA поддержки");
+  await expect(page.locator("#portal-section")).toContainText("Целевые показатели поддержки");
+  await expect(page.locator('#portal-section input[aria-label="Первый ответ — Срочный"]')).toHaveValue("30");
+
+  await page.locator('#navigation .nav-item[aria-label="Голосовые 2.0"]').click();
+  await expect(page.locator("#breadcrumb")).toHaveText("Голосовые 2.0");
+  await expect(page.locator("#portal-section")).toContainText("/voice preset private");
+  expect(errors).toEqual([]);
+});

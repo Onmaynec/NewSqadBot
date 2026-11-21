@@ -1,0 +1,95 @@
+{
+  "contract": "newsqad.local.staff",
+  "version": "1.0",
+  "released_in": "2.1.0",
+  "auth": "local_password_csrf",
+  "compatibility": "legacy /api/staff and /api/portal preserved",
+  "resources": {
+    "GET /api/v1/contracts": {
+      "response": [
+        "contract",
+        "version",
+        "released_in",
+        "auth",
+        "compatibility",
+        "resources"
+      ]
+    },
+    "GET /api/v1/membership/forms": {
+      "response": [
+        "items",
+        "contract"
+      ]
+    },
+    "POST /api/v1/membership/forms": {
+      "request": [
+        "key",
+        "title",
+        "question",
+        "enabled"
+      ],
+      "response": [
+        "ok"
+      ]
+    },
+    "GET /api/v1/membership/applications/{id}/checklist": {
+      "response": [
+        "items",
+        "contract"
+      ]
+    },
+    "POST /api/v1/membership/applications/{id}/checklist": {
+      "request": [
+        "key",
+        "completed",
+        "title"
+      ],
+      "response": [
+        "ok"
+      ]
+    },
+    "GET /api/v1/membership/onboarding": {
+      "response": [
+        "config",
+        "contract"
+      ]
+    },
+    "POST /api/v1/membership/onboarding": {
+      "request": [
+        "config"
+      ],
+      "response": [
+        "ok"
+      ]
+    },
+    "GET /api/v1/support/sla": {
+      "response": [
+        "rules",
+        "contract"
+      ]
+    },
+    "POST /api/v1/support/sla": {
+      "request": [
+        "rules"
+      ],
+      "response": [
+        "ok",
+        "rules"
+      ]
+    },
+    "POST /api/v1/support/tickets/{id}/priority": {
+      "request": [
+        "priority"
+      ],
+      "response": [
+        "ok"
+      ]
+    },
+    "GET /api/v1/voice/usage": {
+      "response": [
+        "items",
+        "contract"
+      ]
+    }
+  }
+}

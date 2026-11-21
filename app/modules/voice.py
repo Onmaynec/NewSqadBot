@@ -3,163 +3,27 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
+from typing import Literal
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
 from app.core.permissions import can_manage_settings
+from app.modules.voice_views import CloseRoomConfirm as CloseRoomConfirm
+from app.modules.voice_views import LimitRoomModal as LimitRoomModal
+from app.modules.voice_views import RenameRoomModal as RenameRoomModal
+from app.modules.voice_views import RoomControls as RoomControls
+from app.modules.voice_views import RoomInvitePicker as RoomInvitePicker
+from app.modules.voice_views import describe_room as describe_room
+from app.modules.voice_views import room_name as room_name
 from app.services import voice as store
+from app.services import voice_preferences as presets
 from app.services.membership_access import approved_member
 from app.ui.mentions import channel_mention
-from app.ui.theme import LoggedModal, LoggedView, card, notice, panel_card
+from app.ui.theme import card, notice
 
 log = logging.getLogger(__name__)
-
-
-def room_name(raw: str) -> str:
-    """Не разрешаем управляющие символы и упоминания в имени создаваемого канала."""
-    name = re.sub(r"[\r\n\t\x00-\x1f\x7f]", " ", raw)
-    name = re.sub(r"\s+", " ", name).strip()
-    if not 2 <= len(name) <= 90 or "@everyone" in name.lower() or "@here" in name.lower():
-        raise ValueError("Название должно содержать 2–90 символов без массовых упоминаний.")
-    return name
-
-
-def describe_room(room, channel: discord.VoiceChannel | None = None) -> discord.Embed:
-    count = len(channel.members) if channel else 0
-    embed = panel_card(
-        "NewSquad  /  Управление комнатой",
-        f"**{discord.utils.escape_markdown(room.name)}**",
-        ("Основная информация",
-         f"**Канал:** <#{room.channel_id}>\n"
-         f"**Владелец:** <@{room.owner_id}>\n"
-         f"**Участников:** {count} / {room.user_limit or 'без лимита'}"),
-        ("Доступ и приватность",
-         f"**Подключение:** {'закрыто' if room.locked else 'свободное'}\n"
-         f"**Видимость:** {'скрытая' if room.hidden else 'публичная'}"),
-        ("Управление",
-         "Используйте кнопки для изменения комнаты.\n"
-         "Приглашения и ограничения: `/voice allow` · `/voice deny`."),
-        footer="NEW SQUAD  •  Комната удаляется, когда остаётся пустой",
-    )
-    return embed
-
-
-class RenameRoomModal(LoggedModal, title="Имя голосовой комнаты"):
-    name = discord.ui.TextInput(label="Новое название", min_length=2, max_length=90)
-
-    def __init__(self, cog: "Voice", channel_id: int):
-        super().__init__(timeout=300)
-        self.cog, self.channel_id = cog, channel_id
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        result = await self.cog.rename_room(interaction, self.channel_id, self.name.value)
-        await interaction.followup.send(embed=notice(result, kind="success" if result.startswith("Готово") else "warning"),
-                                        ephemeral=True)
-
-
-class LimitRoomModal(LoggedModal, title="Лимит голосовой комнаты"):
-    amount = discord.ui.TextInput(label="Мест (0 — без лимита)", min_length=1, max_length=2, placeholder="0")
-
-    def __init__(self, cog: "Voice", channel_id: int):
-        super().__init__(timeout=300)
-        self.cog, self.channel_id = cog, channel_id
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        try:
-            amount = int(self.amount.value)
-        except ValueError:
-            result = "Укажите число от 0 до 99."
-        else:
-            result = await self.cog.limit_room(interaction, self.channel_id, amount)
-        await interaction.followup.send(embed=notice(result, kind="success" if result.startswith("Готово") else "warning"),
-                                        ephemeral=True)
-
-
-class CloseRoomConfirm(LoggedView):
-    def __init__(self, cog: "Voice", channel_id: int):
-        super().__init__(timeout=90)
-        self.cog, self.channel_id = cog, channel_id
-
-    @discord.ui.button(label="Удалить комнату", style=discord.ButtonStyle.danger)
-    async def accept(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        result = await self.cog.delete_room(interaction, self.channel_id)
-        await interaction.followup.send(embed=notice(result, kind="success" if result.startswith("Готово") else "warning"),
-                                        ephemeral=True)
-
-    @discord.ui.button(label="Отмена", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=notice("Удаление отменено."), view=None)
-
-
-class RoomControls(LoggedView):
-    def __init__(self, cog: "Voice", channel_id: int):
-        super().__init__(timeout=600)
-        self.cog, self.channel_id = cog, channel_id
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if not await super().interaction_check(interaction):
-            return False
-        room = await store.by_channel(self.cog.bot.database, interaction.guild_id or 0, self.channel_id)
-        admin = can_manage_settings(interaction, self.cog.bot.config.owner_ids)
-        owner = (room is not None and room.owner_id == interaction.user.id
-                 and isinstance(interaction.user, discord.Member)
-                 and await self.cog._approved(interaction.user))
-        if room is None or not (owner or admin):
-            await interaction.response.send_message(embed=notice("Эти кнопки доступны только владельцу комнаты.",
-                kind="warning"), ephemeral=True)
-            return False
-        return True
-
-    async def _toggle(self, interaction: discord.Interaction, field: str) -> None:
-        await interaction.response.defer()
-        room = await store.by_channel(self.cog.bot.database, interaction.guild_id, self.channel_id)
-        if room is None:
-            await interaction.followup.send(embed=notice("Комната уже удалена.", kind="warning"), ephemeral=True)
-            return
-        result = await self.cog.visibility(interaction, self.channel_id, field, not getattr(room, field))
-        if not result.startswith("Готово"):
-            await interaction.followup.send(embed=notice(result, kind="warning"), ephemeral=True)
-            return
-        room = await store.by_channel(self.cog.bot.database, interaction.guild_id, self.channel_id)
-        channel = interaction.guild.get_channel(self.channel_id)
-        await interaction.edit_original_response(embed=describe_room(room, channel), view=RoomControls(self.cog, self.channel_id))
-
-    @discord.ui.button(label="Управление входом", emoji="🔒", style=discord.ButtonStyle.primary, row=0)
-    async def lock(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._toggle(interaction, "locked")
-
-    @discord.ui.button(label="Видимость", emoji="👁️", style=discord.ButtonStyle.secondary, row=0)
-    async def hide(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._toggle(interaction, "hidden")
-
-    @discord.ui.button(label="Название", emoji="✏️", style=discord.ButtonStyle.secondary, row=1)
-    async def rename(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_modal(RenameRoomModal(self.cog, self.channel_id))
-
-    @discord.ui.button(label="Лимит", emoji="👥", style=discord.ButtonStyle.secondary, row=1)
-    async def limit(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_modal(LimitRoomModal(self.cog, self.channel_id))
-
-    @discord.ui.button(label="Удалить комнату", emoji="🗑️", style=discord.ButtonStyle.danger, row=2)
-    async def close(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_message(embed=notice("Удаление комнаты необратимо. В комнате не должно быть "
-            "других участников.", kind="warning"), view=CloseRoomConfirm(self.cog, self.channel_id), ephemeral=True)
-
-    @discord.ui.button(label="Обновить", emoji="🔄", style=discord.ButtonStyle.secondary, row=2)
-    async def refresh(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.defer()
-        room = await store.by_channel(self.cog.bot.database, interaction.guild_id, self.channel_id)
-        if room is None:
-            await interaction.edit_original_response(embed=notice("Комната удалена.", kind="warning"), view=None)
-            return
-        await interaction.edit_original_response(
-            embed=describe_room(room, interaction.guild.get_channel(self.channel_id)), view=self)
 
 
 class Voice(commands.Cog):
@@ -298,8 +162,14 @@ class Voice(commands.Cog):
                 return
             try:
                 overwrites = await self._access_overwrites(member.guild, member)
-                name = room_name(f"Комната {member.display_name[:65]}")
-                limit = int(settings["default_limit"])
+                saved = (await presets.preference(self.bot.database, member.guild.id, member.id)
+                         if hasattr(self.bot.database, "sessions") else None)
+                name = room_name(saved.room_name) if saved and saved.room_name else room_name(
+                    f"Комната {member.display_name[:65]}")
+                limit = saved.user_limit if saved else int(settings["default_limit"])
+                if saved:
+                    overwrites[member.guild.default_role] = discord.PermissionOverwrite(
+                        view_channel=not saved.hidden, connect=not saved.locked)
                 channel = await member.guild.create_voice_channel(name, category=parent,
                     overwrites=overwrites, user_limit=limit,
                     reason=f"[NSB-VOICE] Новая комната участника {member.id}")
@@ -309,6 +179,9 @@ class Voice(commands.Cog):
             try:
                 await store.register(self.bot.database, guild_id=member.guild.id, channel_id=channel.id,
                                      owner_id=member.id, lobby_id=lobby.id, name=name, user_limit=limit)
+                if saved:
+                    await store.update_state(self.bot.database, member.guild.id, channel.id,
+                                             locked=saved.locked, hidden=saved.hidden)
             except Exception:
                 log.exception("Не удалось сохранить созданную комнату channel=%s", channel.id)
                 try:
@@ -429,8 +302,35 @@ class Voice(commands.Cog):
             for room in await store.all_rooms(self.bot.database, guild.id):
                 try:
                     await self._handoff(guild, room.channel_id)
+                    active = await store.by_channel(self.bot.database, guild.id, room.channel_id)
+                    if active is not None:
+                        await self._restore_permissions(guild, active)
                 except Exception:
                     log.exception("Не удалось восстановить комнату guild=%s channel=%s", guild.id, room.channel_id)
+
+    async def _restore_permissions(self, guild: discord.Guild, room) -> None:
+        """Restore only fields owned by Voice; preserve unrelated Discord ACL bits."""
+        channel = guild.get_channel(room.channel_id)
+        if not isinstance(channel, discord.VoiceChannel):
+            return
+        baseline = channel.overwrites_for(guild.default_role)
+        if baseline.view_channel is not (not room.hidden) or baseline.connect is not (not room.locked):
+            baseline.view_channel = not room.hidden
+            baseline.connect = not room.locked
+            await channel.set_permissions(guild.default_role, overwrite=baseline,
+                                          reason="NewSqad: восстановление разрешений голосовой комнаты")
+        for entry in await store.access_entries(self.bot.database, room.id):
+            member = guild.get_member(entry.user_id)
+            if member is None:
+                continue  # Cannot reconcile a missing member safely; retain the DB ACL.
+            current = channel.overwrites_for(member)
+            expected = entry.mode == "allow"
+            if current.view_channel is expected and current.connect is expected:
+                continue
+            current.view_channel = expected
+            current.connect = expected
+            await channel.set_permissions(member, overwrite=current,
+                                          reason="NewSqad: восстановление персонального доступа")
 
     @tasks.loop(minutes=2)
     async def sweep(self) -> None:
@@ -470,6 +370,17 @@ class Voice(commands.Cog):
         log.info("Передана комната guild=%s channel=%s from=%s to=%s", guild.id, room.channel_id,
                  room.owner_id, new.id)
 
+    async def _remember(self, guild_id: int, channel_id: int) -> None:
+        if not hasattr(self.bot.database, "sessions"):
+            return  # Unit-test adapters without an SQLAlchemy session do not store preferences.
+        room = await store.by_channel(self.bot.database, guild_id, channel_id)
+        if room is None:
+            return
+        saved = await presets.preference(self.bot.database, guild_id, room.owner_id)
+        await presets.save(self.bot.database, guild_id, room.owner_id,
+            template=saved.template if saved else "public", name=room.name,
+            limit=room.user_limit, locked=room.locked, hidden=room.hidden)
+
     async def rename_room(self, interaction: discord.Interaction, channel_id: int, value: str) -> str:
         room = await self._authorized(interaction, channel_id)
         if room is None:
@@ -481,6 +392,7 @@ class Voice(commands.Cog):
                 return "Канал уже удалён."
             await channel.edit(name=name, reason=f"NewSquad: имя комнаты изменил {interaction.user.id}")
             await store.rename(self.bot.database, interaction.guild_id, channel_id, name=name)
+            await self._remember(interaction.guild_id, channel_id)
         except ValueError as exc:
             return str(exc)
         except discord.HTTPException:
@@ -500,6 +412,7 @@ class Voice(commands.Cog):
         try:
             await channel.edit(user_limit=amount, reason=f"NewSquad: лимит изменил {interaction.user.id}")
             await store.update_state(self.bot.database, interaction.guild_id, channel_id, user_limit=amount)
+            await self._remember(interaction.guild_id, channel_id)
         except discord.HTTPException:
             log.exception("Не удалось изменить лимит channel=%s", channel_id)
             return "Discord не разрешил изменить лимит комнаты."
@@ -522,6 +435,7 @@ class Voice(commands.Cog):
                 reason=f"NewSquad: настройки комнаты изменил {interaction.user.id}")
             await store.update_state(self.bot.database, interaction.guild_id, channel_id,
                                      locked=locked, hidden=hidden)
+            await self._remember(interaction.guild_id, channel_id)
         except discord.HTTPException:
             log.exception("Не удалось изменить видимость комнаты channel=%s", channel_id)
             return "Discord отказал в изменении доступа."
@@ -581,6 +495,71 @@ class Voice(commands.Cog):
             return "Discord не разрешил удалить комнату. Проверьте права бота."
         await store.remove(self.bot.database, interaction.guild_id, channel_id)
         return "Готово. Комната удалена."
+
+    @voice_commands.command(name="preset", description="Выбрать шаблон комнаты: public/private/team")
+    async def template_command(self, interaction: discord.Interaction,
+                               template: Literal["public", "private", "team"]) -> None:
+        if interaction.guild_id != self.bot.config.guild_id or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Команды доступны на NewSqad.", ephemeral=True)
+            return
+        if not await self._approved(interaction.user):
+            await interaction.response.send_message("Шаблоны доступны одобренным участникам.", ephemeral=True)
+            return
+        room = await store.by_owner(self.bot.database, interaction.guild_id, interaction.user.id)
+        settings = presets.PRESETS[template]
+        name, limit = "", settings["limit"]
+        if room is not None:
+            channel = interaction.guild.get_channel(room.channel_id)
+            if not isinstance(channel, discord.VoiceChannel):
+                await interaction.response.send_message("Комната удалена. Повторите позже.", ephemeral=True)
+                return
+            try:
+                await channel.set_permissions(interaction.guild.default_role,
+                    view_channel=not settings["hidden"], connect=not settings["locked"],
+                    reason="NewSqad: применение шаблона комнаты")
+                await channel.edit(user_limit=limit, reason="NewSqad: шаблон комнаты")
+                await store.update_state(self.bot.database, interaction.guild_id,
+                    room.channel_id, locked=settings["locked"], hidden=settings["hidden"],
+                    user_limit=limit)
+            except discord.HTTPException:
+                log.exception("Ошибка шаблона комнаты #%s", room.channel_id)
+                await interaction.response.send_message(
+                    "Discord отказал в изменении комнаты. Проверьте Manage Channels.", ephemeral=True)
+                return
+            name = room.name
+        await presets.save(self.bot.database, interaction.guild_id, interaction.user.id,
+            template=template, name=name, limit=limit,
+            locked=settings["locked"], hidden=settings["hidden"])
+        await interaction.response.send_message(
+            f"Шаблон **{template}** сохранён для следующих комнат." +
+            (" Текущая комната обновлена." if room else ""), ephemeral=True)
+
+    @voice_commands.command(name="access", description="Посмотреть разрешённых и заблокированных участников")
+    async def access_command(self, interaction: discord.Interaction) -> None:
+        room = await self._own_room(interaction)
+        if room is None:
+            await interaction.response.send_message("Вы не владеете голосовой комнатой.", ephemeral=True)
+            return
+        entries = await store.access_entries(self.bot.database, room.id)
+        allowed = [x for x in entries if x.mode == "allow"]
+        denied = [x for x in entries if x.mode == "deny"]
+        response = ("**Разрешены:** " + (", ".join(f"<@{x.user_id}>" for x in allowed[:20]) or "Нет") +
+                    "\\n**Заблокированы:** " +
+                    (", ".join(f"<@{x.user_id}>" for x in denied[:20]) or "Нет"))
+        await interaction.response.send_message(response,
+            allowed_mentions=discord.AllowedMentions.none(), ephemeral=True)
+
+    @voice_commands.command(name="usage", description="Статистика использования комнат без записи разговоров")
+    async def usage_command(self, interaction: discord.Interaction) -> None:
+        if not can_manage_settings(interaction, self.bot.config.owner_ids):
+            await interaction.response.send_message("Нужны права администратора.", ephemeral=True)
+            return
+        rows = await presets.usage(self.bot.database, interaction.guild_id, days=30)
+        rooms = sum(x["rooms_created"] for x in rows)
+        hours = round(sum(x["occupied_seconds"] for x in rows) / 3600, 1)
+        await interaction.response.send_message(
+            f"За 30 дней: **{rooms}** комнат, **{hours}** часов существования комнат. "
+            "Состав участников и звук не записываются.", ephemeral=True)
 
     @voice_commands.command(name="diagnose", description="Проверить, почему не создаются голосовые комнаты")
     async def diagnose(self, interaction: discord.Interaction) -> None:

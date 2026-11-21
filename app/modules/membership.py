@@ -1,9 +1,8 @@
-"""Вступление в NewSquad: одна анкета, приватное рассмотрение и восстановимые решения."""
+"""Вступление в NewSquad: типизированные формы, приватное рассмотрение и решения."""
 from __future__ import annotations
 
 import asyncio
 import logging
-import re
 
 import discord
 from discord import app_commands
@@ -12,200 +11,23 @@ from discord.ext import commands
 from app.config import FEMALE_ROLE_ID
 from app.core.durations import NICKNAME_TEMPLATES, membership_nickname
 from app.core.permissions import can_manage_settings
+from app.modules.membership_views import ApplicationForm as ApplicationForm
+from app.modules.membership_views import ApplyPanel as ApplyPanel
+from app.modules.membership_views import FollowupQuestion as FollowupQuestion
+from app.modules.membership_views import FormTypeSelect as FormTypeSelect
+from app.modules.membership_views import NewMemberGuide as NewMemberGuide
+from app.modules.membership_views import RejectForm as RejectForm
+from app.modules.membership_views import ReviewView as ReviewView
+from app.modules.membership_views import application_embed as application_embed
+from app.modules.membership_views import clean as clean
 from app.services import applications as store
 from app.services.audit import log_event
+from app.services.membership_access import approved_member
+from app.services.membership_workflow import review_due_at
 from app.ui.mentions import channel_mention, role_mention
-from app.ui.theme import BRAND_BLUE, LoggedModal, LoggedView, panel_card
+from app.ui.theme import BRAND_BLUE, panel_card
 
 log = logging.getLogger(__name__)
-
-
-def clean(value: str, *, limit: int, allow_at: bool = False) -> str:
-    value = value.strip()
-    if not value or len(value) > limit or any(ord(char) < 32 or ord(char) == 127 for char in value):
-        raise ValueError(f"Поле должно содержать от 1 до {limit} символов без переносов строк.")
-    if not allow_at and ("@" in value or "`" in value or "|" in value):
-        raise ValueError("Имя не может содержать @, ` или |.")
-    return value
-
-
-def application_embed(app) -> discord.Embed:
-    status_map = {"pending": "Ожидает", "in_review": "На рассмотрении", "needs_info": "Уточнение",
-                  "approving": "Одобрение выполняется", "rejecting": "Отказ выполняется",
-                  "approved": "Одобрена", "rejected": "Отклонена", "withdrawn": "Отозвана",
-                  "action_failed": "Требуется вмешательство"}
-    e = panel_card(
-        f"NewSquad  /  Заявка #{app.id:04d}",
-        "Анкета кандидата. Для рассмотрения используйте кнопки под сообщением.",
-        ("Кандидат", f"<@{app.user_id}>  ·  **{discord.utils.escape_markdown(app.username)}**"),
-        ("Анкета", f"**Имя:** {discord.utils.escape_markdown(app.name)}\n"
-                   f"**Пол:** {'Женский' if app.gender == 'female' else 'Мужской'}\n"
-                   f"**Возраст:** {app.age}\n"
-                   f"**Пригласил:** {discord.utils.escape_mentions(app.inviter)}"),
-        footer="NEW SQUAD  •  Приватная анкета для администрации",
-    )
-    e.add_field(name="Статус заявки", value=status_map.get(app.status, app.status), inline=True)
-    e.add_field(name="Подана", value=f"<t:{app.created_at}:F>", inline=True)
-    if app.reviewer_id:
-        e.add_field(name="Рассматривает", value=f"<@{app.reviewer_id}>", inline=True)
-    if app.decision_reason:
-        e.add_field(name="Решение", value=discord.utils.escape_mentions(app.decision_reason[:500]), inline=False)
-    if app.last_error:
-        e.add_field(name="Не завершено", value=discord.utils.escape_mentions(app.last_error[:500]), inline=False)
-    return e
-
-class ApplicationForm(LoggedModal, title="NewSquad — заявка на вступление"):
-    # Discord 2.6+: 4 поля на одном экране, Select внутри Label.
-    name_field = discord.ui.Label(text="Как тебя зовут?", component=discord.ui.TextInput(min_length=1, max_length=24))
-    gender_field = discord.ui.Label(text="Твой пол", component=discord.ui.Select(
-        options=[discord.SelectOption(label="Мужской", value="male"),
-                 discord.SelectOption(label="Женский", value="female")], min_values=1, max_values=1))
-    age_field = discord.ui.Label(text="Сколько тебе полных лет?", component=discord.ui.TextInput(
-        min_length=1, max_length=3, placeholder="Например: 20"))
-    inviter_field = discord.ui.Label(text="Кто тебя пригласил?", component=discord.ui.TextInput(
-        min_length=1, max_length=120, placeholder="Ник участника или «Не знаю»"))
-
-    def __init__(self, cog: "Membership"):
-        super().__init__(timeout=600)
-        self.cog = cog
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        if not isinstance(interaction.user, discord.Member) or interaction.guild_id != self.cog.bot.config.guild_id:
-            await interaction.response.send_message("Заявка доступна только на NewSquad.", ephemeral=True)
-            return
-        try:
-            name = clean(self.name_field.component.value, limit=24)
-            gender = self.gender_field.component.values[0]
-            age_text = self.age_field.component.value.strip()
-            if not re.fullmatch(r"[0-9]{1,3}", age_text):
-                raise ValueError("Возраст нужно указать целым числом.")
-            age = int(age_text)
-            min_age = int(await self.cog.bot.database.get_setting(interaction.guild_id, "membership_min_age", 13))
-            if not min_age <= age <= 120:
-                raise ValueError(f"Допустимый возраст: {min_age}–120 лет.")
-            inviter = clean(self.inviter_field.component.value, limit=120, allow_at=True)
-            if gender not in ("male", "female"):
-                raise ValueError("Выберите один из вариантов пола.")
-            candidate_role_id = await self.cog.bot.database.get_setting(
-                interaction.guild_id, "candidate_role_id",
-            )
-            if not candidate_role_id or interaction.guild.get_role(candidate_role_id) is None:
-                raise ValueError("Роль кандидата не настроена: сообщите администрации.")
-            if not any(role.id == candidate_role_id for role in interaction.user.roles):
-                raise ValueError("Подать заявку может только кандидат NewSquad.")
-        except ValueError as exc:
-            await interaction.response.send_message(str(exc), ephemeral=True)
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        try:
-            application = await store.submit(self.cog.bot.database, guild_id=interaction.guild_id,
-                user_id=interaction.user.id, username=interaction.user.name, name=name,
-                gender=gender, age=age, inviter=inviter)
-        except ValueError as exc:
-            await interaction.followup.send(str(exc), ephemeral=True)
-            return
-        try:
-            await self.cog.publish(application)
-            note = f"Заявка **#{application.id:04d}** отправлена. Ожидайте решения администрации."
-        except (discord.HTTPException, RuntimeError):
-            log.exception("Не удалось опубликовать заявку #%s", application.id)
-            note = f"Заявка **#{application.id:04d}** сохранена, но её карточка пока не опубликована. Администрация сможет восстановить публикацию."
-        await interaction.followup.send(note, ephemeral=True)
-
-
-class ApplyPanel(LoggedView):
-    def __init__(self, cog: "Membership"):
-        super().__init__(timeout=None)
-        self.cog = cog
-
-    @discord.ui.button(label="Подать заявку", style=discord.ButtonStyle.primary,
-                       custom_id="newsqad:membership:apply")
-    async def apply(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        if interaction.guild_id != self.cog.bot.config.guild_id:
-            await interaction.response.send_message("Панель только для NewSquad.", ephemeral=True)
-            return
-        active = await store.get_active(self.cog.bot.database, interaction.guild_id, interaction.user.id)
-        if active:
-            await interaction.response.send_message(f"У вас уже есть активная заявка #{active.id:04d}.", ephemeral=True)
-            return
-        await interaction.response.send_modal(ApplicationForm(self.cog))
-
-
-class RejectForm(LoggedModal, title="Отклонение заявки"):
-    reason = discord.ui.Label(text="Причина отказа", component=discord.ui.TextInput(
-        style=discord.TextStyle.paragraph, min_length=3, max_length=400))
-
-    def __init__(self, cog: "Membership", app_id: int):
-        super().__init__(timeout=300)
-        self.cog, self.app_id = cog, app_id
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        result = await self.cog.decide(interaction, self.app_id, approve=False,
-                                       reason=self.reason.component.value)
-        await interaction.followup.send(result, ephemeral=True)
-
-
-class FollowupQuestion(LoggedModal, title="Уточнение по заявке"):
-    question = discord.ui.TextInput(
-        label="Вопрос кандидату", style=discord.TextStyle.paragraph,
-        min_length=5, max_length=500)
-
-    def __init__(self, cog: "Membership", app_id: int):
-        super().__init__(timeout=300)
-        self.cog, self.app_id = cog, app_id
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        result = await self.cog.request_info(interaction, self.app_id, str(self.question))
-        await interaction.followup.send(result, ephemeral=True)
-
-
-class ReviewView(LoggedView):
-    def __init__(self, cog: "Membership", app_id: int):
-        super().__init__(timeout=None)
-        self.cog, self.app_id = cog, app_id
-        for child in self.children:
-            if isinstance(child, discord.ui.Button):
-                child.custom_id = f"newsqad:membership:{child.custom_id}:{app_id}"
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if not await super().interaction_check(interaction):
-            return False
-        if not await self.cog.can_review(interaction):
-            await interaction.response.send_message("Нет прав на рассмотрение заявок.", ephemeral=True)
-            return False
-        return True
-
-    @discord.ui.button(label="Взять на рассмотрение", style=discord.ButtonStyle.secondary, custom_id="claim", row=0)
-    async def claim(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        updated = await store.transition(self.cog.bot.database, self.app_id,
-            expected=("pending",), target="in_review", actor_id=interaction.user.id, reason="Взята в работу")
-        await self.cog.refresh(self.app_id)
-        await interaction.followup.send("Заявка закреплена за вами." if updated else "Уже находится в работе или завершена.", ephemeral=True)
-
-    @discord.ui.button(label="Одобрить", style=discord.ButtonStyle.primary, custom_id="approve", row=0)
-    async def approve(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        result = await self.cog.decide(interaction, self.app_id, approve=True, reason="Одобрено")
-        await interaction.followup.send(result, ephemeral=True)
-
-    @discord.ui.button(label="Отклонить", style=discord.ButtonStyle.danger, custom_id="reject", row=0)
-    async def reject(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_modal(RejectForm(self.cog, self.app_id))
-
-    @discord.ui.button(label="История", style=discord.ButtonStyle.secondary, custom_id="history", row=1)
-    async def history(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        items = await store.timeline(self.cog.bot.database, interaction.guild_id, self.app_id)
-        lines = [f"<t:{e.created_at}:f> · <@{e.actor_id}> · {e.old_status} → {e.new_status}\n"
-                 f"{discord.utils.escape_mentions(e.reason[:220])}" for e in items]
-        await interaction.response.send_message("\n\n".join(lines)[:1900] or "История пуста.",
-            ephemeral=True, allowed_mentions=discord.AllowedMentions.none())
-
-    @discord.ui.button(label="Уточнить", style=discord.ButtonStyle.secondary, custom_id="ask", row=1)
-    async def ask(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await interaction.response.send_modal(FollowupQuestion(self.cog, self.app_id))
 
 
 class Membership(commands.Cog):
@@ -216,6 +38,8 @@ class Membership(commands.Cog):
         self.bot = bot
         self._execution_locks: dict[int, asyncio.Lock] = {}
         self._recovered = False
+        if getattr(bot, "scheduler", None) is not None:
+            bot.scheduler.register("membership.review_reminder", self._send_review_reminder)
 
     async def cog_load(self) -> None:
         self.bot.add_view(ApplyPanel(self))
@@ -233,6 +57,8 @@ class Membership(commands.Cog):
                 await self.publish(app)
             except (discord.HTTPException, RuntimeError):
                 log.exception("Не удалось восстановить карточку заявки %s", app.id)
+        for app in await store.active_reviews(self.bot.database, self.bot.config.guild_id):
+            await self.schedule_review_reminder(app)
         for app in await store.unfinished(self.bot.database, self.bot.config.guild_id):
             if app.decision not in ("approve", "reject"):
                 continue
@@ -242,6 +68,38 @@ class Membership(commands.Cog):
                 await self.refresh(app.id)
             except Exception:
                 log.exception("Не удалось восстановить решение заявки #%s", app.id)
+
+    async def schedule_review_reminder(self, application) -> None:
+        if application.status not in store.REVIEWABLE or getattr(self.bot, "scheduler", None) is None:
+            return
+        hours = int(await self.bot.database.get_setting(
+            self.bot.config.guild_id, "membership_review_wait_hours", 12))
+        if not 1 <= hours <= 168:
+            return
+        start = application.stage_changed_at or application.created_at
+        await self.bot.scheduler.schedule(
+            job_key=f"membership:review:{application.id}:{start}",
+            handler="membership.review_reminder",
+            due_at=review_due_at(application, waiting_hours=hours),
+            payload={"application_id": application.id, "stage_at": start},
+        )
+
+    async def _send_review_reminder(self, payload: dict) -> None:
+        app = await store.get_application(self.bot.database, int(payload["application_id"]))
+        if app is None or app.guild_id != self.bot.config.guild_id or app.status not in store.REVIEWABLE:
+            return
+        if (app.stage_changed_at or app.created_at) != int(payload["stage_at"]):
+            await self.schedule_review_reminder(app)
+            return
+        if not app.reviewer_id:
+            log.info("Заявка #%s ожидает назначения сотрудника; уведомлять пока некого", app.id)
+            return
+        recipient = self.bot.get_user(app.reviewer_id) or await self.bot.fetch_user(app.reviewer_id)
+        await recipient.send(
+            f"NewSqad: заявка #{app.id:04d} долго ожидает решения ({app.status}). "
+            "Откройте канал рассмотрения. Личные данные кандидата не прикрепляются.",
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     async def can_review(self, interaction: discord.Interaction) -> bool:
         if interaction.guild_id != self.bot.config.guild_id:
@@ -495,6 +353,7 @@ class Membership(commands.Cog):
             self.bot.database, interaction.guild_id, number, interaction.user.id, reviewer.id)
         if updated:
             await self.refresh(number)
+            await self.schedule_review_reminder(await store.get_application(self.bot.database, number))
         await interaction.response.send_message(
             "Ответственный изменён." if updated else "Заявка недоступна для передачи.", ephemeral=True)
 
@@ -650,6 +509,20 @@ class Membership(commands.Cog):
                 ("Каналы", "\n".join(places)),
             ), ephemeral=True,
         )
+
+    @application_commands.command(name="guide", description="Панель адаптации нового участника")
+    async def guide_command(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id != self.bot.config.guild_id or not isinstance(interaction.user, discord.Member):
+            await interaction.response.send_message("Команда доступна на NewSqad.", ephemeral=True)
+            return
+        candidate_id = await self.bot.database.get_setting(interaction.guild_id, "candidate_role_id")
+        if not await approved_member(self.bot.database, interaction.user, candidate_id):
+            await interaction.response.send_message(
+                "Панель адаптации появится после одобрения заявки.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            "**Добро пожаловать в NewSqad!** Выберите раздел:",
+            view=NewMemberGuide(self.bot, interaction.user.id), ephemeral=True)
 
     @application_commands.command(name="status", description="Статус вашей анкеты")
     async def own_status(self, interaction: discord.Interaction) -> None:

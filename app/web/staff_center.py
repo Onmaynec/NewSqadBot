@@ -16,6 +16,7 @@ from aiohttp import web
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from app.core.module_contracts import describe as describe_module_contracts
 from app.models import (
     Application,
     ApplicationEvent,
@@ -106,7 +107,7 @@ async def inbox(request: web.Request) -> web.Response:
                     "kind": "application", "id": app.id, "title": app.name,
                     "status": app.status, "assigned_to": str(app.reviewer_id) if app.reviewer_id else None,
                     "user_id": str(app.user_id), "created_at": app.created_at,
-                    "link": "Заявки", "details": app.username,
+                    "link": "Заявки", "details": app.username, "form_key": app.form_key,
                 })
         if kind in ("all", "ticket", "complaint"):
             rows = (await session.execute(select(Ticket, TicketCategory.key).join(
@@ -122,6 +123,7 @@ async def inbox(request: web.Request) -> web.Response:
                     "status": ticket.status, "assigned_to": str(ticket.assignee_id) if ticket.assignee_id else None,
                     "user_id": str(ticket.user_id), "created_at": ticket.updated_at,
                     "link": "Тикеты", "details": "Жалоба" if ticket_kind == "complaint" else "Поддержка",
+                    "priority": ticket.priority,
                 })
         if kind in ("all", "moderation"):
             cases = (await session.scalars(select(ModerationCase).where(
@@ -141,7 +143,9 @@ async def inbox(request: web.Request) -> web.Response:
     if query:
         items = [item for item in items if query in
                  (" ".join(str(item[k]) for k in ("id", "title", "user_id", "details"))).casefold()]
-    items.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
+    rank = {"urgent": 4, "high": 3, "normal": 2, "low": 1}
+    items.sort(key=lambda item: (rank.get(item.get("priority"), 0),
+                                 item["created_at"], item["id"]), reverse=True)
     return web.json_response({"items": items[:200], "total": len(items),
                               "operator_id": str(operator_id) if operator_id else None,
                               "counts": {key: sum(row["kind"] == key for row in items)
@@ -374,6 +378,7 @@ async def health_center(request: web.Request) -> web.Response:
     return web.json_response({
         "items": values, "operations": operations.snapshot() if operations else {},
         "modules": bot.module_states,
+        "module_contracts": describe_module_contracts(bot.module_states),
         "gateway_ready": bot.is_ready(),
     })
 
@@ -418,6 +423,9 @@ async def _application_action(bot, aid: int, action: str, actor: int, reason: st
         return False, "Заявка не найдена."
     if action == "claim":
         ok = await applications.assign_reviewer(bot.database, bot.config.guild_id, aid, actor, actor)
+        cog = bot.get_cog("Membership")
+        if ok and cog is not None:
+            await cog.schedule_review_reminder(await applications.get_application(bot.database, aid))
         return ok, "Назначен ответственный." if ok else "Заявка недоступна для назначения."
     if action not in ("approve", "reject"):
         return False, "Недопустимое действие."

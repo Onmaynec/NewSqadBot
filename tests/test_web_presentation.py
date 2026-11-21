@@ -100,12 +100,12 @@ def test_obsidian_shell_assets_and_role_aware_search():
     root = Path(__file__).resolve().parents[1]
     static = root / "app" / "web" / "static"
     html = (static / "index.html").read_text(encoding="utf-8")
-    css = (static / "obsidian.css").read_text(encoding="utf-8")
-    js = (static / "obsidian.js").read_text(encoding="utf-8")
+    css = (static / "style.css").read_text(encoding="utf-8")
+    js = (static / "app.js").read_text(encoding="utf-8")
     app_js = (static / "app.js").read_text(encoding="utf-8")
     server = (root / "app" / "web" / "server.py").read_text(encoding="utf-8")
 
-    for asset in ("obsidian.css", "obsidian.js"):
+    for asset in ("style.css", "app.js"):
         assert f'/static/{asset}' in html
         assert f'"{asset}"' in server
     for node_id in ("open-command", "command-palette", "command-input",

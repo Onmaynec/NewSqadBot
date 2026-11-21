@@ -7,7 +7,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const script = fs.readFileSync(
-  path.join(__dirname, "..", "app", "web", "static", "obsidian.js"), "utf8");
+  path.join(__dirname, "..", "app", "web", "static", "app.js"), "utf8").split("/* BEGIN CONSOLE_SHELL_JS */")[1];
 
 function harness({authorized = true, mobile = false, role = "owner", dirty = false} = {}) {
   const listeners = new Map();

@@ -18,9 +18,9 @@ def test_voice_schema_and_unique_ownership(tmp_path):
     migrate(url)
     with sqlite3.connect(file) as sql:
         sql.execute("PRAGMA foreign_keys=ON")
-        assert VERSION == "2.0.0"
+        assert VERSION == "2.1.0"
         assert implemented("voice")
-        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0016_staff_command_center"
+        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0017_member_support_voice"
         tables = {r[0] for r in sql.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"voice_rooms", "voice_room_access"} <= tables
         insert = ("INSERT INTO voice_rooms(guild_id,channel_id,owner_id,lobby_id,name,user_limit,locked,hidden,"
@@ -75,7 +75,7 @@ def test_voice_discord_controls_and_commands():
 
     assert ChannelPicker(None, 1, "voice_lobby_channel_id").channel_types == [discord.ChannelType.voice]
     assert ChannelPicker(None, 1, "voice_category_channel_id").channel_types == [discord.ChannelType.category]
-    assert len(RoomControls(object(), 100).children) == 6
+    assert len(RoomControls(object(), 100).children) == 7
     commands = {c.name for c in Voice.voice_commands.commands}
     assert {"setup", "settings", "configure", "panel", "info", "name", "limit", "lock", "hide",
             "allow", "deny", "reset-access", "transfer", "claim", "close", "kick"} <= commands

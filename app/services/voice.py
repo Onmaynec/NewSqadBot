@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
-from app.models import VoiceRoom, VoiceRoomAccess
+from app.models import VoiceRoom, VoiceRoomAccess, VoiceUsageDay
 
 
 async def by_owner(db, guild_id: int, owner_id: int) -> VoiceRoom | None:
@@ -39,6 +40,12 @@ async def register(db, *, guild_id: int, channel_id: int, owner_id: int, lobby_i
                 locked=False, hidden=False, created_at=int(time.time()), updated_at=int(time.time()))
             session.add(row)
             await session.flush()
+            day = datetime.fromtimestamp(row.created_at, timezone.utc).date().isoformat()
+            stmt = sqlite_insert(VoiceUsageDay).values(
+                guild_id=guild_id, day_utc=day, rooms_created=1, occupied_seconds=0)
+            await session.execute(stmt.on_conflict_do_update(
+                index_elements=["guild_id", "day_utc"],
+                set_={"rooms_created": VoiceUsageDay.rooms_created + 1}))
             return row
     except IntegrityError as exc:
         raise ValueError("Участник уже владеет комнатой или канал зарегистрирован.") from exc
@@ -87,6 +94,14 @@ async def remove(db, guild_id: int, channel_id: int) -> None:
         if room is None:
             return
         await session.execute(delete(VoiceRoomAccess).where(VoiceRoomAccess.room_id == room.id))
+        # Finalized once in the same transaction; double cleanup cannot inflate duration.
+        duration = min(max(int(time.time()) - room.created_at, 0), 90 * 86400)
+        day = datetime.now(timezone.utc).date().isoformat()
+        stmt = sqlite_insert(VoiceUsageDay).values(
+            guild_id=guild_id, day_utc=day, rooms_created=0, occupied_seconds=duration)
+        await session.execute(stmt.on_conflict_do_update(
+            index_elements=["guild_id", "day_utc"],
+            set_={"occupied_seconds": VoiceUsageDay.occupied_seconds + duration}))
         await session.delete(room)
 
 

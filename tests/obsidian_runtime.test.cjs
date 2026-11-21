@@ -7,7 +7,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const source = fs.readFileSync(
-  path.join(__dirname, "..", "app", "web", "static", "obsidian.js"), "utf8");
+  path.join(__dirname, "..", "app", "web", "static", "app.js"), "utf8").split("/* BEGIN CONSOLE_SHELL_JS */")[1];
 
 function launch({mobile = false, authorized = false} = {}) {
   let mutations = 0;
@@ -121,7 +121,7 @@ test("login page uses Obsidian workspace copy instead of editorial hero", () => 
   const html = fs.readFileSync(
     path.join(__dirname, "..", "app", "web", "static", "index.html"), "utf8");
   const css = fs.readFileSync(
-    path.join(__dirname, "..", "app", "web", "static", "obsidian.css"), "utf8");
+    path.join(__dirname, "..", "app", "web", "static", "style.css"), "utf8");
   assert.match(html, /Управление <span>NewSquad[.]<\/span>/);
   assert.doesNotMatch(html, /Твой сервер[.]/);
   assert.match(css, /AUTH \/ OBSIDIAN/);

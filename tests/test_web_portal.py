@@ -139,8 +139,8 @@ async def test_public_and_oauth_endpoints_are_not_exposed(tmp_path):
     try:
         app = create_app(FakeBot(db), hash_password("Local admin password 12345!"))
         async with TestClient(TestServer(app)) as client:
-            for path in ("/", "/static/obsidian.js", "/static/staff.js",
-                         "/static/obsidian.css", "/static/staff.css"):
+            for path in ("/", "/static/app.js", "/static/staff.js",
+                         "/static/style.css", "/static/staff.css"):
                 asset = await client.get(path)
                 assert asset.status == 200
                 assert asset.headers["Cache-Control"] == "no-store"

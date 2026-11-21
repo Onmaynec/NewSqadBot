@@ -28,10 +28,10 @@ def url(tmp_path, name="stats.db"):
 def test_schema_and_command_contract(tmp_path):
     migrate(url(tmp_path))
     migrate(url(tmp_path))
-    assert VERSION == "2.0.0"
+    assert VERSION == "2.1.0"
     assert implemented("statistics")
     with sqlite3.connect(tmp_path / "stats.db") as db:
-        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0016_staff_command_center"
+        assert db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0017_member_support_voice"
         names = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {
             "statistics_daily", "statistics_receipts", "statistics_server_daily",
