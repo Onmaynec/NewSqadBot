@@ -12,7 +12,7 @@ from dataclasses import asdict
 
 import discord
 from aiohttp import web
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 
 from app.models import Application, ApplicationEvent, AuditEntry, ModerationCase, Ticket
 from app.services import applications, moderation_cases, statistics, tickets
@@ -74,13 +74,14 @@ def public_ticket(row: Ticket) -> dict:
             "assignee_id": str(row.assignee_id) if row.assignee_id else None,
             "subject": row.subject, "status": row.status, "opened_at": row.opened_at,
             "updated_at": row.updated_at, "first_response_at": row.first_response_at,
-            "category_id": row.category_id}
+            "category_id": row.category_id, "priority": row.priority}
 
 
 def public_application(row: Application) -> dict:
     return {"id": row.id, "user_id": str(row.user_id), "username": row.username,
             "name": row.name, "age": row.age, "gender": row.gender, "inviter": row.inviter,
             "status": row.status, "created_at": row.created_at,
+            "form_key": row.form_key, "extra_answer": row.extra_answer,
             "reviewer_id": str(row.reviewer_id) if row.reviewer_id else None,
             "decision": row.decision, "decision_reason": row.decision_reason,
             "error": row.last_error}
@@ -278,7 +279,11 @@ async def ticket_list(request: web.Request) -> web.Response:
             select(func.count(Ticket.id)).where(*conditions)) or 0)
         rows = (await session.scalars(
             select(Ticket).where(*conditions)
-            .order_by(Ticket.updated_at.desc(), Ticket.id.desc())
+            .order_by(case(
+                (Ticket.priority == "urgent", 0),
+                (Ticket.priority == "high", 1),
+                (Ticket.priority == "normal", 2),
+                else_=3), Ticket.updated_at.desc(), Ticket.id.desc())
             .limit(PAGE_SIZE).offset((page - 1) * PAGE_SIZE)
         )).all()
     return web.json_response({
@@ -631,4 +636,7 @@ def register(app: web.Application) -> None:
     from app.web.staff_center import register as register_staff_center
 
     register_staff_center(app)
+    from app.web.v21 import register as register_v21
+
+    register_v21(app)
     app.router.add_get("/api/portal/activity", admin_activity)
