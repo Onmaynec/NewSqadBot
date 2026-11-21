@@ -338,7 +338,8 @@ class Voice(commands.Cog):
                 return
             try:
                 overwrites = await self._access_overwrites(member.guild, member)
-                saved = await presets.preference(self.bot.database, member.guild.id, member.id)
+                saved = (await presets.preference(self.bot.database, member.guild.id, member.id)
+                         if hasattr(self.bot.database, "sessions") else None)
                 name = room_name(saved.room_name) if saved and saved.room_name else room_name(
                     f"Комната {member.display_name[:65]}")
                 limit = saved.user_limit if saved else int(settings["default_limit"])
