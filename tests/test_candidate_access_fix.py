@@ -45,7 +45,7 @@ async def test_candidate_role_exclusively_decides_access():
     assert not await approved_member(db, member(bot=True), CANDIDATE)
     assert not await approved_member(db, member(), None)
     db.sessions.assert_not_called()
-    assert VERSION == "1.9.0"
+    assert VERSION == "2.0.0"
 
 
 @pytest.mark.asyncio
