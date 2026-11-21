@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from collections import deque
 from pathlib import Path
@@ -34,7 +35,11 @@ class OperationalJournal:
             data = json.loads(path.read_text(encoding="utf-8"))
             for item in data.get("history", [])[-MAX_HISTORY:]:
                 if item.get("kind") in EVENTS and type(item.get("at")) is int:
-                    self.history.append({"kind": item["kind"], "at": item["at"]})
+                    record = {"kind": item["kind"], "at": item["at"]}
+                    module = item.get("module")
+                    if item["kind"] == "module.load_failed" and isinstance(module, str) and re.fullmatch(r"[a-z0-9_]{1,60}", module):
+                        record["module"] = module
+                    self.history.append(record)
             for name in ("last_connected_at", "last_disconnected_at", "last_http_status"):
                 value = data.get(name)
                 if type(value) is int and value >= 0:
@@ -46,11 +51,16 @@ class OperationalJournal:
         except (OSError, ValueError, TypeError, AttributeError):
             pass
 
-    def record(self, kind: str, *, now: int | None = None) -> None:
+    def record(self, kind: str, *, now: int | None = None, module: str | None = None) -> None:
         if kind not in EVENTS:
             raise ValueError("Unknown operational event")
         timestamp = int(time.time()) if now is None else now
-        self.history.append({"kind": kind, "at": timestamp})
+        item: dict[str, int | str] = {"kind": kind, "at": timestamp}
+        if kind == "module.load_failed" and module is not None:
+            if not re.fullmatch(r"[a-z0-9_]{1,60}", module):
+                raise ValueError("Invalid module identifier")
+            item["module"] = module
+        self.history.append(item)
         if kind in ("gateway.connected", "gateway.resumed"):
             self.last_connected_at = timestamp
         if kind == "gateway.disconnected":
