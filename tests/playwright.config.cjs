@@ -1,6 +1,7 @@
 "use strict";
 
 const {defineConfig} = require("@playwright/test");
+const path = require("node:path");
 
 module.exports = defineConfig({
   testDir: __dirname,
@@ -15,6 +16,7 @@ module.exports = defineConfig({
   },
   webServer: {
     command: "python -m tests.e2e_server",
+    cwd: path.resolve(__dirname, ".."),
     url: "http://127.0.0.1:9876/api/site",
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
