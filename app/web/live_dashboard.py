@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 
 from app.models import Application, AuditEntry, Ticket
 from app.services import support_quality, web_notifications
-from app.web.oauth import site_role
+from app.web.staff_roles import site_role
 from app.web.server import guild_for, require_csrf, require_role, state
 
 scan_lock = asyncio.Lock()
