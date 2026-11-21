@@ -7,6 +7,7 @@ OWNER_ROLE = 1439347293391159652
 ADMIN_ROLE = 1440528252933374072
 MODER_ROLE = 1439347293391159651
 TICKET_ROLE = 1440528284504035358
+RANK = {"support": 1, "moder": 2, "admin": 3, "owner": 4}
 
 
 def site_role(member, guild) -> str | None:
