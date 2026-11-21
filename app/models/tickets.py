@@ -60,6 +60,7 @@ class Ticket(Base):
     subject: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="creating")
+    priority: Mapped[str] = mapped_column(String(10), nullable=False, default="normal")
     assignee_id: Mapped[int | None] = mapped_column(BigInteger)
     opened_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
