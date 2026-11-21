@@ -279,13 +279,15 @@ class Tickets(commands.Cog):
         ticket = await tickets.get(self.bot.database, self.bot.config.guild_id, int(payload["ticket_id"]))
         if ticket is None or ticket.status != "open" or ticket.first_response_at is not None:
             return
-        if "priority" in payload:
-            rules = await support_sla.get_rules(self.bot.database, ticket.guild_id)
-            if payload["priority"] != ticket.priority or payload["minutes"] != rules[ticket.priority]["first_minutes"]:
-                await self._schedule_first_reply_alert(ticket.id)
-                return
-            if time.time() < ticket.opened_at + rules[ticket.priority]["first_minutes"] * 60:
-                return
+        rules = await support_sla.get_rules(self.bot.database, ticket.guild_id)
+        minutes = rules[ticket.priority]["first_minutes"]
+        # Legacy v2.0 jobs omit priority/minutes: requeue them with today's SLA
+        # instead of sending a stale notification too early or twice.
+        if payload.get("priority") != ticket.priority or payload.get("minutes") != minutes:
+            await self._schedule_first_reply_alert(ticket.id)
+            return
+        if time.time() < ticket.opened_at + minutes * 60:
+            return
         channel = await self.get_channel(ticket)
         if channel is None:
             raise RuntimeError("Канал тикета недоступен для уведомления SLA")
