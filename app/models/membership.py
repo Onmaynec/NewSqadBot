@@ -24,6 +24,7 @@ class Application(Base):
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
     form_key: Mapped[str] = mapped_column(String(32), nullable=False, default="standard")
     extra_answer: Mapped[str | None] = mapped_column(String(240))
+    followup_answer: Mapped[str | None] = mapped_column(String(900))
     stage_changed_at: Mapped[int | None] = mapped_column(BigInteger)
     decision: Mapped[str | None] = mapped_column(String(24))
     reviewer_id: Mapped[int | None] = mapped_column(BigInteger)
