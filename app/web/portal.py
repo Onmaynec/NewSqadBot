@@ -158,7 +158,7 @@ async def application_detail(request: web.Request) -> web.Response:
 
 
 async def application_action(request: web.Request) -> web.Response:
-    await require_role(request)
+    _, operator = await require_role(request)
     require_csrf(request)
     bot = state(request).bot
     aid = number(request.match_info["id"])
@@ -167,9 +167,9 @@ async def application_action(request: web.Request) -> web.Response:
     row = await applications.get_application(bot.database, aid)
     if not row or row.guild_id != bot.config.guild_id:
         raise web.HTTPNotFound(text="Заявка не найдена.")
-    actor = require_auth(request).user_id
+    actor = operator.id if operator else None
     if not actor:
-        raise web.HTTPForbidden(text="Требуется авторизация Discord для действий.")
+        raise web.HTTPServiceUnavailable(text="Локальный оператор Discord недоступен. Проверьте WEB_LOCAL_OPERATOR_ID и Gateway.")
     cog = bot.get_cog("Membership")
     if cog is None:
         raise web.HTTPServiceUnavailable(text="Модуль заявок сейчас не загружен.")
@@ -255,7 +255,7 @@ async def ticket_list(request: web.Request) -> web.Response:
     if assignment not in ("all", "unassigned", "assigned", "mine"):
         raise web.HTTPBadRequest(text="Недопустимый фильтр ответственного.")
     if assignment == "mine" and member is None:
-        raise web.HTTPForbidden(text="Для личных тикетов нужен вход через Discord.")
+        raise web.HTTPServiceUnavailable(text="Локальный оператор Discord недоступен.")
     bot = state(request).bot
     conditions = [
         Ticket.guild_id == bot.config.guild_id,
@@ -344,7 +344,7 @@ async def ticket_action(request: web.Request) -> web.Response:
     action = data.get("action")
     actor = member.id if member else None
     if actor is None:
-        raise web.HTTPForbidden(text="Необходим вход через Discord.")
+        raise web.HTTPServiceUnavailable(text="Локальный оператор Discord недоступен.")
     if action == "reply":
         value = data.get("text")
         if not isinstance(value, str) or not 1 <= len(value.strip()) <= 1500:
