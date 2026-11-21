@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 import time
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.models import Application, ApplicationChecklistItem, ApplicationEvent, ApplicationFormType
