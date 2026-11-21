@@ -4,7 +4,6 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
-
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
