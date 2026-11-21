@@ -27,7 +27,7 @@ def test_events_migration_and_constraints(tmp_path):
     url = db_url(tmp_path)
     migrate(url)
     migrate(url)
-    assert VERSION == "1.8.1"
+    assert VERSION == "1.9.0"
     assert implemented("events")
     with sqlite3.connect(tmp_path / "events.db") as con:
         con.execute("PRAGMA foreign_keys=ON")
