@@ -34,7 +34,7 @@ def test_nickname_preserves_name():
 
 
 def test_contract_constants():
-    assert VERSION == "2.0.0"
+    assert VERSION == "2.1.0"
     assert GUILD_ID == 1439347293076586638
     assert FEMALE_ROLE_ID == 1453273881359024231
 
