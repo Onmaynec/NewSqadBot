@@ -11,17 +11,15 @@ from discord.ext import commands
 
 from app.core.permissions import can_manage_settings
 from app.models import Ticket
-from app.modules.tickets_views import (
-    ConfirmTicketDeletion as ConfirmTicketDeletion,
-    NewTicketModal as NewTicketModal,
-    SupportSurveyView as SupportSurveyView,
-    TicketActions as TicketActions,
-    TicketCategorySelect as TicketCategorySelect,
-    TicketCategoryView as TicketCategoryView,
-    TicketOpenView as TicketOpenView,
-    report_ticket_ui_error as report_ticket_ui_error,
-    ticket_embed as ticket_embed,
-)
+from app.modules.tickets_views import ConfirmTicketDeletion as ConfirmTicketDeletion
+from app.modules.tickets_views import NewTicketModal as NewTicketModal
+from app.modules.tickets_views import SupportSurveyView as SupportSurveyView
+from app.modules.tickets_views import TicketActions as TicketActions
+from app.modules.tickets_views import TicketCategorySelect as TicketCategorySelect
+from app.modules.tickets_views import TicketCategoryView as TicketCategoryView
+from app.modules.tickets_views import TicketOpenView as TicketOpenView
+from app.modules.tickets_views import report_ticket_ui_error as report_ticket_ui_error
+from app.modules.tickets_views import ticket_embed as ticket_embed
 from app.services import support_quality, support_sla, tickets
 from app.services.membership_access import approved_member
 from app.ui.theme import BRAND_BLUE, card, notice, panel_card
