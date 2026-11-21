@@ -6,10 +6,9 @@ import sqlite3
 import time
 from pathlib import Path
 
+import discord
 import pytest
 from sqlalchemy import select, update
-
-import discord
 
 from app.bot import NewSqadBot
 from app.config import GUILD_ID, Config
