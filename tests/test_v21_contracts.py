@@ -6,7 +6,6 @@ import pytest
 from aiohttp import CookieJar
 from aiohttp.test_utils import TestClient, TestServer
 
-from app.config import GUILD_ID
 from app.core.database import Database, migrate
 from app.web.auth import hash_password
 from app.web.server import create_app
