@@ -41,6 +41,14 @@ def application_embed(app) -> discord.Embed:
                    f"**Пригласил:** {discord.utils.escape_mentions(app.inviter)}"),
         footer="NEW SQUAD  •  Приватная анкета для администрации",
     )
+    if getattr(app, "form_key", "standard") != "standard":
+        e.add_field(name="Тип заявки", value=discord.utils.escape_mentions(app.form_key), inline=True)
+    if getattr(app, "extra_answer", None):
+        e.add_field(name="Ответ по дополнительному вопросу",
+                    value=discord.utils.escape_mentions(app.extra_answer[:950]), inline=False)
+    if getattr(app, "followup_answer", None):
+        e.add_field(name="Ответ на уточнение",
+                    value=discord.utils.escape_mentions(app.followup_answer[:900]), inline=False)
     e.add_field(name="Статус заявки", value=status_map.get(app.status, app.status), inline=True)
     e.add_field(name="Подана", value=f"<t:{app.created_at}:F>", inline=True)
     if app.reviewer_id:
