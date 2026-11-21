@@ -11,7 +11,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from app.core.database import Database, migrate
 from app.services import tickets
 from app.web.auth import hash_password
-from app.web.oauth import ADMIN_ROLE, MODER_ROLE, OWNER_ROLE, TICKET_ROLE, site_role
+from app.web.staff_roles import ADMIN_ROLE, MODER_ROLE, OWNER_ROLE, TICKET_ROLE, site_role
 from app.web.server import STATE, create_app
 
 
