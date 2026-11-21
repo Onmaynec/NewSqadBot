@@ -628,4 +628,7 @@ def register(app: web.Application) -> None:
     from app.web.live_dashboard import register as register_dashboard
 
     register_dashboard(app)
+    from app.web.staff_center import register as register_staff_center
+
+    register_staff_center(app)
     app.router.add_get("/api/portal/activity", admin_activity)
