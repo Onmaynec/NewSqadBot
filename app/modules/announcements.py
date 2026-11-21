@@ -119,7 +119,6 @@ class Announcements(commands.Cog):
     @app_commands.command(name="ann", description="Опубликовать объявление от имени бота")
     @app_commands.describe(
         вид="Обычный текст или оформленная Embed-карточка",
-        канал="Канал, в котором будет опубликовано объявление",
         цвет="Необязательно: HEX #RRGGBB. По умолчанию синий #4A86F7",
     )
     @app_commands.choices(вид=[
@@ -128,7 +127,7 @@ class Announcements(commands.Cog):
     ])
     async def ann(
         self, interaction: discord.Interaction, вид: app_commands.Choice[str],
-        канал: discord.TextChannel, цвет: str | None = None,
+        цвет: str | None = None,
     ) -> None:
         if not self.admin(interaction):
             await interaction.response.send_message(
@@ -147,6 +146,14 @@ class Announcements(commands.Cog):
         except ValueError as exc:
             await interaction.response.send_message(
                 embed=notice(str(exc), kind="warning"), ephemeral=True,
+            )
+            return
+        # The channel where /ann was invoked is the only supported destination.
+        канал = interaction.channel
+        if not isinstance(канал, discord.TextChannel):
+            await interaction.response.send_message(
+                embed=notice("Используйте /ann в обычном текстовом канале сервера.", kind="warning"),
+                ephemeral=True,
             )
             return
         problem = self.destination_problem(interaction, канал, вид.value)

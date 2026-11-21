@@ -507,13 +507,12 @@ async def save_batch(request: web.Request) -> web.Response:
 async def diagnostics(request: web.Request) -> web.Response:
     await require_role(request, "admin")
     bot = state(request).bot
-    if guild_for(bot) is None:
-        return web.json_response({"ready": False, "items": [{
-            "level": "warning", "name": "Discord", "description": "Шлюз Discord не готов."}]})
     try:
         items = await collect(bot)
-        return web.json_response({"ready": True, "items": [
-            {"level": x.level, "name": x.name, "description": x.description} for x in items]})
+        journal = getattr(bot, "operations", None)
+        return web.json_response({"ready": guild_for(bot) is not None, "items": [
+            {"level": x.level, "name": x.name, "description": x.description} for x in items],
+            "operations": journal.snapshot() if journal is not None else {}})
     except Exception:
         log.exception("Диагностика web-консоли недоступна")
         return web.json_response({"error": "Ошибка диагностики. Смотрите Docker-логи."}, status=503)

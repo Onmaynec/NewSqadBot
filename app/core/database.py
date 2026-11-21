@@ -41,6 +41,11 @@ def migrate(database_url: str) -> None:
 class Database:
     def __init__(self, url: str):
         self.engine = create_async_engine(url, pool_pre_ping=True, connect_args={"timeout": 15})
+        self._queries = 0
+        self._slow_queries = 0
+        self._failed_queries = 0
+        self._last_ms = 0.0
+        self._max_ms = 0.0
         # sqlite+aiosqlite возвращает адаптированный DBAPI, события connect
         # выполняются при создании каждого физического соединения.
         @event.listens_for(self.engine.sync_engine, "connect")
@@ -52,7 +57,31 @@ class Database:
             finally:
                 cursor.close()
 
+        @event.listens_for(self.engine.sync_engine, "before_cursor_execute")
+        def begin_query(_conn, _cursor, _statement, _parameters, context, _executemany) -> None:
+            context._newsqad_query_start = time.perf_counter()
+
+        @event.listens_for(self.engine.sync_engine, "after_cursor_execute")
+        def complete_query(_conn, _cursor, _statement, _parameters, context, _executemany) -> None:
+            duration = max(0.0, (time.perf_counter() - context._newsqad_query_start) * 1000)
+            self._queries += 1
+            self._last_ms = round(duration, 2)
+            self._max_ms = max(self._max_ms, self._last_ms)
+            if duration >= 500:
+                self._slow_queries += 1
+                # Never log SQL values, SQL strings or parameters.
+                log.warning("Медленный SQL запрос SQLite: %.0f мс", duration)
+
+        @event.listens_for(self.engine.sync_engine, "handle_error")
+        def failed_query(_context) -> None:
+            self._failed_queries += 1
+
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
+
+    def query_metrics(self) -> dict[str, int | float]:
+        return {"queries": self._queries, "slow_queries": self._slow_queries,
+                "failed_queries": self._failed_queries, "last_ms": self._last_ms,
+                "max_ms": self._max_ms}
 
     @asynccontextmanager
     async def session(self) -> AsyncIterator[AsyncSession]:

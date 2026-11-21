@@ -10,13 +10,16 @@ from pathlib import Path
 
 import discord
 from discord.ext import commands
+from sqlalchemy.engine import make_url
 
 from app.config import VERSION, Config
 from app.core.database import Database, migrate
 from app.core.errors import GuildCommandTree
 from app.core.event_bus import EventBus
 from app.core.module_loader import load_modules
+from app.core.observability import OperationalJournal
 from app.core.scheduler import Scheduler
+from app.ops.automatic_backup import BackupSettings, BackupWorker
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,19 @@ class NewSqadBot(commands.Bot):
         self._heartbeat: asyncio.Task[None] | None = None
         self._startup_finished = False
         self._web_runner = None
+        self.operations = OperationalJournal(config.data_dir / "operations.json")
+        self.backups: BackupWorker | None = None
+        # discord.py handles its own retry/backoff; count only surfaced HTTP errors.
+        original_request = self.http.request
+
+        async def observe_discord_request(*args, **kwargs):
+            try:
+                return await original_request(*args, **kwargs)
+            except discord.HTTPException as exc:
+                self.operations.http_failure(int(getattr(exc, "status", 0)))
+                raise
+
+        self.http.request = observe_discord_request
 
     async def setup_hook(self) -> None:
         loop = asyncio.get_running_loop()
@@ -61,6 +77,10 @@ class NewSqadBot(commands.Bot):
         guild = discord.Object(id=self.config.guild_id)
         await self.add_cog(CoreCommands(self), guild=guild)
         self.module_states = await load_modules(self)
+        for name, state in self.module_states.items():
+            if state == "error":
+                logger.error("Модуль не загружен: %s", name)
+                self.operations.record("module.load_failed", module=name)
         # Системные команды загружаются отдельно от 16 модулей сообщества.
         # Справка собирает их вместе с командами всех активных модулей.
         for extension in ("app.modules.announcements", "app.modules.announcements_manager", "app.modules.help_center"):
@@ -71,6 +91,11 @@ class NewSqadBot(commands.Bot):
         logger.info("Синхронизировано серверных команд: %s", len(synced))
         self.scheduler.start()
         self.events.start()
+        path = make_url(self.config.database_url).database
+        if not path:
+            raise RuntimeError("Неизвестный путь SQLite для резервного копирования")
+        self.backups = BackupWorker(Path(path), BackupSettings.from_env())
+        self.backups.start()
         self._startup_finished = True
         self._heartbeat = asyncio.create_task(self._health_loop(), name="newsqad-health")
         if self.config.web_admin_password_hash or self.config.web_discord_client_id:
@@ -104,9 +129,11 @@ class NewSqadBot(commands.Bot):
                     if self.scheduler is not None and not self.scheduler.running:
                         logger.error("Обнаружена остановка Scheduler; выполняется перезапуск")
                         self.scheduler.start()
+                        self.operations.record("worker.scheduler_restarted")
                     if self.events is not None and not self.events.running:
                         logger.error("Обнаружена остановка EventBus; выполняется перезапуск")
                         self.events.start()
+                        self.operations.record("worker.event_bus_restarted")
                 sqlite_ok = self.database is not None and await self.database.ping()
                 discord_ok = bool(self.is_ready() and self.get_guild(self.config.guild_id))
                 workers_ok = bool(self.scheduler and self.scheduler.running
@@ -131,6 +158,12 @@ class NewSqadBot(commands.Bot):
             "scheduler": bool(self.scheduler and self.scheduler.running),
             "event_bus": bool(self.events and self.events.running),
             "module_errors": [key for key, status in self.module_states.items() if status == "error"],
+            "gateway_last_connected_at": self.operations.last_connected_at,
+            "gateway_last_disconnected_at": self.operations.last_disconnected_at,
+            "discord_http_errors": self.operations.http_errors,
+            "discord_http_rate_limits": self.operations.http_rate_limits,
+            "database_metrics": self.database.query_metrics() if self.database else {},
+            "backup": self.backups.status() if self.backups else {},
         }
         temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         temporary.replace(path)
@@ -159,6 +192,7 @@ class NewSqadBot(commands.Bot):
             logger.exception("Не удалось ответить на неподтверждённую форму interaction=%s", interaction.id)
 
     async def on_ready(self) -> None:
+        self.operations.record("gateway.connected")
         # on_ready вызывается повторно после reconnect. Не дублируем задачи.
         if self._startup_finished:
             self.scheduler.start()
@@ -177,6 +211,7 @@ class NewSqadBot(commands.Bot):
                     logger.exception("Ошибка выхода из чужого сервера %s", other.id)
 
     async def on_resumed(self) -> None:
+        self.operations.record("gateway.resumed")
         if self._startup_finished:
             self.scheduler.start()
             self.events.start()
@@ -191,6 +226,7 @@ class NewSqadBot(commands.Bot):
                 logger.exception("Не удалось выйти из чужого сервера")
 
     async def on_disconnect(self) -> None:
+        self.operations.record("gateway.disconnected")
         self._write_health(False, phase="discord_disconnected")
 
     async def close(self) -> None:
@@ -206,6 +242,8 @@ class NewSqadBot(commands.Bot):
         if self._web_runner is not None:
             runner, self._web_runner = self._web_runner, None
             await runner.cleanup()
+        if self.backups is not None:
+            await self.backups.stop()
         if self.scheduler is not None:
             await self.scheduler.stop()
         if self.events is not None:
