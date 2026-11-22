@@ -78,7 +78,7 @@ def test_schema_migrates_to_v17_without_ticket_text_storage(tmp_path):
     migrate(url)
     migrate(url)
     with sqlite3.connect(tmp_path / "v17.db") as sql:
-        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0017_member_support_voice"
+        assert sql.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0018_private_store"
         columns = {row[1] for row in sql.execute("PRAGMA table_info(support_surveys)")}
         assert {"requester_id", "staff_id", "response_seconds", "rating"} <= columns
         assert "subject" not in columns and "message" not in columns and "ticket_id" not in columns

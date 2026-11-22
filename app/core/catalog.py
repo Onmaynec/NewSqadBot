@@ -19,6 +19,7 @@ MODULES: tuple[ModuleInfo, ...] = (
     ModuleInfo("audit_logs", "Аудит"),
     ModuleInfo("leveling", "Уровни"),
     ModuleInfo("economy", "Экономика"),
+    ModuleInfo("store", "Магазин заказов"),
     ModuleInfo("voice", "Голосовые комнаты"),
     ModuleInfo("events", "Мероприятия"),
     ModuleInfo("statistics", "Статистика"),

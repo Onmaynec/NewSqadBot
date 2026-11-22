@@ -28,6 +28,7 @@ jobs:
           node --check app/web/static/portal.js
           node --check app/web/static/manage.js
           node --check app/web/static/journey.js
+          node --check app/web/static/store.js
           node --check app/web/static/staff.js
       - name: Проверка поведения консолидированной консоли в браузерной модели
         run: node --test tests/*.test.cjs
@@ -41,7 +42,7 @@ jobs:
         run: |
           docker build --build-arg PYTHON_BASE_IMAGE=python:3.12-slim-bookworm -t newsqadbot:test . ||
           docker build --build-arg PYTHON_BASE_IMAGE=public.ecr.aws/docker/library/python:3.12-slim-bookworm -t newsqadbot:test .
-      - name: "Smoke: пустая база, миграции и 16 модулей"
+      - name: "Smoke: пустая база, миграции и 17 модулей"
         run: docker run --rm --entrypoint python newsqadbot:test -m app.ops.smoke
 
   security:

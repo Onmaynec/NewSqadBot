@@ -23,6 +23,7 @@ class RuntimeContract:
 
 SOFT_DEPENDENCIES = {
     "voice": ("membership",),
+    "store": (),
     "tickets": ("membership",),
     "welcome": ("membership",),
     "roles": ("membership",),
@@ -39,7 +40,7 @@ def contracts() -> tuple[RuntimeContract, ...]:
         settings_prefix=f"module.{module.key}.",
         requires_gateway=True,
         restart_policy="reconcile_on_ready" if module.key in (
-            "voice", "tickets", "membership", "moderation", "events") else "reinitialize",
+            "voice", "tickets", "membership", "moderation", "events", "store") else "reinitialize",
         failure_policy="report_error_keep_data",
     ) for module in MODULES)
 

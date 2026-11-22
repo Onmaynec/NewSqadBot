@@ -11,4 +11,4 @@ def test_core_migration_idempotent(tmp_path):
     with sqlite3.connect(db) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"guild_settings", "system_audit", "scheduled_jobs", "outbox_events", "event_receipts"} <= tables
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0017_member_support_voice"
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0018_private_store"

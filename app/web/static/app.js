@@ -175,7 +175,7 @@ async function refresh() {
 async function confirmDiscard() {
   if (ui.saving) { toast("Сохранение ещё выполняется.", true); return false; }
   const hasSettings = ui.dirty.size > 0;
-  const hasReply = Boolean(window.Portal?.hasDraft?.() || window.StaffCenter?.hasDraft?.() || window.MemberSupportVoice?.hasDraft?.());
+  const hasReply = Boolean(window.Portal?.hasDraft?.() || window.StaffCenter?.hasDraft?.() || window.MemberSupportVoice?.hasDraft?.() || window.StoreConsole?.hasDraft?.());
   if (!hasSettings && !hasReply) return true;
   return new Promise((resolve) => {
     const dialog = $("leave-dialog");

@@ -641,4 +641,7 @@ def register(app: web.Application) -> None:
     from app.web.v21 import register as register_v21
 
     register_v21(app)
+    from app.web.store_portal import register as register_store
+
+    register_store(app)
     app.router.add_get("/api/portal/activity", admin_activity)

@@ -1,6 +1,6 @@
 "use strict";
 
-const {test, expect} = require("@playwright/test");
+const {test, expect, request} = require("@playwright/test");
 
 async function login(page) {
   await page.goto("/");
@@ -134,5 +134,29 @@ test("real Chromium: v2.1 candidate forms, SLA and voice pages load and remain n
   await page.locator('#navigation .nav-item[aria-label="Голосовые 2.0"]').click();
   await expect(page.locator("#breadcrumb")).toHaveText("Голосовые 2.0");
   await expect(page.locator("#portal-section")).toContainText("/voice preset private");
+  expect(errors).toEqual([]);
+});
+
+test("real Chromium: owner can create storefront product without exposing payment credentials", async ({page}) => {
+  const errors = [];
+  page.on("pageerror", err => errors.push(err.message));
+  await login(page);
+  await page.locator('#navigation .nav-item[aria-label="Магазин заказов"]').click();
+  await expect(page.locator("#breadcrumb")).toHaveText("Магазин заказов");
+  await expect(page.locator("#portal-section")).toContainText("Каталог товаров");
+  await expect(page.locator("#portal-section")).toContainText("Заказы покупателей");
+
+  await page.locator('#portal-section input[aria-label="Артикул, например nitro_1m"]').fill("gift_1m");
+  await page.locator('#portal-section input[aria-label="Название товара"]').fill("Подарок Nitro на месяц");
+  await page.locator('#portal-section input[aria-label="Цена (например 399.00)"]').fill("399.00");
+  await page.locator("#portal-section").getByRole("button", {name: "Сохранить товар"}).click();
+  await expect(page.locator("#portal-section")).toContainText("Подарок Nitro на месяц");
+  await expect(page.locator("#portal-section")).toContainText("399,00 RUB");
+  await expect(page.locator("#portal-section")).toContainText("Приватный канал принимает новые заказы");
+
+  const notLoggedIn = await request.newContext({baseURL:"http://127.0.0.1:9876"});
+  const hidden = await notLoggedIn.get("/api/v1/store/orders");
+  expect(hidden.status()).toBe(401);
+  await notLoggedIn.dispose();
   expect(errors).toEqual([]);
 });
