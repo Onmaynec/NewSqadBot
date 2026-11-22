@@ -25,7 +25,7 @@ def order_embed(order, *, staff: bool = False) -> discord.Embed:
     embed = discord.Embed(
         title=f"NEW SQAD SHOP / Заказ #{order.id:05d}",
         description=f"**{discord.utils.escape_markdown(order.product_title)}**\n"
-                    f"Артикул: \`{order.sku}\` · Количество: {order.quantity}",
+                    f"Артикул: `{order.sku}` · Количество: {order.quantity}",
         color=BRAND_BLUE,
     )
     embed.add_field(name="Сумма", value=records.format_money(order.price_minor, order.currency))
