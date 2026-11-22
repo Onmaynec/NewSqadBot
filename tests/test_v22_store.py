@@ -101,7 +101,7 @@ async def test_confirmed_payment_and_price_snapshot(store_url):
         await store.save_product(db, GUILD_ID, sku="boosts_2", title="Два буста сервера",
             category="server_boost", description="Ручная услуга", price_minor=11900)
         assert (await store.order_by_id(db, GUILD_ID, order.id)).price_minor == 19800
-        with pytest.raises(ValueError, match="Цена товара изменилась"):
+        with pytest.raises(ValueError, match="Цена или валюта товара изменилась"):
             await store.make_order(db, GUILD_ID, 201, product.id, 102,
                                    expected_price=9900)
         assert await store.transition(db, GUILD_ID, order.id, actor_id=200,
