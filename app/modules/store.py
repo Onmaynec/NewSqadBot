@@ -220,8 +220,12 @@ class Store(commands.Cog):
         can_edit = order.user_id == interaction.user.id and order.status in (
             "awaiting_payment", "payment_reported")
         view = (StoreBuyerOrderView(self, interaction.user.id, order.id) if can_edit else None)
+        instructions = (await self.payment_instructions(interaction.guild_id)
+                        if order.status == "awaiting_payment" and order.user_id == interaction.user.id
+                        else "")
         await interaction.response.send_message(embed=order_embed(
-            order, staff=self.is_staff(interaction)), view=view, ephemeral=True)
+            order, staff=self.is_staff(interaction)), view=view, ephemeral=True,
+            content=discord.utils.escape_mentions(instructions) if instructions else None)
 
     @store.command(name="add", description="Добавить товар с реальной ценой")
     @app_commands.describe(price="Цена, например 399.00", stock="-1 для безлимита")
