@@ -1,6 +1,6 @@
 "use strict";
 
-const {test, expect} = require("@playwright/test");
+const {test, expect, request} = require("@playwright/test");
 
 async function login(page) {
   await page.goto("/");
@@ -154,7 +154,7 @@ test("real Chromium: owner can create storefront product without exposing paymen
   await expect(page.locator("#portal-section")).toContainText("399,00 RUB");
   await expect(page.locator("#portal-section")).toContainText("Приватный канал принимает новые заказы");
 
-  const notLoggedIn = await page.request.newContext({baseURL:"http://127.0.0.1:9876"});
+  const notLoggedIn = await request.newContext({baseURL:"http://127.0.0.1:9876"});
   const hidden = await notLoggedIn.get("/api/v1/store/orders");
   expect(hidden.status()).toBe(401);
   await notLoggedIn.dispose();
