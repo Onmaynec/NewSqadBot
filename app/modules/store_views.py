@@ -158,15 +158,17 @@ class StoreQuantityModal(discord.ui.Modal, title="Оформление зака�
             "Это заявка на покупку. Оплата выполняется отдельно и подтверждается "
             "продавцом. Не присылайте пароли, токены или данные банковских карт."), inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True,
-            view=StoreCheckoutView(self.cog, self.user_id, item.id, int(value), item.price_minor))
+            view=StoreCheckoutView(self.cog, self.user_id, item.id, int(value),
+                                   item.price_minor, item.currency))
 
 
 class StoreCheckoutView(discord.ui.View):
     def __init__(self, cog: Store, user_id: int, product_id: int,
-                 quantity: int, expected_price: int):
+                 quantity: int, expected_price: int, expected_currency: str):
         super().__init__(timeout=300)
         self.cog, self.user_id, self.product_id = cog, user_id, product_id
         self.quantity, self.expected_price = quantity, expected_price
+        self.expected_currency = expected_currency
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -191,7 +193,8 @@ class StoreCheckoutView(discord.ui.View):
             order, created = await records.make_order(
                 self.cog.bot.database, interaction.guild_id, self.user_id,
                 self.product_id, interaction.id,
-                quantity=self.quantity, expected_price=self.expected_price)
+                quantity=self.quantity, expected_price=self.expected_price,
+                expected_currency=self.expected_currency)
         except ValueError as exc:
             await interaction.followup.send(str(exc), ephemeral=True)
             return
