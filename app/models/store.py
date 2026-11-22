@@ -1,7 +1,13 @@
 """Independent real-money order storefront; never mixes with NS Coins."""
 from sqlalchemy import (
-    BigInteger, Boolean, CheckConstraint, ForeignKey, Index, Integer, String,
-    UniqueConstraint, text,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
