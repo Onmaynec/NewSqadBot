@@ -97,6 +97,20 @@ class Store(commands.Cog):
         except discord.HTTPException:
             log.exception("Магазин: уведомление заказа #%s не доставлено", order.id)
 
+    async def notify_payment_reported(self, order) -> None:
+        guild = self.bot.get_guild(order.guild_id)
+        channel = await self.staff_channel(guild) if guild else None
+        if channel is None:
+            log.warning("Магазин: оплата заявлена, но канал персонала недоступен, заказ #%s", order.id)
+            return
+        try:
+            await channel.send(
+                f"**Заказ #{order.id:05d}: покупатель сообщил об оплате.** "
+                "Проверьте поступление средств вручную, затем нажмите «Оплата проверена».",
+                allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException:
+            log.exception("Магазин: сообщение о заявленной оплате #%s не доставлено", order.id)
+
     async def sync_staff(self, order) -> None:
         if not order.staff_message_id or not order.staff_channel_id:
             return
@@ -138,6 +152,8 @@ class Store(commands.Cog):
                 ephemeral=True)
             return
         await self.sync_staff(order)
+        if action == "report_payment":
+            await self.notify_payment_reported(order)
         await interaction.followup.send(
             embed=order_embed(order),
             content=("Продавец получил сообщение о заявленной оплате. "
