@@ -9,7 +9,7 @@ import re
 import time
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import case, func, or_, select, update
+from sqlalchemy import case, func, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from app.models import StoreOrder, StoreOrderEvent, StorePanel, StoreProduct
@@ -80,6 +80,8 @@ async def save_product(db, guild_id: int, *, sku: str, title: str,
         active=active, sort_order=sort_order)
     now = int(time.time())
     async with db.session() as session:
+        # Obtain SQLite's single-writer lease before reading stock for an edit.
+        await session.execute(text("BEGIN IMMEDIATE"))
         row = await session.scalar(select(StoreProduct).where(
             StoreProduct.guild_id == guild_id, StoreProduct.sku == sku))
         if row is None:
@@ -139,6 +141,9 @@ async def make_order(db, guild_id: int, user_id: int, product_id: int,
         raise ValueError("За один заказ можно купить от 1 до 10 единиц.")
     try:
         async with db.session() as session:
+            # Avoid WAL snapshot-upgrade races when two buyers take the final unit.
+            # busy_timeout is configured by Database; other writers wait.
+            await session.execute(text("BEGIN IMMEDIATE"))
             prior = await session.scalar(select(StoreOrder).where(
                 StoreOrder.guild_id == guild_id, StoreOrder.interaction_id == interaction_id))
             if prior is not None:
@@ -198,6 +203,7 @@ async def transition(db, guild_id: int, order_id: int, *, actor_id: int,
         raise PermissionError("Изменить статус может только продавец.")
     before, after = NEXT[action]
     async with db.session() as session:
+        await session.execute(text("BEGIN IMMEDIATE"))
         row = await session.scalar(select(StoreOrder).where(
             StoreOrder.id == order_id, StoreOrder.guild_id == guild_id))
         if row is None:
