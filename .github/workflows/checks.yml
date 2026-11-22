@@ -28,6 +28,7 @@ jobs:
           node --check app/web/static/portal.js
           node --check app/web/static/manage.js
           node --check app/web/static/journey.js
+          node --check app/web/static/store.js
           node --check app/web/static/staff.js
       - name: Проверка поведения консолидированной консоли в браузерной модели
         run: node --test tests/*.test.cjs
