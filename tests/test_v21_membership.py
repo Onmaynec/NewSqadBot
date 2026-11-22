@@ -13,7 +13,7 @@ def test_schema_v21_migration(tmp_path):
     migrate(url)
     migrate(url)
     with sqlite3.connect(tmp_path / "journey.db") as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0017_member_support_voice"
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0018_private_store"
         names = {x[0] for x in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"membership_form_types", "membership_checklist_items",
                 "voice_owner_preferences", "voice_usage_days", "tickets"} <= names
