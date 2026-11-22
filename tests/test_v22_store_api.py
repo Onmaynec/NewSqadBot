@@ -1,16 +1,16 @@
 """Owner-only store REST API: authentication, CSRF, historical prices and states."""
 from __future__ import annotations
 
+import pytest
 from aiohttp import CookieJar
 from aiohttp.test_utils import TestClient, TestServer
-import pytest
 
 from app.config import GUILD_ID
 from app.core.database import Database, migrate
 from app.services import store
 from app.web.auth import hash_password
 from app.web.server import create_app
-from tests.test_v20_staff import LocalBot, PASSWORD
+from tests.test_v20_staff import PASSWORD, LocalBot
 
 
 @pytest.mark.asyncio
