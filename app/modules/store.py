@@ -10,8 +10,13 @@ from discord.ext import commands
 
 from app.core.permissions import can_manage_settings
 from app.modules.store_views import (
-    STATE_LABELS, StoreBuyerOrderView, StoreCatalogView, StorePanelView,
-    StoreStaffOrderView, order_embed, product_embed,
+    STATE_LABELS,
+    StoreBuyerOrderView,
+    StoreCatalogView,
+    StorePanelView,
+    StoreStaffOrderView,
+    order_embed,
+    product_embed,
 )
 from app.services import store as records
 from app.ui.theme import BRAND_BLUE
