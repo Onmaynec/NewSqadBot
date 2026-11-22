@@ -12,8 +12,8 @@ from app.models.party import PartyListing, PartyMember
 from app.models.progression import ExperienceAward, MemberProfile, MemberProgress
 from app.models.roles import LevelRoleReward, RolePanel, RolePanelOption, TemporaryRole, WelcomeDelivery
 from app.models.staff import StaffOperation, StaffTask, StaffTemplate
-from app.models.store import StoreOrder, StoreOrderEvent, StorePanel, StoreProduct
 from app.models.statistics import StatsDay, StatsPanel, StatsPresence, StatsReceipt, StatsServerDay
+from app.models.store import StoreOrder, StoreOrderEvent, StorePanel, StoreProduct
 from app.models.suggestions import (
     Suggestion,
     SuggestionCreatePanel,
