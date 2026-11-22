@@ -27,11 +27,11 @@ def test_events_migration_and_constraints(tmp_path):
     url = db_url(tmp_path)
     migrate(url)
     migrate(url)
-    assert VERSION == "2.1.0"
+    assert VERSION == "2.2.0"
     assert implemented("events")
     with sqlite3.connect(tmp_path / "events.db") as con:
         con.execute("PRAGMA foreign_keys=ON")
-        assert con.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0017_member_support_voice"
+        assert con.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0018_private_store"
         tables = {x[0] for x in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"community_events", "community_event_signups", "community_event_reminders",
                 "community_giveaways", "community_giveaway_entries", "community_giveaway_draws"} <= tables
