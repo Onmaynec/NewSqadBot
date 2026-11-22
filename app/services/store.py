@@ -130,7 +130,8 @@ async def order_by_id(db, guild_id: int, order_id: int) -> StoreOrder | None:
 
 async def make_order(db, guild_id: int, user_id: int, product_id: int,
                      interaction_id: int, *, quantity: int = 1,
-                     expected_price: int | None = None) -> tuple[StoreOrder, bool]:
+                     expected_price: int | None = None,
+                     expected_currency: str | None = None) -> tuple[StoreOrder, bool]:
     """Use conditional UPDATE to reserve stock and a unique interaction for idempotency.
 
     Returns (order, created), so a retried Discord interaction never oversells.
@@ -158,8 +159,9 @@ async def make_order(db, guild_id: int, user_id: int, product_id: int,
                 StoreProduct.id == product_id, StoreProduct.guild_id == guild_id))
             if item is None or not item.active:
                 raise ValueError("Товар больше недоступен.")
-            if expected_price is not None and item.price_minor != expected_price:
-                raise ValueError("Цена товара изменилась. Откройте каталог и подтвердите новую цену.")
+            if (expected_price is not None and item.price_minor != expected_price) or (
+                    expected_currency is not None and item.currency != expected_currency):
+                raise ValueError("Цена или валюта товара изменилась. Откройте каталог и подтвердите новую стоимость.")
             total = item.price_minor * quantity
             if total > 999_999_999:
                 raise ValueError("Сумма заказа превышает допустимый лимит.")
