@@ -16,6 +16,7 @@ Discord-бот и веб-консоль управления сообществ�
 | Сообщество | Поиск компании, предложения, мероприятия и розыгрыши |
 | Прогресс | Профили, уровни, задания, достижения и статистика |
 | Экономика | Внутренняя валюта, покупки, роли и инвентарь |
+| Личный магазин | Витрина в Discord, заказ реальных товаров и услуг, ручная проверка оплаты, учёт остатков и статусов |
 | Коммуникации | Объявления, справочник команд `/help` |
 | Веб-панель | только локальный вход по паролю, Staff Command Center, единая очередь, задачи, массовые операции, шаблоны, аналитика |
 
@@ -101,6 +102,14 @@ docker compose run --rm --no-deps --entrypoint python bot -m app.ops.smoke
 
 Установка и обновление с миграцией базы: [RELEASE_2.0.0.md](docs/RELEASE_2.0.0.md).
 
+## Новое в v2.2.0 — личный магазин Discord
+
+Добавил независимый от NS Coins модуль **`store`** с ценами RUB/EUR/USD, остатками, товарами, оформлением заказа через Discord-кнопки и ручной проверкой оплаты. Покупатели видят только свои заказы, продавец управляет статусами из приватного канала или локальной Obsidian Console. Настройки магазина: вкладка **«Магазин заказов»**, Discord-команды `/store add`, `/store settings`, `/store payment`, `/store panel`, `/store orders` и `/store status`.
+
+**Первый запуск:** создайте закрытый Discord-канал для заказов и настройте `/store settings`, затем инструкцию оплаты `/store payment`, добавьте товары и опубликуйте `/store panel` в открытом канале. Бот не принимает деньги и не выдаёт Nitro/бусты автоматически; исполнение и соблюдение правил Discord — ответственность продавца.
+
+**Миграция:** Alembic `0018_private_store`. Перед обновлением необходим backup. Полная настройка, последовательность заказа, безопасность и откат — [RELEASE_2.2.0.md](docs/RELEASE_2.2.0.md).
+
 ## Новое в v2.1.0 — Member Journey / Support / Voice Rooms 2.0
 
 Обновление углубляет работу заявок и поддержки, сохраняя локальную Obsidian Web Console:
@@ -150,6 +159,7 @@ ruff check .
 python -m compileall -q app main.py
 python -m pytest -q
 node --check app/web/static/journey.js
+node --check app/web/static/store.js
 node --test tests/*.test.cjs
 python scripts/check_secrets.py
 ```
@@ -196,6 +206,7 @@ tests/                      Python- и Node-регрессии
 - [Reliability & Operations v1.9.0](docs/RELEASE_1.9.0.md)
 - [Staff Command Center v2.0.0](docs/RELEASE_2.0.0.md)
 - [Member Journey, Support & Voice Rooms v2.1.0](docs/RELEASE_2.1.0.md)
+- [Private Store & Orders v2.2.0](docs/RELEASE_2.2.0.md)
 - [API v1 contract](docs/api_contract_v1.json)
 - [Приёмка и релиз v1.8.1](docs/RELEASE_1.8.1.md)
 
