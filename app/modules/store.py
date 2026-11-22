@@ -199,7 +199,12 @@ class Store(commands.Cog):
         pending = await records.orders(self.bot.database, self.bot.config.guild_id, limit=200)
         restored = 0
         for order in pending:
-            if order.status not in records.OPEN_STATES or not order.staff_message_id:
+            if order.status not in records.OPEN_STATES:
+                continue
+            if not order.staff_message_id:
+                # A crash after SQLite commit but before Discord send must not
+                # lose the order: retry seller notification on the next startup.
+                await self.notify_new(order)
                 continue
             self.bot.add_view(StoreStaffOrderView(self, order.id),
                               message_id=order.staff_message_id)
